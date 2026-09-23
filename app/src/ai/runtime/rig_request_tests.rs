@@ -174,7 +174,7 @@ fn system_prompt_prioritizes_semantic_code_search_over_regex_search() {
     let prompt = prepared.request.system_prompt.expect("system prompt");
 
     assert!(prompt.contains("read it directly; do not search again to rediscover it"));
-    assert!(prompt.contains("Never use `grep` to discover or search source code"));
+    assert!(prompt.contains("Use scoped `grep`/`rg` for exact symbols"));
     assert!(
         prompt.contains("Prefer `file_glob` for filenames and `read_files` for focused content")
     );
@@ -861,4 +861,18 @@ fn tool_title_schema_preserves_existing_parameters() {
         serde_json::json!(["_galaxy_tool_title", "_galaxy_tool_title_"])
     );
     assert_eq!(schema["additionalProperties"], false);
+}
+
+#[test]
+fn model_workflow_guidance_handles_provider_aliases_and_unknown_models() {
+    assert!(
+        super::model_workflow_guidance("litellm/codex-gpt-5.6-sol-high")
+            .contains("next concrete step")
+    );
+    assert!(super::model_workflow_guidance("GPT-6-astra").contains("next concrete step"));
+    assert!(
+        super::model_workflow_guidance("us.anthropic.claude-sonnet-v1")
+            .contains("one coherent slice")
+    );
+    assert_eq!(super::model_workflow_guidance("unknown-model"), "");
 }

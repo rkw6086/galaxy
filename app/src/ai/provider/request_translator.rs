@@ -1464,6 +1464,7 @@ pub fn extract_system_prompt(
     }
 
     prompt.push_str(SHELL_EXECUTION_GUIDANCE);
+    prompt.push_str(PROGRESS_COMMUNICATION_GUIDANCE);
     prompt.push_str("## Operating Contract\n");
     prompt.push_str(
         "- If the user asks for a change, carry it through inspection, implementation, and \
@@ -1496,7 +1497,7 @@ pub fn extract_system_prompt(
     prompt.push_str("- Keep progress and final responses concise, concrete, and honest.\n\n");
 
     match mode {
-        AgentMode::Normal => {}
+        AgentMode::Normal => prompt.push_str(IMPLEMENTATION_PROGRESS_GUIDANCE),
         AgentMode::Plan => {
             prompt.push_str("## Plan Mode\n");
             prompt.push_str(
@@ -1510,7 +1511,7 @@ pub fn extract_system_prompt(
             prompt.push_str("## Orchestration Mode\n");
             prompt.push_str(
                 "Coordinate independent work when delegation materially reduces latency or improves \
-                 coverage. Give each child agent a bounded task and synthesize its result. Do not \
+                 coverage. Give each child agent a bounded task, explicitly state implementation versus read-only research, specify its deliverable and verification, and synthesize its result. Do not \
                  delegate trivial work or work that depends on unfinished local context.\n\n",
             );
         }
@@ -1559,9 +1560,12 @@ pub fn extract_system_prompt(
         ));
     }
     let has_tool = |name: &str| tool_names.iter().any(|tool_name| tool_name == name);
+    if has_tool("run_agents") || has_tool("start_agent") {
+        prompt.push_str(CODING_DELEGATION_GUIDANCE);
+    }
     if has_tool("search_codebase") {
         prompt.push_str(
-            "- Reuse relevant parent handoff findings and known paths before doing discovery. If a file or symbol location is already known, read it directly; do not search again to rediscover it. For an unresolved semantic question or an unfamiliar implementation, use `search_codebase` to consult the shared project index. Never use `grep` to discover or search source code when `search_codebase` is available; reserve `grep` for exact known text in non-code files. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context. Start with one concise search query using distinctive terms; avoid parallel rephrasings over the same scope. Search returns at most eight bounded excerpts, not an exhaustive audit. Read the relevant files next and only broaden or narrow the search when the results leave a specific gap.\n",
+            "- Reuse relevant parent handoff findings and known paths before doing discovery. If a file or symbol location is already known, read it directly; do not search again to rediscover it. For an unresolved semantic question or an unfamiliar implementation, use `search_codebase` to consult the shared project index. Use scoped `grep`/`rg` for exact symbols, strings, imports, and call sites; use `search_codebase` for semantic questions or unfamiliar code. Choose the tool that directly resolves the missing fact. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context. Start with one concise search query using distinctive terms; avoid parallel rephrasings over the same scope. Search returns at most eight bounded excerpts, not an exhaustive audit. Read the relevant files next and only broaden or narrow the search when the results leave a specific gap.\n",
         );
     }
     if [
@@ -1716,6 +1720,12 @@ pub(crate) fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolTy
 }
 
 /// Shared by direct-provider prompts and compatibility/background request prompts.
+pub(crate) const CODING_DELEGATION_GUIDANCE: &str = "## Coding Delegation\nFor coding tasks, actively look for bounded implementation or review work to offload to available subagents early. Prefer delegation for substantial independent changes or a focused review of completed work; give the child the known files, just enough context, an explicit implementation or research role, the expected deliverable, and a validation check. The parent owns integration and reviews the result, returning corrections to the same child when needed. Do not duplicate delegated implementation while it runs. Keep trivial edits and tightly dependent steps local when delegation would add delay. Research and plan-mode assignments remain read-only. Delegate only when delegation tools are advertised; child agents are leaf workers and must not spawn other agents.\n\n## Dueling Models Review\nAfter a substantial coherent set of authorized code changes, the parent must request an independent read-only subagent review before reporting completion. Skip this workflow for trivial edits. Always select an available reviewer model; provider or model diversity is a preference, never a reason to skip review. Prefer a capable reviewer with a different model and a different provider from the implementer, using only the advertised model catalog. If no suitable different-provider option exists, select the next best capable different model; if only one model is available, use a separate reviewer conversation and disclose that limitation. Do not invent model IDs or provider diversity. Give the reviewer the requirements, changed files and diff scope, implementation model ID, completed checks, and known uncertainties. Ask for concrete correctness, regression, security, or missing-validation findings with file references and evidence; distinguish blocking findings from optional suggestions. The reviewer must inspect the current code and return findings or explicit LGTM, never rubber-stamp a summary. The parent evaluates findings, sends actionable corrections to the same implementer, and sends the revised diff and validation evidence back to the same reviewer. Continue repair and re-review until the reviewer returns LGTM for the current changes. Changes after approval need review again. Do not force stylistic churn, hide disagreements, or claim LGTM without an actual reviewer response. If verification is unavailable or a disagreement requires user input, report the concrete blocker and remaining findings honestly. The parent coordinates this loop; leaf implementers report readiness for parent review and never spawn reviewers themselves.\n\n";
+
+pub(crate) const PROGRESS_COMMUNICATION_GUIDANCE: &str = "## Progress Updates\nBefore sending a progress update, compare it with your recent assistant messages and the conversation summary. Keep track of what you have already told the user using that history; do not create a file or call a tool solely to track your wording. Communicate only a material new finding, completed change, changed approach, actionable blocker, or final outcome. Paraphrasing a previous update does not make it new. Avoid repeated acknowledgements such as 'Got it', repeated promises to begin, repeated plans, and repeated lists of the same next steps. When nothing material has changed, continue the needed tool work without filler commentary. A polling result or resumed/compacted context is not a new user request. For running commands, report changed output, a new failure, an actionable wait, or completion; do not repeat 'still running' on every poll. When a fresh update is useful, state what changed in one short, specific sentence. Answer direct user status questions even when the status is unchanged, and provide a self-contained final result.\n\n";
+
+pub(crate) const IMPLEMENTATION_PROGRESS_GUIDANCE: &str = "## Incremental Implementation\nFor an authorized implementation task, reuse the parent handoff's paths, findings, constraints, and acceptance criteria. Search until you have just enough context to make the requested change. Read the immediate implementation and a relevant example or test as needed, then make the smallest coherent change. The parent can review and request follow-up changes; do not try to anticipate every possible review concern before editing, and still validate your own work. Validate that slice before expanding the investigation. Do not inventory every related subsystem before editing. Further discovery must resolve a concrete uncertainty that affects the next change. For delegated implementation work, include known paths and symbols, established findings, changes to preserve, a concrete first change, and its acceptance check; distinguish known facts from unanswered questions. Do not invent missing discoveries. Research-only, review, and planning requests remain read-only unless the user authorizes changes.\n\n";
+
 pub(crate) const SHELL_EXECUTION_GUIDANCE: &str = "## Shell Execution\nCommands use a persistent terminal. Never exit, log out of, replace with exec, or kill that shell or Galaxy. Do not append `exit $status` to a command to report its result; let the command's exit status be returned naturally. If a script needs exit, run it in an explicit child shell such as `sh -c '...'`. Stop a running agent command with interrupt_shell_command, not broad kill/pkill commands.\nRun builds, tests, installs, and workspace checks as separate shell tool calls so each has its own output and exit status. Keep stdout and stderr live: do not hide them in subprocess capture_output/PIPE, redirect everything to a file, or buffer a whole validation suite and print only its final tail. If a log file is needed, stream through tee while preserving the original command's exit status. Use non-interactive, non-watch modes and disable pagers. For intentionally quiet commands, explain what is running before starting; silence alone is not evidence of a hang. If repeated snapshots show no progress, investigate whether the command is waiting for input, watching, or buffering; do not blindly poll forever or start duplicate commands. Interrupt and correct an unintended watcher or blocked command before retrying.\n\n";
 
 pub fn default_tool_definitions() -> Vec<ToolDefinition> {
@@ -1794,7 +1804,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "grep".to_string(),
-            description: "Search for regex patterns in files. Use only for exact known text in non-code files; never use this to discover or search source code when search_codebase is available. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches. Pass ALL patterns you need in one call.".to_string(),
+            description: "Search for regex patterns in files. Use for exact symbols, strings, imports, and call sites in source code or other text files. Scope to known files or directories when possible; use search_codebase for semantic discovery. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches. Pass ALL patterns you need in one call.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -1999,7 +2009,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
                             "type": "object",
                             "properties": {
                                 "name": { "type": "string", "description": "Unique child name" },
-                                "prompt": { "type": "string", "default": "", "description": "Child-specific assignment. Include known file paths and symbols, established findings, existing changes to preserve, the concrete next change, and unresolved questions. Reuse discoveries; do not tell a child to restart repository exploration. For follow-up changes, message the original child instead of launching another." },
+                                "prompt": { "type": "string", "default": "", "description": "Child-specific assignment. Begin with the role: implementation (make changes and validate), research (read-only findings), or review (read-only inspection of the current diff; return concrete findings or explicit LGTM). Specify the expected deliverable and verification command when known. Include known file paths and symbols, established findings, existing changes to preserve, a concrete first change and acceptance check, and unresolved questions. Reuse discoveries; do not tell a child to restart repository exploration. For follow-up changes, message the original child instead of launching another." },
                                 "title": { "type": "string", "default": "", "description": "Optional display title" }
                             },
                             "required": ["name", "prompt"]

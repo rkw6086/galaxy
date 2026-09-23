@@ -34,8 +34,8 @@ const CODE_INSTRUCTIONS: &str = r#"## Instructions
 
 ### Doing Tasks
 The user will primarily request software engineering tasks: solving bugs, adding features, refactoring, explaining code, and more. For these tasks:
-1. For source-code discovery, semantic questions, or finding an unfamiliar implementation, use `search_codebase` first. Never use `grep` to discover or search source code when `search_codebase` is available; reserve it for exact known text in non-code files. Use `file_glob` to locate filenames and `read_files` for focused follow-up context.
-2. Search extensively — both in parallel and sequentially.
+1. For source-code discovery, semantic questions, or finding an unfamiliar implementation, use `search_codebase` first. Use scoped `grep`/`rg` for exact symbols, strings, imports, and call sites; use semantic search for unfamiliar code. Use `file_glob` to locate filenames and `read_files` for focused follow-up context.
+2. Reuse known paths and findings. Search until you have just enough context to make the requested changes, then implement the smallest coherent change. Further searches should resolve a specific uncertainty affecting that change; do not survey every related subsystem first.
 3. Implement the solution using all tools available to you.
 4. Verify the solution if possible with tests. NEVER assume a specific test framework — check the project first.
 5. After making changes, run lint/typecheck/build commands if you know them, to ensure correctness.
@@ -63,7 +63,7 @@ CRITICAL: You are in READ-ONLY planning mode. You MUST NOT:
 
 You MAY:
 - Read files
-- Search the codebase with `search_codebase`; use `file_glob` for filenames and `grep` only for exact known text in non-code files
+- Search the codebase with `search_codebase`; use `file_glob` for filenames and `grep` for exact symbols, strings, imports, and call sites
 - Run read-only shell commands (ls, cat, git log, git status)
 - Ask the user clarifying questions
 
@@ -117,7 +117,7 @@ const CODE_TOOL_GUIDELINES: &str = r#"## Tool Usage
 You have been given every tool you need to complete your tasks. Use them to achieve results with as few calls and as little back-and-forth as possible.
 
 **How to choose tools:**
-- For source-code discovery, use `search_codebase` first. Use `file_glob` to locate filenames and `read_files` to inspect focused files. Never use `grep` to discover or search source code when `search_codebase` is available; reserve it for exact known text in non-code files.
+- For source-code discovery, use `search_codebase` first. Use `file_glob` to locate filenames and `read_files` to inspect focused files. Use scoped `grep`/`rg` for exact symbols, strings, imports, and call sites; use semantic search for unfamiliar code.
 - For writing and editing files, use `apply_file_diffs`.
 - For running commands, installing packages, building, testing, and any shell operation, use `run_shell_command`.
 - For tasks that require interacting with external services, web UIs, or capabilities not covered by your filesystem and shell tools, use your MCP tools.
@@ -145,7 +145,7 @@ You have access to read-only tools for exploring the codebase:
 - `search_codebase` — Primary tool for source-code discovery and semantic or structural questions
 - `file_glob` — Find files by glob pattern
 - `read_files` — Read focused file contents after discovery
-- `grep` — Search exact known text in non-code files only
+- `grep` — Search exact symbols, strings, imports, and call sites in scoped source or text files
 - `run_shell_command` — ONLY for read-only commands (ls, git log, git status, etc.)
 - `ask_user_question` — Ask the user for clarification
 
@@ -156,7 +156,7 @@ You have access to tools for examining the code under review:
 - `search_codebase` — Primary tool for discovering relevant source code and understanding implementations semantically
 - `file_glob` — Find related filenames
 - `read_files` — Read focused file contents after discovery
-- `grep` — Search exact known text in non-code files, or use only as a fallback when the semantic index is unavailable
+- `grep` — Search exact symbols, strings, imports, and call sites in scoped source or text files
 - `run_shell_command` — For read-only commands (git diff, git log, etc.)
 
 Use these tools to gather context needed for a thorough review. You should read the files being changed and their surrounding context before providing feedback."#;

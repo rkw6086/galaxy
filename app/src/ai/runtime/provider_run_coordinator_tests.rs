@@ -1425,3 +1425,83 @@ fn request_estimate_accounts_for_multibyte_text() {
     request.system_prompt = Some("界".repeat(1_000));
     assert!(estimate_turn_request_tokens(&request) > ascii_tokens + 600);
 }
+
+#[test]
+fn discovery_reminder_counts_batches_and_resets_on_mutation_or_user_input() {
+    let read = ConversationMessage {
+        role: MessageRole::Assistant,
+        content: MessageContent::MultiPart(vec![
+            ContentPart::ToolUse {
+                tool_use_id: "read".into(),
+                name: "read_files".into(),
+                input: serde_json::json!({}),
+            },
+            ContentPart::ToolUse {
+                tool_use_id: "search".into(),
+                name: "search_codebase".into(),
+                input: serde_json::json!({}),
+            },
+        ]),
+    };
+    let mut messages = vec![read.clone(); 4];
+    assert_eq!(consecutive_discovery_batches(&messages), 4);
+    messages.push(ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::ToolResult {
+            tool_use_id: "read".into(),
+            content: "contents".into(),
+            is_error: false,
+        },
+    });
+    assert_eq!(consecutive_discovery_batches(&messages), 4);
+    messages.push(ConversationMessage {
+        role: MessageRole::Assistant,
+        content: MessageContent::ToolUse {
+            tool_use_id: "edit".into(),
+            name: "edit_files".into(),
+            input: serde_json::json!({}),
+        },
+    });
+    messages.push(read);
+    assert_eq!(consecutive_discovery_batches(&messages), 1);
+    messages.push(ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text("New request".into()),
+    });
+    assert_eq!(consecutive_discovery_batches(&messages), 0);
+}
+
+#[test]
+fn discovery_reminder_is_advisory_periodic_and_excludes_other_modes() {
+    let mut request = request();
+    request.messages = vec![
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::ToolUse {
+                tool_use_id: "read".into(),
+                name: "read_files".into(),
+                input: serde_json::json!({})
+            },
+        };
+        4
+    ];
+    let unchanged = request.clone();
+    add_exploration_reminder(&mut request);
+    assert_eq!(request, unchanged);
+    request.system_prompt =
+        Some(crate::ai::provider::request_translator::IMPLEMENTATION_PROGRESS_GUIDANCE.into());
+    let original = request.clone();
+    add_exploration_reminder(&mut request);
+    assert!(request
+        .system_prompt
+        .as_ref()
+        .unwrap()
+        .contains("Implementation progress checkpoint"));
+    assert_eq!(request.messages, original.messages);
+    assert_eq!(request.tools, original.tools);
+    let mut fifth = original;
+    fifth.messages.push(fifth.messages[0].clone());
+    let expected = fifth.clone();
+    add_exploration_reminder(&mut fifth);
+    assert_eq!(fifth, expected);
+}

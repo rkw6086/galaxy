@@ -58,7 +58,7 @@ mod prompt_builder_tests {
             .tools
             .iter()
             .find(|tool| tool.name == "grep")
-            .is_some_and(|tool| tool.description.contains("non-code files")));
+            .is_some_and(|tool| tool.description.contains("exact symbols")));
     }
 
     #[test]

@@ -136,7 +136,7 @@ fn apply_file_diffs() -> ToolDefinition {
 fn grep() -> ToolDefinition {
     ToolDefinition {
         name: "grep".to_string(),
-        description: "Search for up to 3 focused regex patterns per call. Use only for exact known text in non-code files; never use this to discover or search source code when search_codebase is available. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches.".to_string(),
+        description: "Search for up to 3 focused regex patterns per call. Use for exact symbols, strings, imports, and call sites in source code or other text files. Scope to known files or directories when possible; use search_codebase for semantic discovery. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {

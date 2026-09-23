@@ -20,6 +20,7 @@ use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::openai::request_translator::sanitize_messages_for_openai;
 use crate::ai::provider::request_translator::{
     default_tool_definitions, sanitize_messages_for_bedrock, tool_name_is_supported,
+    CODING_DELEGATION_GUIDANCE, IMPLEMENTATION_PROGRESS_GUIDANCE, PROGRESS_COMMUNICATION_GUIDANCE,
     SHELL_EXECUTION_GUIDANCE,
 };
 use crate::ai::provider::types::flatten_tool_history_for_no_tools_turn;
@@ -117,7 +118,7 @@ pub(crate) fn add_orchestration_model_options(
         required.push(serde_json::Value::String("model_id".to_string()));
     }
 
-    tool.description = "Start one or more child agents. Assign each child the best-fit, cost-effective model from its required model_id choices, prioritizing capability and likelihood of success over price. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. Local launch automatically yields this turn. Do not batch other tools with run_agents. The user can keep talking to you while children work independently. Each group sends one combined update after all children finish; wait for that update before processing their results. User follow-ups do not cancel the group, and must not cause duplicate children or repeated delegated work.".to_string();
+    tool.description = "Start one or more child agents. Assign each child the best-fit, cost-effective model from its required model_id choices, prioritizing capability and likelihood of success over price. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. State whether each assignment is implementation, read-only research, or independent read-only review, its expected deliverable, known starting files, and how to verify it. For substantial changes, choose a capable review model different from the implementer, preferably from another advertised provider, and reuse that reviewer for corrections until it returns LGTM. Use direct tools for a known file or exact symbol instead of delegating a trivial lookup. Local launch automatically yields this turn. Do not batch other tools with run_agents. The user can keep talking to you while children work independently. Each group sends one combined update after all children finish; wait for that update before processing their results. User follow-ups do not cancel the group, and must not cause duplicate children or repeated delegated work.".to_string();
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -266,7 +267,7 @@ fn prepare_rig_turn_for_provider(
             target.title_parameter = Some(parameter);
         }
     }
-    let system_prompt = build_system_prompt(&input, &tools, &global_rules, mode);
+    let mut system_prompt = build_system_prompt(&input, &tools, &global_rules, mode);
 
     let mut new_messages = input_messages(input, tool_results);
     let mut persistent_messages = message_history;
@@ -299,6 +300,10 @@ fn prepare_rig_turn_for_provider(
     let model_id = model_override
         .filter(|model| !model.is_empty() && model != "auto")
         .unwrap_or_else(|| model.as_str().to_string());
+    if matches!(mode, RigRequestMode::Normal) {
+        system_prompt.push_str(&format!("\nActive model ID (metadata): {model_id:?}\n"));
+        system_prompt.push_str(model_workflow_guidance(&model_id));
+    }
     let mut request = TurnRequest::new(model_id, turn_messages);
     request.conversation_id = conversation_token.map(|token| token.as_str().to_string());
     request.system_prompt = Some(system_prompt);
@@ -314,6 +319,19 @@ fn prepare_rig_turn_for_provider(
         tool_result_archive,
         messages_sent,
         mcp_tool_aliases,
+    }
+}
+
+/// Small workflow hints for known model families; shared permissions, tools,
+/// planning behavior, and user rules remain the same for every provider.
+fn model_workflow_guidance(model_id: &str) -> &'static str {
+    let model = model_id.to_ascii_lowercase();
+    if model.contains("codex") || model.contains("gpt-") {
+        "\n## Coding Workflow\nFor implementation requests, take the next concrete step with the available tools. Prefer direct reads of known files, exact symbol searches, and focused edits. Keep planning proportional to the change; do not repeatedly re-plan between successful tool results. Validate the changed behavior with the narrowest useful check and expand only when its result warrants it.\n"
+    } else if model.contains("claude") {
+        "\n## Coding Workflow\nUse a short actionable plan for complex implementation work, then execute one coherent slice at a time. Batch independent reads needed for that slice. Once the relevant code and conventions are understood, edit and validate instead of continuing a broad repository survey.\n"
+    } else {
+        ""
     }
 }
 
@@ -776,6 +794,7 @@ fn build_system_prompt(
         "## Shell Working Directory\nShell commands run in this conversation's persistent terminal session. The supplied working directory is the shell's location when the request was prepared. Start there without a redundant `cd` or `pwd`. Track successful directory changes across tool calls; do not assume later commands reset to the project root. Use `cd` only when the next command needs a different directory, and use `pwd` only when the location is missing or uncertain. A `cd` inside a subshell or separate script does not change the parent shell's directory. Each sub-agent has its own terminal; never assume it shares another agent's directory changes.\n\n",
     );
     prompt.push_str(SHELL_EXECUTION_GUIDANCE);
+    prompt.push_str(PROGRESS_COMMUNICATION_GUIDANCE);
     let contexts = inputs.iter().filter_map(AIAgentInput::context).flatten();
     let mut environment = Vec::new();
     let mut request_time = None;
@@ -936,7 +955,7 @@ fn build_system_prompt(
         }
     }
     match mode {
-        RigRequestMode::Normal => {}
+        RigRequestMode::Normal => prompt.push_str(IMPLEMENTATION_PROGRESS_GUIDANCE),
         RigRequestMode::Plan => prompt.push_str(
             "## Plan Mode\nInspect and produce an implementation-ready plan. Do not edit files or perform state-changing actions. Research as needed, then finish by calling `create_plan` to write the plan with the built-in planning tools. For multi-step implementation work, include a concise `## Tasks` section in the document with short, specific `- [ ]` items. If a plan document already exists for this task, call `edit_plan` instead. Do not return the plan only as prose, and do not claim completion until the plan tool succeeds. Once the plan is created, avoid asking follow-up questions unless you are genuinely blocked or materially uncertain about the next step.\n\n",
         ),
@@ -944,11 +963,17 @@ fn build_system_prompt(
             "## Orchestration Mode\nDelegate only independent, bounded work where parallelism materially helps, then synthesize the results.\n\n",
         ),
         RigRequestMode::Cli => prompt.push_str(
-"## Running Command Monitor\nKeep an eye on the existing command while continuing the user's request. Use the command ID from the tool result for every read/write operation. If the result says the command finished, report its outcome and stop polling. If the result says the command is still running, write at most one concise, user-facing sentence grounded in the latest output explaining what the command appears to be doing or waiting for, then make the polling tool call in the same response. Do not send a text-only progress response, repeat a generic 'still running' message, or mention internal polling mechanics. If the snapshot clearly shows an interactive pager or editor, do not keep polling: an alternate screen containing `(END)` is `less`, so call `write_to_long_running_shell_command` with input `q` and mode `raw`; for a clearly identified Vim screen, send input `:q` with mode `line`. Poll briefly after sending quit input to verify the outcome. Use `interrupt_shell_command` immediately when the user's explicit stop condition is met. Never choose a poll interval that crosses a user-specified deadline or stop condition. After an interrupt, poll briefly to verify the outcome. Never start a duplicate command merely to check its state, and never report completion while a result says it is still running.\n\n",
+"## Running Command Monitor\nKeep an eye on the existing command while continuing the user's request. Use the command ID from the tool result for every read/write operation. If the result says the command finished, report its outcome and stop polling. If the result says the command is still running, make the polling tool call. Only when the latest output adds material information, precede it with one concise, user-facing sentence describing what changed; otherwise poll without repeating the previous status. Do not send a text-only progress response, repeat a generic 'still running' message, or mention internal polling mechanics. If the snapshot clearly shows an interactive pager or editor, do not keep polling: an alternate screen containing `(END)` is `less`, so call `write_to_long_running_shell_command` with input `q` and mode `raw`; for a clearly identified Vim screen, send input `:q` with mode `line`. Poll briefly after sending quit input to verify the outcome. Use `interrupt_shell_command` immediately when the user's explicit stop condition is met. Never choose a poll interval that crosses a user-specified deadline or stop condition. After an interrupt, poll briefly to verify the outcome. Never start a duplicate command merely to check its state, and never report completion while a result says it is still running.\n\n",
         ),
         RigRequestMode::CompletedCommandAssessment => prompt.push_str(
             "## Completed Command Assessment\nThe monitored command has finished. Use its command, command ID, final terminal output, and the assessment instruction in the latest hidden input to provide the final user-facing outcome. Do not continue polling, request more terminal output, or call tools.\n\n",
         ),
+    }
+    if tools
+        .iter()
+        .any(|tool| matches!(tool.name.as_str(), "run_agents" | "start_agent"))
+    {
+        prompt.push_str(CODING_DELEGATION_GUIDANCE);
     }
     prompt.push_str("## Available Tools\n");
     if tools.is_empty() {
@@ -966,7 +991,7 @@ fn build_system_prompt(
         let has_search_codebase = tools.iter().any(|tool| tool.name == "search_codebase");
         if has_search_codebase {
             prompt.push_str(
-                "Reuse relevant parent handoff findings and known paths before doing discovery. If a file or symbol location is already known, read it directly; do not search again to rediscover it. For an unresolved semantic question or an unfamiliar implementation, use `search_codebase` to consult the shared project index. Never use `grep` to discover or search source code when `search_codebase` is available; reserve `grep` for exact known text in non-code files. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context. Start with one concise search query using distinctive terms; avoid parallel rephrasings over the same scope. Search returns at most eight bounded excerpts, not an exhaustive audit. Read the relevant files next and only broaden or narrow the search when the results leave a specific gap.\n",
+                "Reuse relevant parent handoff findings and known paths before doing discovery. If a file or symbol location is already known, read it directly; do not search again to rediscover it. For an unresolved semantic question or an unfamiliar implementation, use `search_codebase` to consult the shared project index. Use scoped `grep`/`rg` for exact symbols, strings, imports, and call sites; use `search_codebase` for semantic questions or unfamiliar code. Choose the tool that directly resolves the missing fact. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context. Start with one concise search query using distinctive terms; avoid parallel rephrasings over the same scope. Search returns at most eight bounded excerpts, not an exhaustive audit. Read the relevant files next and only broaden or narrow the search when the results leave a specific gap.\n",
             );
         }
         if tools.iter().any(|tool| tool.name == "run_shell_command") {

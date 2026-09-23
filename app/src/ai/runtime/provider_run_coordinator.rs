@@ -8,11 +8,11 @@ use futures::future::BoxFuture;
 use futures::{FutureExt as _, StreamExt};
 use galaxy_agent_core::{
     turn_control, AgentError, AgentErrorKind, AgentEvent, AgentRuntime, CompletedModelTurn,
-    ContentPart, ExternalWorkId, ModelFailureDisposition, PendingToolBatch, ProviderModelCall,
-    ProviderRequestProfile, ProviderRun, ProviderRunFailureKind, ProviderRunId, ProviderRunLimits,
-    ProviderRunOutcome, ProviderRunPhase, ProviderRunProtocolError, ProviderRunState,
-    ProviderRunStep, RunEpoch, RuntimeKind, StopReason, ToolEvent, TurnCommand, TurnControl,
-    TurnRequest, Usage,
+    ContentPart, ConversationMessage, ExternalWorkId, MessageContent, MessageRole,
+    ModelFailureDisposition, PendingToolBatch, ProviderModelCall, ProviderRequestProfile,
+    ProviderRun, ProviderRunFailureKind, ProviderRunId, ProviderRunLimits, ProviderRunOutcome,
+    ProviderRunPhase, ProviderRunProtocolError, ProviderRunState, ProviderRunStep, RunEpoch,
+    RuntimeKind, StopReason, ToolEvent, TurnCommand, TurnControl, TurnRequest, Usage,
 };
 use instant::Instant;
 use warpui::r#async::Timer;
@@ -1135,7 +1135,73 @@ fn validate_profile_runtime(
 fn request_for_model_call(mut template: TurnRequest, call: &ProviderModelCall) -> TurnRequest {
     template.prompt = None;
     template.messages = call.messages.clone();
+    add_exploration_reminder(&mut template);
     template
+}
+
+/// A transient prompt reminder, never a limit or a synthetic tool result. It is
+/// derived from the transcript so retries/restores do not need another counter.
+fn add_exploration_reminder(request: &mut TurnRequest) {
+    let Some(prompt) = request.system_prompt.as_mut() else {
+        return;
+    };
+    if !prompt.contains(crate::ai::provider::request_translator::IMPLEMENTATION_PROGRESS_GUIDANCE) {
+        return;
+    }
+    let batches = consecutive_discovery_batches(&request.messages);
+    if batches >= 4 && batches.is_multiple_of(4) {
+        prompt.push_str("\nImplementation progress checkpoint: several consecutive tool batches have only gathered context. If the user requested implementation and the next change is understood, make that smallest coherent change now and validate it. Otherwise identify the specific missing fact that prevents that change and resolve only that gap. Do not edit for research-only or review tasks, skip required instructions, or claim progress without evidence. This is guidance, not a tool restriction or a turn limit.\n");
+    }
+}
+
+fn consecutive_discovery_batches(messages: &[ConversationMessage]) -> usize {
+    let mut batches = 0;
+    for message in messages.iter().rev() {
+        let mut names = Vec::new();
+        let has_user_input = match &message.content {
+            MessageContent::Text(_) => true,
+            MessageContent::ToolUse { name, .. } => {
+                names.push(name.as_str());
+                false
+            }
+            MessageContent::ToolResult { .. } => false,
+            MessageContent::MultiPart(parts) => {
+                let mut input = false;
+                for part in parts {
+                    match part {
+                        ContentPart::ToolUse { name, .. } => names.push(name.as_str()),
+                        ContentPart::Text(_) | ContentPart::Image { .. } => input = true,
+                        ContentPart::ToolResult { .. } | ContentPart::Reasoning { .. } => {}
+                    }
+                }
+                input
+            }
+        };
+        if message.role == MessageRole::User && has_user_input {
+            break;
+        }
+        if names.is_empty() {
+            continue;
+        }
+        // Unknown tools and shell commands may mutate state: never infer that
+        // they are discovery. A mixed batch also ends the discovery streak.
+        if names.iter().any(|name| {
+            !matches!(
+                *name,
+                "read_files"
+                    | "search_codebase"
+                    | "file_glob"
+                    | "grep"
+                    | "read_documents"
+                    | "read_skill"
+                    | "recall_tool_history"
+            )
+        }) {
+            break;
+        }
+        batches += 1;
+    }
+    batches
 }
 
 const ESTIMATED_BYTES_PER_TOKEN: u64 = 3;

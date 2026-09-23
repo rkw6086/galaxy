@@ -126,7 +126,7 @@ fn bedrock_prompt_prioritizes_semantic_code_search_over_regex_search() {
 
     let prompt = extract_system_prompt(&request, &[]).expect("system prompt");
     assert!(prompt.contains("read it directly; do not search again to rediscover it"));
-    assert!(prompt.contains("Never use `grep` to discover or search source code"));
+    assert!(prompt.contains("Use scoped `grep`/`rg` for exact symbols"));
 
     let tools = extract_tools(&request);
     let search_codebase = tools
@@ -140,7 +140,7 @@ fn bedrock_prompt_prioritizes_semantic_code_search_over_regex_search() {
     assert!(search_codebase
         .description
         .contains("read known file paths directly"));
-    assert!(grep.description.contains("non-code files"));
+    assert!(grep.description.contains("exact symbols"));
 }
 
 #[test]
