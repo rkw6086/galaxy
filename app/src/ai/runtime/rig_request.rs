@@ -6,9 +6,10 @@ use ai::skills::SkillReference;
 use base64::engine::general_purpose;
 use base64::Engine as _;
 use galaxy_agent_core::{
-    ContentPart, ConversationMessage, MessageContent, MessageRole, ToolDefinition, ToolResult,
-    TurnRequest,
+    bounded_terminal_output_for_provider_request, ContentPart, ConversationMessage, MessageContent,
+    MessageRole, ToolDefinition, ToolResult, TurnRequest,
 };
+use galaxy_bedrock_model_catalog::model_metadata;
 use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
 use warp_multi_agent_api as api;
@@ -26,6 +27,7 @@ use crate::ai::provider::request_translator::{
 use crate::ai::provider::types::flatten_tool_history_for_no_tools_turn;
 
 pub(crate) struct PreparedRigTurn {
+    pub max_context_tokens: Option<u32>,
     pub task_id: String,
     pub needs_create_task: bool,
     pub user_query: Option<String>,
@@ -135,9 +137,12 @@ pub(crate) fn prepare_rig_turn(
     supported_tools: Vec<ToolType>,
     supported_cli_agent_tools: Vec<ToolType>,
 ) -> PreparedRigTurn {
+    let max_context_tokens =
+        effective_context_limit(config.max_input_tokens, params.context_window_limit);
     prepare_rig_turn_for_provider(
         config.model.clone(),
         config.max_output_tokens.map(u64::from),
+        max_context_tokens,
         RigRequestSanitizer::OpenAICompatible,
         params,
         supported_tools,
@@ -153,9 +158,12 @@ pub(crate) fn prepare_rig_turn_for_mode(
     supported_cli_agent_tools: Vec<ToolType>,
     mode: RigRequestMode,
 ) -> PreparedRigTurn {
+    let max_context_tokens =
+        effective_context_limit(config.max_input_tokens, params.context_window_limit);
     prepare_rig_turn_for_provider(
         config.model.clone(),
         config.max_output_tokens.map(u64::from),
+        max_context_tokens,
         RigRequestSanitizer::OpenAICompatible,
         params,
         supported_tools,
@@ -189,9 +197,12 @@ pub(crate) fn prepare_bedrock_rig_turn_for_mode(
     supported_cli_agent_tools: Vec<ToolType>,
     mode: Option<RigRequestMode>,
 ) -> PreparedRigTurn {
+    let provider_limit = model_metadata(&model).and_then(|metadata| metadata.context_window_tokens);
+    let max_context_tokens = effective_context_limit(provider_limit, params.context_window_limit);
     prepare_rig_turn_for_provider(
         Some(model),
         max_output_tokens,
+        max_context_tokens,
         RigRequestSanitizer::Bedrock,
         params,
         supported_tools,
@@ -206,9 +217,22 @@ enum RigRequestSanitizer {
     Bedrock,
 }
 
+fn effective_context_limit(
+    provider_limit: Option<u32>,
+    configured_limit: Option<u32>,
+) -> Option<u32> {
+    match (provider_limit, configured_limit) {
+        (Some(provider), Some(configured)) => Some(provider.min(configured)),
+        (provider, configured) => provider.or(configured),
+    }
+}
+
+// Keep provider limits and tool sets explicit at this shared request adapter boundary.
+#[allow(clippy::too_many_arguments)]
 fn prepare_rig_turn_for_provider(
     model_override: Option<String>,
     max_output_tokens: Option<u64>,
+    max_context_tokens: Option<u32>,
     sanitizer: RigRequestSanitizer,
     params: RequestParams,
     supported_tools: Vec<ToolType>,
@@ -269,11 +293,13 @@ fn prepare_rig_turn_for_provider(
     }
     let mut system_prompt = build_system_prompt(&input, &tools, &global_rules, mode);
 
-    let mut new_messages = input_messages(input, tool_results);
+    let mut new_messages = input_messages(input, tool_results, max_context_tokens);
     let mut persistent_messages = message_history;
     persistent_messages.append(&mut new_messages);
     for message in &mut persistent_messages {
-        message.truncate_tool_results_for_provider_request();
+        message.truncate_tool_results_for_provider_request_with_context(max_context_tokens);
+        message
+            .truncate_tagged_terminal_output_for_provider_request_with_context(max_context_tokens);
     }
     match sanitizer {
         RigRequestSanitizer::OpenAICompatible => {
@@ -311,6 +337,7 @@ fn prepare_rig_turn_for_provider(
     request.max_output_tokens = max_output_tokens;
 
     PreparedRigTurn {
+        max_context_tokens,
         task_id,
         needs_create_task,
         user_query,
@@ -338,6 +365,7 @@ fn model_workflow_guidance(model_id: &str) -> &'static str {
 fn input_messages(
     inputs: Vec<AIAgentInput>,
     tool_results: Vec<ToolResult>,
+    max_context_tokens: Option<u32>,
 ) -> Vec<ConversationMessage> {
     let mut messages = Vec::new();
     if !tool_results.is_empty() {
@@ -375,11 +403,18 @@ fn input_messages(
         });
     }
 
-    messages.extend(inputs.into_iter().filter_map(input_message));
+    messages.extend(
+        inputs
+            .into_iter()
+            .filter_map(|input| input_message(input, max_context_tokens)),
+    );
     messages
 }
 
-fn input_message(input: AIAgentInput) -> Option<ConversationMessage> {
+fn input_message(
+    input: AIAgentInput,
+    max_context_tokens: Option<u32>,
+) -> Option<ConversationMessage> {
     let (text, images) = match input {
         AIAgentInput::UserQuery {
             query,
@@ -388,9 +423,13 @@ fn input_message(input: AIAgentInput) -> Option<ConversationMessage> {
             ..
         } => {
             let text = if let Some(command) = running_command {
+                let output = bounded_terminal_output_for_provider_request(
+                    &command.grid_contents,
+                    max_context_tokens,
+                );
                 format!(
                     "[Running command: {}]\n[Command ID: {}]\n[Terminal output:\n{}\n]\n{}",
-                    command.command, command.block_id, command.grid_contents, query
+                    command.command, command.block_id, output, query
                 )
             } else {
                 query
@@ -401,16 +440,19 @@ fn input_message(input: AIAgentInput) -> Option<ConversationMessage> {
             prompt,
             context,
             completed_command,
-        } => (
-            format!(
-                "[Completed command: {}]\n[Command ID: {}]\n[Final terminal output:\n{}\n]\n{}",
-                completed_command.command,
-                completed_command.block_id,
-                completed_command.grid_contents,
-                prompt
-            ),
-            image_parts(&context),
-        ),
+        } => {
+            let output = bounded_terminal_output_for_provider_request(
+                &completed_command.grid_contents,
+                max_context_tokens,
+            );
+            (
+                format!(
+                    "[Completed command: {}]\n[Command ID: {}]\n[Final terminal output:\n{}\n]\n{}",
+                    completed_command.command, completed_command.block_id, output, prompt
+                ),
+                image_parts(&context),
+            )
+        }
         AIAgentInput::ActionResult { .. } => return None,
         AIAgentInput::AutoCodeDiffQuery { query, .. } => (query, Vec::new()),
         AIAgentInput::ResumeConversation { .. } => (

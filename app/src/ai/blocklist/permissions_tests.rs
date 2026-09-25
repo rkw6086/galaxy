@@ -505,6 +505,61 @@ fn test_can_write_files_mcp_config_always_denied() {
 }
 
 #[test]
+fn test_fresh_conversation_uses_active_command_only_profile() {
+    App::test((), |mut app| async move {
+        let PermissionsTestState {
+            permissions,
+            history,
+            profile_model,
+            terminal_view_id,
+            ..
+        } = initialize_permissions_test(&mut app);
+
+        profile_model.update(&mut app, |model, ctx| {
+            let profile_id = model
+                .create_profile(ctx)
+                .expect("profile should be created");
+            model.set_execute_commands(profile_id, &ActionPermission::AlwaysAllow, ctx);
+            model.set_apply_code_diffs(profile_id, &ActionPermission::AlwaysAsk, ctx);
+            model.set_active_profile(terminal_view_id, profile_id, ctx);
+        });
+
+        let fresh_conversation_id = history.update(&mut app, |history_model, ctx| {
+            history_model.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+
+        permissions.read(&app, |model, ctx| {
+            let command_permission = model.can_autoexecute_command(
+                &fresh_conversation_id,
+                "git status",
+                EscapeChar::Backslash,
+                false,
+                None,
+                Some(terminal_view_id),
+                ctx,
+            );
+            assert!(matches!(
+                command_permission,
+                CommandExecutionPermission::Allowed(
+                    CommandExecutionPermissionAllowedReason::AlwaysAllowed
+                )
+            ));
+
+            let file_write_permission = model.can_write_files(
+                &fresh_conversation_id,
+                &[PathBuf::from("file.txt")],
+                Some(terminal_view_id),
+                ctx,
+            );
+            assert!(matches!(
+                file_write_permission,
+                FileWritePermission::Denied(FileWritePermissionDeniedReason::AlwaysAskEnabled)
+            ));
+        });
+    })
+}
+
+#[test]
 fn test_can_autoexecute_command_workspace_settings_override_profile() {
     App::test((), |mut app| async move {
         let PermissionsTestState {

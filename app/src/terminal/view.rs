@@ -7306,6 +7306,7 @@ impl TerminalView {
                 if is_agent_in_control {
                     self.redetermine_terminal_focus(ctx);
                 }
+                ctx.notify();
             }
             BlocklistAIActionEvent::ExecutingAction { .. } => {
                 if event_matches_active_conversation() {

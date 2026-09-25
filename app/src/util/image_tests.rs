@@ -1,4 +1,4 @@
-use image::{ImageBuffer, Rgba};
+use image::{GenericImageView, ImageBuffer, Rgba};
 
 use super::*;
 
@@ -32,11 +32,12 @@ fn test_process_image_for_agent_small_image() {
     let result = process_image_for_agent(&small_png);
 
     match result {
-        ProcessImageResult::Success { data } => {
+        ProcessImageResult::Success { data, mime_type } => {
             // The processed image should be non-empty
             assert!(!data.is_empty());
             // For a small image, it should not be resized, so data should be similar
             assert!(data.len() <= MAX_IMAGE_SIZE_BYTES);
+            assert_eq!(mime_type, "image/png");
         }
         other => panic!("Expected Success, got {:?}", other),
     }
@@ -50,6 +51,67 @@ fn test_resize_image_small_image_unchanged() {
     let result = resize_image(&small_png).unwrap();
     // Small images should be returned as-is
     assert_eq!(result.len(), original_len);
+}
+
+fn create_noisy_png(width: u32, height: u32, transparent: bool) -> Vec<u8> {
+    let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_fn(width, height, |x, y| {
+        let seed = x
+            .wrapping_mul(1_103_515_245)
+            .wrapping_add(y.wrapping_mul(12_345));
+        let alpha = if transparent && (x + y) % 3 == 0 {
+            128
+        } else {
+            255
+        };
+        Rgba([
+            (seed & 0xff) as u8,
+            ((seed >> 8) & 0xff) as u8,
+            ((seed >> 16) & 0xff) as u8,
+            alpha,
+        ])
+    });
+
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut bytes);
+    img.write_to(&mut cursor, image::ImageFormat::Png).unwrap();
+    bytes
+}
+
+#[test]
+fn test_process_image_for_agent_compresses_byte_heavy_opaque_image() {
+    let noisy_png = create_noisy_png(1500, 1500, false);
+    assert!(noisy_png.len() > MAX_IMAGE_SIZE_BYTES);
+
+    let result = process_image_for_agent(&noisy_png);
+
+    match result {
+        ProcessImageResult::Success { data, mime_type } => {
+            assert!(data.len() <= MAX_IMAGE_SIZE_BYTES);
+            assert_eq!(mime_type, "image/jpeg");
+            let img = image::load_from_memory(&data).unwrap();
+            let (width, height) = img.dimensions();
+            assert!((width as f64 * height as f64) <= MAX_IMAGE_PIXELS);
+            assert_eq!(width, height);
+        }
+        other => panic!("Expected Success, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_process_image_for_agent_preserves_transparency_as_png() {
+    let transparent_png = create_noisy_png(1000, 1000, true);
+    assert!(transparent_png.len() > MAX_IMAGE_SIZE_BYTES);
+
+    let result = process_image_for_agent(&transparent_png);
+
+    match result {
+        ProcessImageResult::Success { data, mime_type } => {
+            assert!(data.len() <= MAX_IMAGE_SIZE_BYTES);
+            assert_eq!(mime_type, "image/png");
+            assert!(image::load_from_memory(&data).unwrap().color().has_alpha());
+        }
+        other => panic!("Expected Success, got {:?}", other),
+    }
 }
 
 #[test]
@@ -96,6 +158,24 @@ fn test_resize_image_large_image_gets_resized() {
 
     assert!(new_pixels <= MAX_IMAGE_PIXELS);
     assert!(new_width < width || new_height < height);
+}
+
+#[test]
+fn test_process_image_for_agent_keeps_resized_opaque_png_when_it_fits() {
+    let large_png = create_large_test_png();
+
+    let result = process_image_for_agent(&large_png);
+
+    match result {
+        ProcessImageResult::Success { data, mime_type } => {
+            assert!(data.len() <= MAX_IMAGE_SIZE_BYTES);
+            assert_eq!(mime_type, "image/png");
+            let img = image::load_from_memory(&data).unwrap();
+            let (width, height) = img.dimensions();
+            assert!((width as f64 * height as f64) <= MAX_IMAGE_PIXELS);
+        }
+        other => panic!("Expected Success, got {:?}", other),
+    }
 }
 
 /// Creates a very tall/narrow image to test dimension clamping.

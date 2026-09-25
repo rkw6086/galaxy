@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 pub const MAX_TOOL_RESULT_CHARS_FOR_PROVIDER_REQUEST: usize = 64_000;
+const MIN_PROVIDER_OUTPUT_DISCLOSURE_CHARS: usize = 27;
+const ESTIMATED_CHARS_PER_TOKEN: usize = 3;
+const MAX_SINGLE_OUTPUT_CONTEXT_FRACTION: usize = 4;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ConversationMessage {
@@ -13,8 +16,51 @@ pub struct ConversationMessage {
 
 impl ConversationMessage {
     pub fn truncate_tool_results_for_provider_request(&mut self) {
-        truncate_tool_results_in_content(&mut self.content);
+        self.truncate_tool_results_for_provider_request_with_context(None);
     }
+
+    pub fn truncate_tool_results_for_provider_request_with_context(
+        &mut self,
+        max_context_tokens: Option<u32>,
+    ) {
+        truncate_tool_results_in_content(
+            &mut self.content,
+            provider_output_char_limit(max_context_tokens),
+        );
+    }
+
+    pub fn truncate_tagged_terminal_output_for_provider_request_with_context(
+        &mut self,
+        max_context_tokens: Option<u32>,
+    ) {
+        truncate_tagged_terminal_output_in_content(&mut self.content, max_context_tokens);
+    }
+}
+
+pub fn provider_output_char_limit(max_context_tokens: Option<u32>) -> usize {
+    let context_aware_limit = max_context_tokens
+        .and_then(|tokens| usize::try_from(tokens).ok())
+        .map(|tokens| {
+            tokens
+                .saturating_mul(ESTIMATED_CHARS_PER_TOKEN)
+                .saturating_div(MAX_SINGLE_OUTPUT_CONTEXT_FRACTION)
+        })
+        .unwrap_or(MAX_TOOL_RESULT_CHARS_FOR_PROVIDER_REQUEST);
+    context_aware_limit.clamp(
+        MIN_PROVIDER_OUTPUT_DISCLOSURE_CHARS,
+        MAX_TOOL_RESULT_CHARS_FOR_PROVIDER_REQUEST,
+    )
+}
+
+pub fn bounded_terminal_output_for_provider_request(
+    output: &str,
+    max_context_tokens: Option<u32>,
+) -> String {
+    truncate_provider_text(
+        output,
+        provider_output_char_limit(max_context_tokens),
+        "terminal output truncated for model context; full output remains available in the terminal",
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -323,15 +369,77 @@ pub enum AgentEvent {
     },
 }
 
-fn truncate_tool_results_in_content(content: &mut MessageContent) {
+fn truncate_tagged_terminal_output_in_content(
+    content: &mut MessageContent,
+    max_context_tokens: Option<u32>,
+) {
+    match content {
+        MessageContent::Text(text) => {
+            *text = truncate_tagged_terminal_output(text, max_context_tokens);
+        }
+        MessageContent::MultiPart(parts) => {
+            for part in parts {
+                if let ContentPart::Text(text) = part {
+                    *text = truncate_tagged_terminal_output(text, max_context_tokens);
+                }
+            }
+        }
+        MessageContent::ToolUse { .. } | MessageContent::ToolResult { .. } => {}
+    }
+}
+
+fn truncate_tagged_terminal_output(content: &str, max_context_tokens: Option<u32>) -> String {
+    const TAGS: [&str; 2] = ["[Terminal output:\n", "[Final terminal output:\n"];
+    const END_TAG: &str = "\n]\n";
+
+    let mut result = String::with_capacity(content.len());
+    let mut remaining = content;
+    loop {
+        let Some((tag_offset, tag)) = TAGS
+            .iter()
+            .filter_map(|tag| remaining.find(tag).map(|offset| (offset, *tag)))
+            .min_by_key(|(offset, _)| *offset)
+        else {
+            result.push_str(remaining);
+            break;
+        };
+        let output_start = tag_offset + tag.len();
+        result.push_str(&remaining[..output_start]);
+        let after_tag = &remaining[output_start..];
+        let mut output_ends = after_tag.match_indices(END_TAG);
+        let Some((output_end, _)) = output_ends.next() else {
+            result.push_str(&bounded_terminal_output_for_provider_request(
+                after_tag,
+                max_context_tokens,
+            ));
+            break;
+        };
+        if output_ends.next().is_some() {
+            return truncate_provider_text(
+                content,
+                provider_output_char_limit(max_context_tokens),
+                "message text truncated for model context; full content remains in conversation history",
+            );
+        }
+        result.push_str(&bounded_terminal_output_for_provider_request(
+            &after_tag[..output_end],
+            max_context_tokens,
+        ));
+        result.push_str(END_TAG);
+        remaining = &after_tag[output_end + END_TAG.len()..];
+    }
+    result
+}
+
+fn truncate_tool_results_in_content(content: &mut MessageContent, max_chars: usize) {
     match content {
         MessageContent::Text(_) | MessageContent::ToolUse { .. } => {}
-        MessageContent::ToolResult { content, .. } => truncate_tool_result_text(content),
+        MessageContent::ToolResult { content, .. } => truncate_tool_result_text(content, max_chars),
         MessageContent::MultiPart(parts) => {
             for part in parts {
                 match part {
                     ContentPart::ToolResult { content, .. } => {
-                        truncate_tool_result_text(content);
+                        truncate_tool_result_text(content, max_chars);
                     }
                     ContentPart::Text(_)
                     | ContentPart::Reasoning { .. }
@@ -343,16 +451,31 @@ fn truncate_tool_results_in_content(content: &mut MessageContent) {
     }
 }
 
-fn truncate_tool_result_text(content: &mut String) {
+fn truncate_tool_result_text(content: &mut String, max_chars: usize) {
+    *content = truncate_provider_text(content, max_chars, "tool result truncated");
+}
+
+fn truncate_provider_text(content: &str, max_chars: usize, reason: &str) -> String {
     let char_count = content.chars().count();
-    if char_count <= MAX_TOOL_RESULT_CHARS_FOR_PROVIDER_REQUEST {
-        return;
+    if char_count <= max_chars {
+        return content.to_string();
     }
 
-    let omitted_chars = char_count.saturating_sub(MAX_TOOL_RESULT_CHARS_FOR_PROVIDER_REQUEST);
-    let marker = format!("\n... [tool result truncated; omitted {omitted_chars} chars] ...\n");
+    let omitted_chars = char_count.saturating_sub(max_chars);
+    let marker = format!("\n... [{reason}; omitted {omitted_chars} chars] ...\n");
     let marker_chars = marker.chars().count();
-    let retained_chars = MAX_TOOL_RESULT_CHARS_FOR_PROVIDER_REQUEST.saturating_sub(marker_chars);
+    if max_chars <= marker_chars {
+        let short_reason = if reason.starts_with("terminal output") {
+            "terminal output truncated"
+        } else if reason.starts_with("message text") {
+            "message text truncated"
+        } else {
+            "tool result truncated"
+        };
+        let short_marker = format!("[{short_reason}]");
+        return short_marker.chars().take(max_chars).collect();
+    }
+    let retained_chars = max_chars.saturating_sub(marker_chars);
     let head_chars = retained_chars / 2;
     let tail_chars = retained_chars.saturating_sub(head_chars);
     let head: String = content.chars().take(head_chars).collect();
@@ -364,7 +487,7 @@ fn truncate_tool_result_text(content: &mut String) {
         .chars()
         .rev()
         .collect();
-    *content = format!("{head}{marker}{tail}");
+    format!("{head}{marker}{tail}")
 }
 
 #[cfg(test)]

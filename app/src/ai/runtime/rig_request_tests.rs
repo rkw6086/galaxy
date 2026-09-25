@@ -438,6 +438,38 @@ fn completed_command_assessment_uses_root_history_without_tools_or_monitor_instr
 }
 
 #[test]
+fn completed_command_assessment_bounds_only_the_provider_payload() {
+    let full_output = format!("first\n{}\nlast", "x".repeat(100_000));
+    let block_id: galaxy_terminal::model::BlockId = "large-completed-command".to_string().into();
+    let mut params = RequestParams::new_for_test();
+    params.context_window_limit = Some(8_000);
+    params.input = vec![AIAgentInput::CommandCompletionAssessment {
+        prompt: "Report the final result to the user.".to_string(),
+        context: Arc::from([]),
+        completed_command: crate::ai::agent::RunningCommand {
+            command: "verbose-command".to_string(),
+            block_id,
+            grid_contents: full_output.clone(),
+            cursor: String::new(),
+            requested_command_id: None,
+            is_alt_screen_active: false,
+        },
+    }];
+
+    let prepared = prepare_rig_turn(&config(), params, Vec::new(), Vec::new());
+    let MessageContent::Text(provider_text) = &prepared.request.messages[0].content else {
+        panic!("expected text command assessment");
+    };
+
+    assert!(provider_text.contains("terminal output truncated for model context"));
+    assert!(provider_text.contains("full output remains available in the terminal"));
+    assert!(provider_text.contains("first"));
+    assert!(provider_text.contains("last"));
+    assert!(!provider_text.contains(&full_output));
+    assert_eq!(full_output.chars().count(), 100_011);
+}
+
+#[test]
 fn forced_cli_profile_uses_monitor_prompt_and_tools_for_an_initial_query() {
     let mut params = RequestParams::new_for_test();
     params.input = vec![user_query("Run the checks")];
@@ -801,7 +833,7 @@ fn normalized_tool_outcomes_are_the_only_action_results_sent_to_rig() {
         })
         .collect();
 
-    let messages = input_messages(Vec::new(), tool_results);
+    let messages = input_messages(Vec::new(), tool_results, Some(128_000));
 
     assert_eq!(messages.len(), 1);
     let MessageContent::MultiPart(parts) = &messages[0].content else {

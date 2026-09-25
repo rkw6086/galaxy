@@ -129,11 +129,6 @@ pub(crate) async fn prepare_provider_run(
     let (supported_tools, supported_cli_agent_tools) =
         crate::ai::agent::api::prepare_direct_provider_params(&mut params);
     let skill_path_origin = params.session_context.skill_path_origin();
-    let max_context_tokens = provider_context_window_tokens(
-        &base_provider_config,
-        params.model.as_str(),
-        params.context_window_limit,
-    );
     let mut cli_params = params.clone();
     let cli_model_is_placeholder = params.cli_agent_model.as_str().trim().is_empty()
         || params
@@ -178,9 +173,13 @@ pub(crate) async fn prepare_provider_run(
         Some(RigRequestMode::Cli),
     )
     .await?;
-    let cli_monitor_profile = Some(ProviderRunProfile::new(cli_runtime, cli_prepared.request));
+    let cli_monitor_profile = Some(
+        ProviderRunProfile::new(cli_runtime, cli_prepared.request)
+            .with_max_context_tokens(cli_prepared.max_context_tokens),
+    );
 
     let PreparedRigTurn {
+        max_context_tokens: prepared_context_tokens,
         task_id,
         needs_create_task,
         user_query,
@@ -203,12 +202,13 @@ pub(crate) async fn prepare_provider_run(
         needs_create_task,
         user_query,
         model_id: request.model.as_str().to_string(),
-        max_context_tokens,
+        max_context_tokens: prepared_context_tokens,
         capabilities: base_runtime.descriptor().capabilities.clone(),
         empty_output_message: None,
     };
     Ok(PreparedProviderRun {
-        base_profile: ProviderRunProfile::new(base_runtime, request),
+        base_profile: ProviderRunProfile::new(base_runtime, request)
+            .with_max_context_tokens(prepared_context_tokens),
         cli_monitor_profile,
         tool_result_archive,
         messages_sent,

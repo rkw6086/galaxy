@@ -163,11 +163,21 @@ impl From<ProviderRunProtocolError> for ProviderRunCoordinatorError {
 pub(crate) struct ProviderRunProfile {
     pub(crate) runtime: Arc<dyn AgentRuntime>,
     pub(crate) request: TurnRequest,
+    pub(crate) max_context_tokens: Option<u32>,
 }
 
 impl ProviderRunProfile {
     pub(crate) fn new(runtime: Arc<dyn AgentRuntime>, request: TurnRequest) -> Self {
-        Self { runtime, request }
+        Self {
+            runtime,
+            request,
+            max_context_tokens: None,
+        }
+    }
+
+    pub(crate) fn with_max_context_tokens(mut self, max_context_tokens: Option<u32>) -> Self {
+        self.max_context_tokens = max_context_tokens;
+        self
     }
 }
 
@@ -183,23 +193,19 @@ pub(crate) struct ProviderRunCoordinator {
 impl ProviderRunCoordinator {
     pub(crate) fn from_request(
         run_id: impl Into<galaxy_agent_core::ProviderRunId>,
-        runtime: Arc<dyn AgentRuntime>,
-        request: TurnRequest,
+        base_profile: ProviderRunProfile,
         tool_result_archive: Vec<galaxy_agent_core::ConversationMessage>,
         limits: ProviderRunLimits,
     ) -> Result<Self, ProviderRunCoordinatorError> {
         let mut run = ProviderRun::new(
             run_id,
-            request.messages.clone(),
+            base_profile.request.messages.clone(),
             BASE_PROVIDER_PROFILE,
             limits,
         );
         run.replace_tool_result_archive(tool_result_archive);
         let mut profiles = BTreeMap::new();
-        profiles.insert(
-            BASE_PROVIDER_PROFILE.to_string(),
-            ProviderRunProfile::new(runtime, request),
-        );
+        profiles.insert(BASE_PROVIDER_PROFILE.to_string(), base_profile);
         Self::new(run, profiles)
     }
 
@@ -266,13 +272,11 @@ impl ProviderRunCoordinator {
     pub(crate) fn insert_profile(
         &mut self,
         profile: impl Into<String>,
-        runtime: Arc<dyn AgentRuntime>,
-        request: TurnRequest,
+        config: ProviderRunProfile,
     ) -> Result<(), ProviderRunCoordinatorError> {
         let profile = profile.into();
-        validate_profile_runtime(&profile, runtime.as_ref())?;
-        self.profiles
-            .insert(profile, ProviderRunProfile::new(runtime, request));
+        validate_profile_runtime(&profile, config.runtime.as_ref())?;
+        self.profiles.insert(profile, config);
         Ok(())
     }
 
@@ -461,13 +465,15 @@ impl ProviderRunCoordinator {
     }
 
     fn request_needs_context_compaction(&self, call: &ProviderModelCall) -> bool {
-        let Some(max_context_tokens) = self.max_context_tokens else {
-            return false;
-        };
         let Some(profile) = self.profiles.get(call.profile.as_str()) else {
             return false;
         };
-        let request = request_for_model_call(profile.request.clone(), call);
+        let Some(max_context_tokens) = profile.max_context_tokens.or(self.max_context_tokens)
+        else {
+            return false;
+        };
+        let request =
+            request_for_model_call(profile.request.clone(), call, Some(max_context_tokens));
         // Provider tokenizers and request envelopes differ. Compact before the
         // estimate reaches the advertised limit, leaving room for that uncertainty.
         let safe_context_tokens = u64::from(max_context_tokens) * 9 / 10;
@@ -547,7 +553,11 @@ impl ProviderRunCoordinator {
         {
             return Ok(());
         }
-        let request = request_for_model_call(profile.request.clone(), &call);
+        let request = request_for_model_call(
+            profile.request.clone(),
+            &call,
+            profile.max_context_tokens.or(self.max_context_tokens),
+        );
         let started_at = Instant::now();
         let (attempt_sender, attempt_control) = turn_control();
         let start_future = profile.runtime.start_turn(request, attempt_control).fuse();
@@ -1132,9 +1142,18 @@ fn validate_profile_runtime(
     Ok(())
 }
 
-fn request_for_model_call(mut template: TurnRequest, call: &ProviderModelCall) -> TurnRequest {
+fn request_for_model_call(
+    mut template: TurnRequest,
+    call: &ProviderModelCall,
+    max_context_tokens: Option<u32>,
+) -> TurnRequest {
     template.prompt = None;
     template.messages = call.messages.clone();
+    for message in &mut template.messages {
+        message.truncate_tool_results_for_provider_request_with_context(max_context_tokens);
+        message
+            .truncate_tagged_terminal_output_for_provider_request_with_context(max_context_tokens);
+    }
     add_exploration_reminder(&mut template);
     template
 }
@@ -1206,31 +1225,90 @@ fn consecutive_discovery_batches(messages: &[ConversationMessage]) -> usize {
 
 const ESTIMATED_BYTES_PER_TOKEN: u64 = 3;
 const ESTIMATED_REQUEST_OVERHEAD_TOKENS: u64 = 512;
+const ESTIMATED_IMAGE_TOKENS: u64 = 1_600;
 
-/// Conservative estimate, not an exact tokenizer count. UTF-8 bytes account for
-/// non-ASCII content better than character counts; the caller also leaves headroom.
+/// Heuristic estimate, not an exact tokenizer count or provider-specific bound.
+/// UTF-8 bytes account for non-ASCII content better than character counts; raw
+/// image payload bytes are excluded from text accounting and charged separately.
 fn estimate_turn_request_tokens(request: &TurnRequest) -> u64 {
-    let mut bytes = request
+    let mut text_bytes = request
         .system_prompt
         .as_deref()
         .map_or(0, |text| text.len());
-    bytes += request.prompt.as_ref().map_or(0, |prompt| {
-        serde_json::to_string(prompt).unwrap_or_default().len()
-    });
-    bytes += request
+    text_bytes += request
+        .prompt
+        .as_ref()
+        .map_or(0, estimate_message_content_bytes);
+    text_bytes += request
         .messages
         .iter()
-        .map(|message| serde_json::to_string(message).unwrap_or_default().len())
+        .map(estimate_conversation_message_bytes)
         .sum::<usize>();
-    bytes += request
+    text_bytes += request
         .tools
         .iter()
         .map(|tool| serde_json::to_string(tool).unwrap_or_default().len())
         .sum::<usize>();
-    let input_tokens = (bytes as u64).div_ceil(ESTIMATED_BYTES_PER_TOKEN);
+
+    let image_tokens = request
+        .prompt
+        .as_ref()
+        .map_or(0, count_images_in_content)
+        .saturating_add(
+            request
+                .messages
+                .iter()
+                .map(|message| count_images_in_content(&message.content))
+                .sum::<u64>(),
+        )
+        .saturating_mul(ESTIMATED_IMAGE_TOKENS);
+    let input_tokens = (text_bytes as u64).div_ceil(ESTIMATED_BYTES_PER_TOKEN);
     input_tokens
+        .saturating_add(image_tokens)
         .saturating_add(ESTIMATED_REQUEST_OVERHEAD_TOKENS)
         .saturating_add(request.max_output_tokens.unwrap_or_default())
+}
+
+fn estimate_conversation_message_bytes(message: &ConversationMessage) -> usize {
+    let mut sanitized_message = message.clone();
+    remove_image_payloads_from_content(&mut sanitized_message.content);
+    serde_json::to_string(&sanitized_message)
+        .unwrap_or_default()
+        .len()
+}
+
+fn estimate_message_content_bytes(content: &MessageContent) -> usize {
+    let mut sanitized_content = content.clone();
+    remove_image_payloads_from_content(&mut sanitized_content);
+    serde_json::to_string(&sanitized_content)
+        .unwrap_or_default()
+        .len()
+}
+
+fn remove_image_payloads_from_content(content: &mut MessageContent) {
+    if let MessageContent::MultiPart(parts) = content {
+        for part in parts {
+            match part {
+                ContentPart::Image { data, .. } => data.clear(),
+                ContentPart::Text(_)
+                | ContentPart::Reasoning { .. }
+                | ContentPart::ToolUse { .. }
+                | ContentPart::ToolResult { .. } => {}
+            }
+        }
+    }
+}
+
+fn count_images_in_content(content: &MessageContent) -> u64 {
+    match content {
+        MessageContent::Text(_)
+        | MessageContent::ToolUse { .. }
+        | MessageContent::ToolResult { .. } => 0,
+        MessageContent::MultiPart(parts) => parts
+            .iter()
+            .filter(|part| matches!(part, ContentPart::Image { .. }))
+            .count() as u64,
+    }
 }
 
 fn tool_event_call_id(event: &ToolEvent) -> Result<&str, ProviderRunCoordinatorError> {

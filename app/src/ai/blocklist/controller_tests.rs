@@ -289,6 +289,7 @@ fn provider_snapshot(conversation_id: AIConversationId) -> super::ActiveProvider
         pending_monitor_observation: None,
         pending_command_completion: None,
         monitor_prose_continuations: 0,
+        live_command_output_tokens: 0,
         queued_follow_ups: Vec::new(),
     }
 }
@@ -309,6 +310,21 @@ fn provider_snapshot_persists_cancellation_reason() {
         Some(CancellationReason::ManuallyCancelled)
     );
     assert!(!restored.run.is_terminal());
+}
+
+#[test]
+fn provider_snapshot_defaults_live_command_output_tokens_for_restore() {
+    let conversation_id = AIConversationId::new();
+    let snapshot = provider_snapshot(conversation_id);
+    let mut value = serde_json::to_value(&snapshot).unwrap();
+    value
+        .as_object_mut()
+        .unwrap()
+        .remove("live_command_output_tokens");
+
+    let restored = super::ActiveProviderRunSnapshot::parse(&value.to_string()).unwrap();
+
+    assert_eq!(restored.live_command_output_tokens, 0);
 }
 
 #[test]
@@ -470,6 +486,8 @@ fn queued_provider_follow_up_persists_while_active_slot_is_unprepared() {
                         pending_monitor_observation: None,
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
+                        live_command_output_tokens: 0,
+                        command_output_poll_scheduled: false,
                         retry_status: None,
                         tool_call_progress: Vec::new(),
                     },
@@ -497,6 +515,8 @@ fn queued_provider_follow_up_persists_while_active_slot_is_unprepared() {
                             pending_monitor_observation: None,
                             pending_command_completion: None,
                             monitor_prose_continuations: 0,
+                            live_command_output_tokens: 0,
+                            command_output_poll_scheduled: false,
                             retry_status: None,
                             tool_call_progress: Vec::new(),
                         },
@@ -1050,6 +1070,8 @@ fn cancelling_provider_startup_keeps_slot_and_durable_cancellation() {
                         pending_monitor_observation: None,
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
+                        live_command_output_tokens: 0,
+                        command_output_poll_scheduled: false,
                         retry_status: None,
                         tool_call_progress: Vec::new(),
                     },
@@ -1152,6 +1174,8 @@ fn same_conversation_follow_up_waits_for_cancelled_provider_generation_cleanup()
                         pending_monitor_observation: None,
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
+                        live_command_output_tokens: 0,
+                        command_output_poll_scheduled: false,
                         retry_status: None,
                         tool_call_progress: Vec::new(),
                     },
@@ -1185,6 +1209,8 @@ fn same_conversation_follow_up_waits_for_cancelled_provider_generation_cleanup()
                             pending_monitor_observation: None,
                             pending_command_completion: None,
                             monitor_prose_continuations: 0,
+                            live_command_output_tokens: 0,
+                            command_output_poll_scheduled: false,
                             retry_status: None,
                             tool_call_progress: Vec::new(),
                         },
@@ -1296,6 +1322,8 @@ fn non_follow_up_provider_cancellation_does_not_admit_an_overlapping_generation(
                         pending_monitor_observation: None,
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
+                        live_command_output_tokens: 0,
+                        command_output_poll_scheduled: false,
                         retry_status: None,
                         tool_call_progress: Vec::new(),
                     },
@@ -1794,6 +1822,7 @@ fn restored_active_command_rebuilds_monitor_observation() {
             cli_task_id: Some(cli_task_id.clone()),
             command: "sleep 10".to_owned(),
             state: BlockState::Executing,
+            finished: false,
             output: "running".to_owned(),
             exit_code: 0,
         }),
@@ -1806,46 +1835,74 @@ fn restored_active_command_rebuilds_monitor_observation() {
         .expect("active command should restore monitoring");
     assert_eq!(observation.block_id, block_id);
     assert_eq!(observation.cli_task_id, cli_task_id);
+    assert!(snapshot.live_command_output_tokens > 0);
 }
 
 #[test]
 fn restored_completed_command_rebuilds_exact_completion_evidence() {
-    let conversation_id = AIConversationId::new();
-    let mut snapshot = provider_snapshot(conversation_id);
-    let (action_id, block_id, cli_task_id) =
-        attach_snapshot_command_monitor(&mut snapshot, conversation_id);
-    snapshot.pending_monitor_observation = Some(super::PendingProviderMonitorObservation {
-        block_id: block_id.clone(),
-        cli_task_id: cli_task_id.clone(),
-    });
+    for (state, finished) in [
+        (BlockState::DoneWithExecution, true),
+        (BlockState::Background, true),
+    ] {
+        let conversation_id = AIConversationId::new();
+        let mut snapshot = provider_snapshot(conversation_id);
+        let (action_id, block_id, cli_task_id) =
+            attach_snapshot_command_monitor(&mut snapshot, conversation_id);
+        snapshot.pending_monitor_observation = Some(super::PendingProviderMonitorObservation {
+            block_id: block_id.clone(),
+            cli_task_id: cli_task_id.clone(),
+        });
 
-    super::apply_restored_provider_command_evidence(
-        conversation_id,
-        &mut snapshot,
-        Some(super::RestoredProviderCommandEvidence {
-            conversation_id: Some(conversation_id),
-            requested_command_action_id: Some(action_id.clone()),
-            cli_task_id: Some(cli_task_id),
-            command: "sleep 10".to_owned(),
-            state: BlockState::DoneWithExecution,
-            output: "done".to_owned(),
-            exit_code: 17,
-        }),
-    )
-    .unwrap();
+        super::apply_restored_provider_command_evidence(
+            conversation_id,
+            &mut snapshot,
+            Some(super::RestoredProviderCommandEvidence {
+                conversation_id: Some(conversation_id),
+                requested_command_action_id: Some(action_id.clone()),
+                cli_task_id: Some(cli_task_id),
+                command: "sleep 10".to_owned(),
+                state,
+                finished,
+                output: "done".to_owned(),
+                exit_code: 17,
+            }),
+        )
+        .unwrap();
 
-    assert!(snapshot.pending_monitor_observation.is_none());
-    let completion = snapshot
-        .pending_command_completion
-        .expect("completed command should restore final evidence");
-    assert_eq!(completion.block_id, block_id);
-    assert_eq!(
-        completion.initial_requested_command_action_id,
-        Some(action_id)
+        assert!(snapshot.pending_monitor_observation.is_none());
+        let completion = snapshot
+            .pending_command_completion
+            .expect("completed command should restore final evidence");
+        assert_eq!(completion.block_id, block_id);
+        assert_eq!(
+            completion.initial_requested_command_action_id,
+            Some(action_id)
+        );
+        assert_eq!(completion.command, "sleep 10");
+        assert_eq!(completion.output, "done");
+        assert_eq!(completion.exit_code, 17);
+        assert!(snapshot.live_command_output_tokens > 0);
+    }
+}
+
+#[test]
+fn monitored_completion_bounds_model_observation_without_mutating_durable_output() {
+    let output = format!("first:{}:last", "界".repeat(20_000));
+    let completion = super::PendingProviderCommandCompletion::new(
+        BlockId::new(),
+        None,
+        "generate output".to_owned(),
+        output.clone(),
+        0,
     );
-    assert_eq!(completion.command, "sleep 10");
-    assert_eq!(completion.output, "done");
-    assert_eq!(completion.exit_code, 17);
+
+    let MessageContent::Text(observation) = completion.observation(Some(8_000)) else {
+        panic!("expected text observation");
+    };
+    assert!(observation.contains("terminal output truncated for model context"));
+    assert!(observation.contains("full output remains available in the terminal"));
+    assert!(!observation.contains(&output));
+    assert_eq!(completion.output, output);
 }
 
 #[test]
@@ -1910,6 +1967,7 @@ fn completion_offered_during_restore_stays_provider_owned_and_durable() {
                 .and_then(|json| super::ActiveProviderRunSnapshot::parse(json).ok())
                 .unwrap();
             assert!(restored.pending_monitor_observation.is_none());
+            assert!(restored.live_command_output_tokens > 0);
             let completion = restored.pending_command_completion.unwrap();
             assert_eq!(completion.block_id, block_id);
             assert_eq!(
@@ -1944,6 +2002,7 @@ fn prepared_restore_merges_a_later_durable_completion_once() {
     super::merge_completion_offered_during_restore(&mut prepared, latest);
 
     assert!(prepared.pending_monitor_observation.is_none());
+    assert!(prepared.live_command_output_tokens > 0);
     let completion = prepared.pending_command_completion.unwrap();
     assert_eq!(completion.block_id, block_id);
     assert_eq!(
@@ -2052,6 +2111,7 @@ fn restored_evidence_is_ignored_without_a_command_monitor() {
         cli_task_id: None,
         command: "sleep 10".to_owned(),
         state: BlockState::Executing,
+        finished: false,
         output: "running".to_owned(),
         exit_code: 0,
     };
@@ -2096,6 +2156,7 @@ fn restored_command_rejects_mismatched_or_invalid_terminal_evidence() {
                 cli_task_id: Some(cli_task_id.clone()),
                 command: "sleep 10".to_owned(),
                 state: BlockState::Executing,
+                finished: false,
                 output: String::new(),
                 exit_code: 0,
             }),
@@ -2112,7 +2173,8 @@ fn restored_command_rejects_mismatched_or_invalid_terminal_evidence() {
                 requested_command_action_id: Some(action_id),
                 cli_task_id: Some(cli_task_id),
                 command: "sleep 10".to_owned(),
-                state: BlockState::Background,
+                state: BlockState::Static,
+                finished: false,
                 output: String::new(),
                 exit_code: 0,
             }),
@@ -2404,6 +2466,119 @@ fn provider_monitor_prose_retry_is_bounded_then_parks() {
 }
 
 #[test]
+fn provider_command_snapshot_polling_tracks_only_unfinished_executing_states() {
+    for state in [
+        BlockState::BeforeExecution,
+        BlockState::Executing,
+        BlockState::Background,
+    ] {
+        assert!(super::provider_command_snapshot_needs_poll(
+            &super::ProviderCommandOutputSnapshot {
+                state,
+                finished: false,
+                output: String::new(),
+            }
+        ));
+        assert!(!super::provider_command_snapshot_needs_poll(
+            &super::ProviderCommandOutputSnapshot {
+                state,
+                finished: true,
+                output: String::new(),
+            }
+        ));
+    }
+    for state in [BlockState::DoneWithExecution, BlockState::Static] {
+        assert!(!super::provider_command_snapshot_needs_poll(
+            &super::ProviderCommandOutputSnapshot {
+                state,
+                finished: false,
+                output: String::new(),
+            }
+        ));
+    }
+}
+
+#[test]
+fn live_command_output_tokens_only_grow() {
+    let mut live_tokens = 0;
+    assert!(super::reconcile_live_command_output_tokens(
+        &mut live_tokens,
+        &"x".repeat(100),
+    ));
+    let after_growth = live_tokens;
+
+    assert!(!super::reconcile_live_command_output_tokens(
+        &mut live_tokens,
+        "short",
+    ));
+    assert_eq!(live_tokens, after_growth);
+
+    assert!(super::reconcile_live_command_output_tokens(
+        &mut live_tokens,
+        &"x".repeat(1_000),
+    ));
+    assert!(live_tokens > after_growth);
+}
+
+#[test]
+fn provider_poll_monitor_identity_matches_the_full_owner() {
+    let action_id = AIAgentActionId::from("command-1".to_owned());
+    let work_id = ExternalWorkId {
+        run_id: ProviderRunId::new("run-1"),
+        epoch: RunEpoch::new(2),
+    };
+    let monitor = super::ProviderCommandMonitorState {
+        run_id: work_id.run_id.clone(),
+        originating_work_id: work_id.clone(),
+        originating_call_id: action_id.to_string(),
+        initial_requested_command_action_id: action_id.clone(),
+        block_id: BlockId::new(),
+        command: "sleep 10".to_owned(),
+        cli_task_id: TaskId::new("cli-task".to_owned()),
+    };
+    assert!(super::provider_monitor_matches_scheduled(
+        &monitor, &monitor
+    ));
+
+    let mut replacement_call = monitor.clone();
+    replacement_call.originating_call_id = "command-2".to_owned();
+    assert!(!super::provider_monitor_matches_scheduled(
+        &replacement_call,
+        &monitor,
+    ));
+
+    let mut replacement_action = monitor.clone();
+    replacement_action.initial_requested_command_action_id =
+        AIAgentActionId::from("command-2".to_owned());
+    assert!(!super::provider_monitor_matches_scheduled(
+        &replacement_action,
+        &monitor,
+    ));
+
+    let mut replacement_block = monitor.clone();
+    replacement_block.block_id = BlockId::new();
+    assert!(!super::provider_monitor_matches_scheduled(
+        &replacement_block,
+        &monitor,
+    ));
+
+    let mut replacement_cli_task = monitor;
+    replacement_cli_task.cli_task_id = TaskId::new("replacement-cli-task".to_owned());
+    assert!(!super::provider_monitor_matches_scheduled(
+        &replacement_cli_task,
+        &super::ProviderCommandMonitorState {
+            run_id: work_id.run_id.clone(),
+            originating_work_id: work_id,
+            originating_call_id: action_id.to_string(),
+            initial_requested_command_action_id: action_id,
+            block_id: replacement_cli_task.block_id.clone(),
+            command: "sleep 10".to_owned(),
+            cli_task_id: TaskId::new("cli-task".to_owned()),
+        },
+    ));
+}
+
+#[test]
 fn provider_completion_requires_current_run_and_exact_monitor_identity() {
     let conversation_id = AIConversationId::new();
     let run_id = ProviderRunId::new("current");
@@ -2547,7 +2722,7 @@ fn nonzero_provider_completion_is_continuation_evidence() {
         output: "one test failed".to_owned(),
         exit_code: 17,
     };
-    let galaxy_agent_core::MessageContent::Text(observation) = completion.observation() else {
+    let galaxy_agent_core::MessageContent::Text(observation) = completion.observation(None) else {
         panic!("command completion must be text evidence");
     };
     assert!(observation.contains("exit code 17"));
@@ -3781,6 +3956,46 @@ fn progressive_summary_includes_an_oversized_final_tool_batch() {
         super::progressive_summary_split_point(&messages, 100_000),
         0
     );
+}
+
+#[test]
+fn progressive_summary_input_is_bounded_and_discloses_omitted_history() {
+    let messages = vec![
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text(format!("old-start:{}", "x".repeat(10_000))),
+        },
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text(format!("{}:new-end", "y".repeat(10_000))),
+        },
+    ];
+
+    let content = super::progressive_summary_content(&messages, None, 1_000);
+
+    assert_eq!(content.chars().count(), 1_000);
+    assert!(content.starts_with("<messages-to-summarize>"));
+    assert!(content.ends_with("new-end\n</messages-to-summarize>"));
+    assert!(content.contains("summary input truncated to fit model context"));
+    assert!(content.contains("omitted history remains in the conversation archive"));
+}
+
+#[test]
+fn progressive_summary_budget_is_character_safe_for_multibyte_history() {
+    let messages = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::ToolResult {
+            tool_use_id: "large-output".to_string(),
+            content: format!("first:{}:last", "界".repeat(10_000)),
+            is_error: false,
+        },
+    }];
+
+    let content = super::progressive_summary_content(&messages, None, 1_000);
+
+    assert_eq!(content.chars().count(), 1_000);
+    assert!(content.contains("summary input truncated to fit model context"));
+    assert!(content.contains("omitted history remains in the conversation archive"));
 }
 
 #[test]

@@ -23,10 +23,10 @@ use chrono::{DateTime, Local};
 use futures::channel::oneshot;
 use futures::{FutureExt, StreamExt};
 use galaxy_agent_core::{
-    turn_control, AgentEvent, ExternalWorkId, PendingToolBatch, PendingToolCallState, ProviderRun,
-    ProviderRunFailureKind, ProviderRunId, ProviderRunLimits, ProviderRunOutcome, ProviderRunState,
-    StopReason, ToolLoopGuard, ToolResult, ToolResultStatus, TurnCommand, TurnCommandSender,
-    TurnRequest, Usage,
+    bounded_terminal_output_for_provider_request, turn_control, AgentEvent, ExternalWorkId,
+    PendingToolBatch, PendingToolCallState, ProviderRun, ProviderRunFailureKind, ProviderRunId,
+    ProviderRunLimits, ProviderRunOutcome, ProviderRunState, StopReason, ToolLoopGuard, ToolResult,
+    ToolResultStatus, TurnCommand, TurnCommandSender, TurnRequest, Usage,
 };
 use galaxy_core::assertions::safe_assert;
 use input_context::{input_context_for_request, parse_context_attachments};
@@ -118,6 +118,7 @@ const PROGRESSIVE_SUMMARY_OUTPUT_TOKENS: u32 = 8_000;
 const PROGRESSIVE_SUMMARY_CONTEXT_SAFETY_TOKENS: u32 = 2_000;
 const PROGRESSIVE_SUMMARY_START_TIMEOUT: Duration = Duration::from_secs(120);
 const PROGRESSIVE_SUMMARY_EVENT_TIMEOUT: Duration = Duration::from_secs(300);
+const PROVIDER_COMMAND_OUTPUT_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const PROGRESSIVE_SUMMARY_PROMPT: &str = "Create a concise, factual task-state checkpoint from the following conversation history. Preserve:\n\
     - The user's current goal, constraints, and durable preferences\n\
     - Decisions made and the rationale needed to continue\n\
@@ -201,7 +202,7 @@ fn progressive_summary_candidate(
 }
 
 fn estimated_text_tokens(text: &str) -> u32 {
-    u32::try_from(text.len().div_ceil(3)).unwrap_or(u32::MAX)
+    u32::try_from(text.chars().count().div_ceil(3)).unwrap_or(u32::MAX)
 }
 
 fn estimated_message_tokens(message: &ConversationMessage) -> u32 {
@@ -299,16 +300,15 @@ fn progressive_summary_split_point(
 fn progressive_summary_content(
     messages: &[ConversationMessage],
     existing_summary: Option<&str>,
+    max_chars: usize,
 ) -> String {
     fn safe_truncate(text: &str, max_chars: usize) -> String {
-        if text.len() <= max_chars {
+        let total_chars = text.chars().count();
+        if total_chars <= max_chars {
             text.to_string()
         } else {
             let truncated = text.chars().take(max_chars).collect::<String>();
-            format!(
-                "{truncated}... [truncated, {total_chars} total chars]",
-                total_chars = text.len()
-            )
+            format!("{truncated}... [truncated, {total_chars} total chars]")
         }
     }
 
@@ -347,7 +347,28 @@ fn progressive_summary_content(
         content.push_str(&format!("[{role}]: {message_content}\n"));
     }
     content.push_str("</messages-to-summarize>");
-    content
+    if content.chars().count() <= max_chars {
+        return content;
+    }
+
+    let marker = "\n... [summary input truncated to fit model context; omitted history remains in the conversation archive] ...\n";
+    let marker_chars = marker.chars().count();
+    if max_chars <= marker_chars {
+        return marker.chars().take(max_chars).collect();
+    }
+    let retained_chars = max_chars - marker_chars;
+    let head_chars = retained_chars / 2;
+    let tail_chars = retained_chars - head_chars;
+    let head = content.chars().take(head_chars).collect::<String>();
+    let tail = content
+        .chars()
+        .rev()
+        .take(tail_chars)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+    format!("{head}{marker}{tail}")
 }
 
 fn progressive_summary_messages(summary: String) -> Vec<ConversationMessage> {
@@ -896,8 +917,44 @@ struct RestoredProviderCommandEvidence {
     cli_task_id: Option<TaskId>,
     command: String,
     state: BlockState,
+    finished: bool,
     output: String,
     exit_code: i32,
+}
+
+struct ProviderCommandOutputSnapshot {
+    state: BlockState,
+    finished: bool,
+    output: String,
+}
+
+fn provider_monitor_matches_scheduled(
+    active: &ProviderCommandMonitorState,
+    scheduled: &ProviderCommandMonitorState,
+) -> bool {
+    active.run_id == scheduled.run_id
+        && active.originating_work_id == scheduled.originating_work_id
+        && active.originating_call_id == scheduled.originating_call_id
+        && active.initial_requested_command_action_id
+            == scheduled.initial_requested_command_action_id
+        && active.block_id == scheduled.block_id
+        && active.cli_task_id == scheduled.cli_task_id
+}
+
+fn provider_command_snapshot_needs_poll(snapshot: &ProviderCommandOutputSnapshot) -> bool {
+    matches!(
+        snapshot.state,
+        BlockState::BeforeExecution | BlockState::Executing | BlockState::Background
+    ) && !snapshot.finished
+}
+
+fn reconcile_live_command_output_tokens(live_tokens: &mut u32, output: &str) -> bool {
+    let estimated_output_tokens = estimated_text_tokens(output);
+    if estimated_output_tokens <= *live_tokens {
+        return false;
+    }
+    *live_tokens = estimated_output_tokens;
+    true
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -926,11 +983,11 @@ impl PendingProviderCommandCompletion {
         }
     }
 
-    fn observation(&self) -> MessageContent {
+    fn observation(&self, max_context_tokens: Option<u32>) -> MessageContent {
         let output = if self.output.is_empty() {
-            "(no output)"
+            "(no output)".to_string()
         } else {
-            self.output.as_str()
+            bounded_terminal_output_for_provider_request(&self.output, max_context_tokens)
         };
         MessageContent::Text(format!(
             "The monitored command has finished with exit code {}. Continue the original objective \
@@ -1067,6 +1124,8 @@ struct ActiveProviderRunSlot {
     pending_monitor_observation: Option<PendingProviderMonitorObservation>,
     pending_command_completion: Option<PendingProviderCommandCompletion>,
     monitor_prose_continuations: usize,
+    live_command_output_tokens: u32,
+    command_output_poll_scheduled: bool,
     retry_status: Option<ProviderRetryStatus>,
     tool_call_progress: Vec<ProviderToolCallProgressStatus>,
 }
@@ -1215,6 +1274,8 @@ struct ActiveProviderRunSnapshot {
     pending_command_completion: Option<PendingProviderCommandCompletion>,
     monitor_prose_continuations: usize,
     #[serde(default)]
+    live_command_output_tokens: u32,
+    #[serde(default)]
     queued_follow_ups: Vec<QueuedProviderRunSnapshot>,
 }
 
@@ -1258,6 +1319,7 @@ impl ActiveProviderRunSnapshot {
             pending_monitor_observation: slot.pending_monitor_observation.clone(),
             pending_command_completion: slot.pending_command_completion.clone(),
             monitor_prose_continuations: slot.monitor_prose_continuations,
+            live_command_output_tokens: slot.live_command_output_tokens,
             queued_follow_ups: Vec::new(),
         })
     }
@@ -1527,6 +1589,12 @@ fn apply_restored_provider_command_evidence(
                 .to_owned(),
             exit_code: 130,
         });
+        if let Some(completion) = snapshot.pending_command_completion.as_ref() {
+            reconcile_live_command_output_tokens(
+                &mut snapshot.live_command_output_tokens,
+                &completion.output,
+            );
+        }
         return Ok(());
     };
     if evidence.conversation_id != Some(conversation_id)
@@ -1539,15 +1607,24 @@ fn apply_restored_provider_command_evidence(
     if monitor.command.trim().is_empty() || evidence.command != monitor.command {
         return Err("restored provider command text does not match".to_string());
     }
-    match evidence.state {
-        BlockState::BeforeExecution | BlockState::Executing => {
+    match (evidence.state, evidence.finished) {
+        (BlockState::BeforeExecution | BlockState::Executing | BlockState::Background, false) => {
             snapshot.pending_command_completion = None;
             snapshot.pending_monitor_observation = Some(PendingProviderMonitorObservation {
                 block_id: monitor.block_id.clone(),
                 cli_task_id: monitor.cli_task_id.clone(),
             });
+            reconcile_live_command_output_tokens(
+                &mut snapshot.live_command_output_tokens,
+                &evidence.output,
+            );
         }
-        BlockState::DoneWithExecution | BlockState::DoneWithNoExecution => {
+        (
+            BlockState::DoneWithExecution
+            | BlockState::DoneWithNoExecution
+            | BlockState::Background,
+            true,
+        ) => {
             snapshot.pending_monitor_observation = None;
             snapshot.pending_command_completion = Some(PendingProviderCommandCompletion {
                 block_id: monitor.block_id.clone(),
@@ -1558,8 +1635,16 @@ fn apply_restored_provider_command_evidence(
                 output: evidence.output,
                 exit_code: evidence.exit_code,
             });
+            if let Some(completion) = snapshot.pending_command_completion.as_ref() {
+                reconcile_live_command_output_tokens(
+                    &mut snapshot.live_command_output_tokens,
+                    &completion.output,
+                );
+            }
         }
-        BlockState::Background | BlockState::Static => {
+        (BlockState::DoneWithExecution | BlockState::DoneWithNoExecution, false)
+        | (BlockState::BeforeExecution | BlockState::Executing | BlockState::Static, true)
+        | (BlockState::Static, false) => {
             return Err("restored provider command block has an invalid state".to_string());
         }
     }
@@ -1574,8 +1659,15 @@ fn merge_completion_offered_during_restore(
         return;
     }
     prepared.pending_command_completion = latest.pending_command_completion;
-    if prepared.pending_command_completion.is_some() {
+    prepared.live_command_output_tokens = prepared
+        .live_command_output_tokens
+        .max(latest.live_command_output_tokens);
+    if let Some(completion) = prepared.pending_command_completion.as_ref() {
         prepared.pending_monitor_observation = None;
+        reconcile_live_command_output_tokens(
+            &mut prepared.live_command_output_tokens,
+            &completion.output,
+        );
     }
 }
 
@@ -5453,6 +5545,8 @@ impl BlocklistAIController {
                 pending_monitor_observation: None,
                 pending_command_completion: None,
                 monitor_prose_continuations: 0,
+                live_command_output_tokens: 0,
+                command_output_poll_scheduled: false,
                 retry_status: None,
                 tool_call_progress: Vec::new(),
             };
@@ -5778,6 +5872,7 @@ impl BlocklistAIController {
             snapshot.base_request.model.as_str(),
             snapshot.response_config.max_context_tokens,
         );
+        let base_context_limit = snapshot.response_config.max_context_tokens;
         if let Err(error) = self.persist_provider_run_snapshot(conversation_id, &snapshot, ctx) {
             self.fail_restored_provider_run(conversation_id, error, ctx);
             return;
@@ -5794,18 +5889,25 @@ impl BlocklistAIController {
                 let mut profiles = BTreeMap::new();
                 profiles.insert(
                     BASE_PROVIDER_PROFILE.to_string(),
-                    ProviderRunProfile::new(base_runtime, snapshot.base_request.clone()),
+                    ProviderRunProfile::new(base_runtime, snapshot.base_request.clone())
+                        .with_max_context_tokens(base_context_limit),
                 );
                 if let Some(cli_monitor_request) = snapshot.cli_monitor_request.as_ref() {
                     let cli_provider_config = cli_provider_config.ok_or_else(|| {
                         anyhow!("restored CLI provider request is missing its provider config")
                     })?;
+                    let cli_context_limit = provider_context_window_tokens(
+                        &cli_provider_config,
+                        cli_monitor_request.model.as_str(),
+                        base_context_limit,
+                    );
                     let cli_runtime =
                         provider_runtime_for_request(cli_provider_config, cli_monitor_request)
                             .await?;
                     profiles.insert(
                         CLI_MONITOR_PROVIDER_PROFILE.to_string(),
-                        ProviderRunProfile::new(cli_runtime, cli_monitor_request.clone()),
+                        ProviderRunProfile::new(cli_runtime, cli_monitor_request.clone())
+                            .with_max_context_tokens(cli_context_limit),
                     );
                 }
                 Ok::<_, anyhow::Error>(PreparedRestoredProviderRun {
@@ -5896,6 +5998,7 @@ impl BlocklistAIController {
                     cli_task_id: block.cli_subagent_task_id().cloned(),
                     command: block.command_to_string(),
                     state: block.state(),
+                    finished: block.finished(),
                     output: block.output_to_string(),
                     exit_code: block.exit_code().value(),
                 })
@@ -5956,6 +6059,10 @@ impl BlocklistAIController {
             .restoring_provider_command_completions
             .remove(&conversation_id)
         {
+            reconcile_live_command_output_tokens(
+                &mut snapshot.live_command_output_tokens,
+                &completion.output,
+            );
             snapshot.pending_command_completion = Some(completion);
             snapshot.pending_monitor_observation = None;
         }
@@ -5979,6 +6086,7 @@ impl BlocklistAIController {
             pending_monitor_observation,
             pending_command_completion,
             monitor_prose_continuations,
+            live_command_output_tokens,
             queued_follow_ups,
         } = snapshot;
         let run_id = provider_run.id().clone();
@@ -6086,6 +6194,8 @@ impl BlocklistAIController {
                 pending_monitor_observation,
                 pending_command_completion,
                 monitor_prose_continuations,
+                live_command_output_tokens,
+                command_output_poll_scheduled: false,
                 retry_status: None,
                 tool_call_progress: Vec::new(),
             },
@@ -6291,6 +6401,8 @@ impl BlocklistAIController {
                         pending_monitor_observation: None,
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
+                        live_command_output_tokens: 0,
+                        command_output_poll_scheduled: false,
                         retry_status: None,
                         tool_call_progress: Vec::new(),
                     },
@@ -6483,8 +6595,7 @@ impl BlocklistAIController {
         } = prepared;
         let mut coordinator = match ProviderRunCoordinator::from_request(
             provider_run_id,
-            base_profile.runtime,
-            base_profile.request,
+            base_profile,
             tool_result_archive,
             ProviderRunLimits::default(),
         ) {
@@ -6496,11 +6607,7 @@ impl BlocklistAIController {
         };
         coordinator.set_max_context_tokens(response_config.max_context_tokens);
         if let Some(profile) = cli_monitor_profile {
-            if let Err(error) = coordinator.insert_profile(
-                CLI_MONITOR_PROVIDER_PROFILE,
-                profile.runtime,
-                profile.request,
-            ) {
+            if let Err(error) = coordinator.insert_profile(CLI_MONITOR_PROVIDER_PROFILE, profile) {
                 self.fail_provider_startup(conversation_id, stream_id, error.to_string(), ctx);
                 return;
             }
@@ -6656,7 +6763,6 @@ impl BlocklistAIController {
     }
 
     fn progressive_summary_candidates(
-        estimated_summary_input_tokens: u32,
         terminal_surface_id: EntityId,
         ctx: &AppContext,
     ) -> Vec<ProgressiveSummaryCandidate> {
@@ -6675,12 +6781,6 @@ impl BlocklistAIController {
         let terminal_provider_config =
             ResponseStream::resolve_provider_config(&terminal_model_id, ctx);
         let base_provider_config = ResponseStream::resolve_provider_config(&base_model_id, ctx);
-        let candidate_fits = |context_limit: u32| {
-            estimated_summary_input_tokens
-                .saturating_add(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS)
-                .saturating_add(PROGRESSIVE_SUMMARY_CONTEXT_SAFETY_TOKENS)
-                <= context_limit
-        };
         let model_is_usable = |model_id: &str, provider_config: &ProviderConfig| {
             !model_id.trim().is_empty()
                 && !model_id.eq_ignore_ascii_case("placeholder")
@@ -6688,9 +6788,7 @@ impl BlocklistAIController {
         };
 
         let mut candidates = Vec::new();
-        if model_is_usable(&terminal_model_id, &terminal_provider_config)
-            && candidate_fits(terminal_context_limit)
-        {
+        if model_is_usable(&terminal_model_id, &terminal_provider_config) {
             candidates.push(progressive_summary_candidate(
                 terminal_model_id,
                 terminal_context_limit,
@@ -6698,7 +6796,6 @@ impl BlocklistAIController {
             ));
         }
         if model_is_usable(&base_model_id, &base_provider_config)
-            && candidate_fits(base_context_limit)
             && !candidates
                 .iter()
                 .any(|candidate| candidate.selection_model_id == base_model_id)
@@ -6710,6 +6807,50 @@ impl BlocklistAIController {
             ));
         }
         candidates
+    }
+
+    fn live_provider_command_context_tokens(slot: &ActiveProviderRunSlot) -> u32 {
+        if slot.command_monitor.is_some() || slot.pending_command_completion.is_some() {
+            slot.live_command_output_tokens
+        } else {
+            0
+        }
+    }
+
+    fn active_provider_context_estimate(
+        &self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) -> Option<(u32, u32)> {
+        let history = BlocklistAIHistoryModel::as_ref(ctx);
+        let conversation = history.conversation(&conversation_id)?;
+        let current_context_tokens = conversation.current_context_tokens();
+        let active_run = self
+            .active_provider_runs
+            .get(&conversation_id)?
+            .run
+            .as_ref()?;
+        let transcript = active_run.coordinator.run().transcript();
+        let (estimated_context_tokens, persistent_context_tokens) = active_run
+            .coordinator
+            .estimated_context_tokens()
+            .unwrap_or_else(|| {
+                (
+                    current_context_tokens,
+                    current_context_tokens.saturating_sub(estimated_history_tokens(transcript)),
+                )
+            });
+        let live_command_output_tokens = self
+            .active_provider_runs
+            .get(&conversation_id)
+            .map(Self::live_provider_command_context_tokens)
+            .unwrap_or(0);
+        Some((
+            current_context_tokens
+                .max(estimated_context_tokens)
+                .saturating_add(live_command_output_tokens),
+            persistent_context_tokens,
+        ))
     }
 
     fn begin_active_provider_progressive_summary(
@@ -6750,27 +6891,19 @@ impl BlocklistAIController {
             .max(1);
         let last_failure_context_tokens =
             active_run.last_progressive_summary_failure_context_tokens;
-        let (current_context_tokens, summary_pending) = {
+        let summary_pending = {
             let history = BlocklistAIHistoryModel::as_ref(ctx);
             let Some(conversation) = history.conversation(&conversation_id) else {
                 return false;
             };
-            (
-                conversation.current_context_tokens(),
-                conversation.has_pending_progressive_summary(),
-            )
+            conversation.has_pending_progressive_summary()
         };
         let transcript = active_run.coordinator.run().transcript();
-        let (estimated_context_tokens, persistent_context_tokens) = active_run
-            .coordinator
-            .estimated_context_tokens()
-            .unwrap_or_else(|| {
-                (
-                    current_context_tokens,
-                    current_context_tokens.saturating_sub(estimated_history_tokens(transcript)),
-                )
-            });
-        let current_context_tokens = current_context_tokens.max(estimated_context_tokens);
+        let Some((current_context_tokens, persistent_context_tokens)) =
+            self.active_provider_context_estimate(conversation_id, ctx)
+        else {
+            return false;
+        };
         // Trigger and retain against the space history can actually use. Fixed
         // prompts and a large output reservation cannot be reduced by summarizing.
         let history_capacity = active_context_limit.saturating_sub(persistent_context_tokens);
@@ -6793,17 +6926,44 @@ impl BlocklistAIController {
             return false;
         }
 
-        let summarize_content = progressive_summary_content(&transcript[..split_point], None);
-        let estimated_summary_input_tokens = estimated_text_tokens(PROGRESSIVE_SUMMARY_PROMPT)
-            .saturating_add(estimated_text_tokens(&summarize_content));
-        let candidates = Self::progressive_summary_candidates(
-            estimated_summary_input_tokens,
-            self.terminal_surface_id,
-            ctx,
-        );
+        let candidates = Self::progressive_summary_candidates(self.terminal_surface_id, ctx);
+        let prompt_tokens = estimated_text_tokens(PROGRESSIVE_SUMMARY_PROMPT);
+        let Some(max_summary_input_tokens) = candidates
+            .iter()
+            .map(|candidate| {
+                candidate
+                    .context_limit
+                    .saturating_sub(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS)
+                    .saturating_sub(PROGRESSIVE_SUMMARY_CONTEXT_SAFETY_TOKENS)
+                    .saturating_sub(prompt_tokens)
+            })
+            .max()
+        else {
+            log::warn!(
+                "[progressive-summary] No configured model is available for active conversation {:?}",
+                conversation_id,
+            );
+            return false;
+        };
+        let max_summary_chars = usize::try_from(max_summary_input_tokens)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(3);
+        let summarize_content =
+            progressive_summary_content(&transcript[..split_point], None, max_summary_chars);
+        let estimated_summary_input_tokens =
+            prompt_tokens.saturating_add(estimated_text_tokens(&summarize_content));
+        let candidates = candidates
+            .into_iter()
+            .filter(|candidate| {
+                estimated_summary_input_tokens
+                    .saturating_add(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS)
+                    .saturating_add(PROGRESSIVE_SUMMARY_CONTEXT_SAFETY_TOKENS)
+                    <= candidate.context_limit
+            })
+            .collect::<Vec<_>>();
         if candidates.is_empty() {
             log::warn!(
-                "[progressive-summary] No configured model can fit ~{} input tokens for active conversation {:?}",
+                "[progressive-summary] No configured model can fit bounded ~{} token summary input for active conversation {:?}",
                 estimated_summary_input_tokens,
                 conversation_id,
             );
@@ -7104,6 +7264,110 @@ impl BlocklistAIController {
         false
     }
 
+    fn snapshot_provider_command_output(
+        &self,
+        block_id: &BlockId,
+    ) -> Option<ProviderCommandOutputSnapshot> {
+        let terminal_model = self.terminal_model.lock();
+        let block = terminal_model.block_list().block_with_id(block_id)?;
+        Some(ProviderCommandOutputSnapshot {
+            state: block.state(),
+            finished: block.finished(),
+            output: block.output_to_string(),
+        })
+    }
+
+    fn schedule_provider_command_output_poll(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let monitor = {
+            let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+                return;
+            };
+            if slot.command_output_poll_scheduled {
+                return;
+            }
+            let Some(monitor) = slot.command_monitor.clone() else {
+                return;
+            };
+            slot.command_output_poll_scheduled = true;
+            monitor
+        };
+        ctx.spawn(
+            async move { Timer::after(PROVIDER_COMMAND_OUTPUT_POLL_INTERVAL).await },
+            move |me, _, ctx| {
+                me.poll_provider_command_output(conversation_id, monitor, ctx);
+            },
+        );
+    }
+
+    fn poll_provider_command_output(
+        &mut self,
+        conversation_id: AIConversationId,
+        scheduled_monitor: ProviderCommandMonitorState,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let (monitor, should_schedule_replacement_poll) = {
+            let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+                return;
+            };
+            slot.command_output_poll_scheduled = false;
+            let Some(active_monitor) = slot.command_monitor.clone() else {
+                return;
+            };
+            if !provider_monitor_matches_scheduled(&active_monitor, &scheduled_monitor) {
+                (None, slot.pending_command_completion.is_none())
+            } else {
+                (Some(active_monitor), false)
+            }
+        };
+        if should_schedule_replacement_poll {
+            self.schedule_provider_command_output_poll(conversation_id, ctx);
+        }
+        let Some(monitor) = monitor else {
+            return;
+        };
+        let Some(snapshot) = self.snapshot_provider_command_output(&monitor.block_id) else {
+            return;
+        };
+        let mut should_drive = false;
+        let mut should_schedule_next_poll = provider_command_snapshot_needs_poll(&snapshot);
+        if let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) {
+            let monitor_is_current = slot.command_monitor.as_ref().is_some_and(|active_monitor| {
+                provider_monitor_matches_scheduled(active_monitor, &monitor)
+            });
+            if !monitor_is_current {
+                return;
+            }
+            if reconcile_live_command_output_tokens(
+                &mut slot.live_command_output_tokens,
+                &snapshot.output,
+            ) {
+                should_drive = true;
+            }
+            if slot.pending_command_completion.is_some() {
+                should_schedule_next_poll = false;
+            }
+        }
+        if should_drive {
+            self.drive_active_provider_run(conversation_id, ctx);
+        }
+        if should_schedule_next_poll {
+            let monitor_still_current = self
+                .active_provider_runs
+                .get(&conversation_id)
+                .and_then(|slot| slot.command_monitor.as_ref())
+                .is_some_and(|active_monitor| {
+                    provider_monitor_matches_scheduled(active_monitor, &monitor)
+                });
+            if monitor_still_current {
+                self.schedule_provider_command_output_poll(conversation_id, ctx);
+            }
+        }
+    }
+
     fn record_progressive_summary_usage(
         &self,
         conversation_id: AIConversationId,
@@ -7147,6 +7411,7 @@ impl BlocklistAIController {
         if self.apply_ready_active_provider_progressive_summary(conversation_id, ctx) {
             return;
         }
+        self.schedule_provider_command_output_poll(conversation_id, ctx);
         self.begin_active_provider_progressive_summary(conversation_id, false, ctx);
         if matches!(
             self.active_provider_progressive_summaries
@@ -7493,7 +7758,7 @@ impl BlocklistAIController {
                 );
             }
             run.set_task_id(&slot.root_task_id);
-            let observation = completion.observation();
+            let observation = completion.observation(run.response_config.max_context_tokens);
             if ready_work_id.is_some() {
                 run.coordinator
                     .run_mut()
@@ -7511,6 +7776,7 @@ impl BlocklistAIController {
             slot.command_monitor = None;
             slot.pending_monitor_observation = None;
             slot.monitor_prose_continuations = 0;
+            slot.live_command_output_tokens = 0;
             return Ok(ProviderBoundaryDisposition::Advance {
                 completed_block_id: Some(completed_block_id),
             });
@@ -8149,6 +8415,7 @@ impl BlocklistAIController {
                         block_id,
                         cli_task_id,
                     });
+                    self.schedule_provider_command_output_poll(conversation_id, ctx);
                 }
                 ProviderCommandResult::Finished {
                     block_id,
@@ -8167,6 +8434,10 @@ impl BlocklistAIController {
                         continue;
                     };
                     if slot.pending_command_completion.is_none() {
+                        reconcile_live_command_output_tokens(
+                            &mut slot.live_command_output_tokens,
+                            &output,
+                        );
                         slot.pending_command_completion = Some(PendingProviderCommandCompletion {
                             block_id,
                             initial_requested_command_action_id: Some(
@@ -8841,6 +9112,10 @@ impl BlocklistAIController {
                     .map(|monitor| monitor.command.clone())
                     .unwrap_or_default();
             }
+            reconcile_live_command_output_tokens(
+                &mut slot.live_command_output_tokens,
+                &completion.output,
+            );
             slot.pending_command_completion = Some(completion);
             slot.committed_provider_batch.is_none()
                 && slot.run.as_ref().is_some_and(|run| {
@@ -8950,6 +9225,10 @@ impl BlocklistAIController {
             }
         }
         snapshot.pending_monitor_observation = None;
+        reconcile_live_command_output_tokens(
+            &mut snapshot.live_command_output_tokens,
+            &completion.output,
+        );
         snapshot.pending_command_completion = Some(completion);
         match self.persist_provider_run_snapshot(conversation_id, &snapshot, ctx) {
             Ok(()) => true,
@@ -10149,67 +10428,53 @@ impl BlocklistAIController {
             )
         };
 
-        let mut summarize_content = String::new();
-        if let Some(ref prior) = existing_summary {
-            summarize_content.push_str("<prior-summary>\n");
-            summarize_content.push_str(prior);
-            summarize_content.push_str("\n</prior-summary>\n\n");
-        }
-        summarize_content.push_str("<messages-to-summarize>\n");
-        fn safe_truncate(s: &str, max_chars: usize) -> String {
-            if s.len() <= max_chars {
-                s.to_string()
-            } else {
-                let trunc = s.chars().take(max_chars).collect::<String>();
-                format!("{trunc}... [truncated, {len} total chars]", len = s.len())
-            }
-        }
-
-        for msg in &messages_to_summarize {
-            let role_str = match msg.role {
-                MessageRole::User => "User",
-                MessageRole::Assistant => "Assistant",
-            };
-            let content_str = match &msg.content {
-                MessageContent::Text(t) => t.clone(),
-                MessageContent::ToolUse { name, input, .. } => {
-                    format!("[Tool Call: {name}] {input}")
-                }
-                MessageContent::ToolResult { content, .. } => safe_truncate(content, 2000),
-                MessageContent::MultiPart(parts) => parts
-                    .iter()
-                    .map(|p| match p {
-                        ContentPart::Text(t) => t.clone(),
-                        ContentPart::Reasoning { text, .. } => {
-                            format!("[Reasoning] {text}")
-                        }
-                        ContentPart::Image { .. } => "[Image attachment]".to_string(),
-                        ContentPart::ToolUse { name, input, .. } => {
-                            format!("[Tool: {name}] {input}")
-                        }
-                        ContentPart::ToolResult { content, .. } => safe_truncate(content, 2000),
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            };
-            summarize_content.push_str(&format!("[{role_str}]: {content_str}\n"));
-        }
-        summarize_content.push_str("</messages-to-summarize>");
-
         let summarize_prompt = PROGRESSIVE_SUMMARY_PROMPT;
-
-        let estimated_summary_input_tokens = estimated_text_tokens(summarize_prompt)
-            .saturating_add(estimated_text_tokens(&summarize_content));
+        let candidates = [
+            (
+                &terminal_model_id,
+                terminal_context_limit,
+                &terminal_provider_config,
+            ),
+            (&base_model_id, base_context_limit, &base_provider_config),
+        ];
+        let model_is_usable = |model_id: &str, provider_config: &ProviderConfig| {
+            !model_id.trim().is_empty()
+                && !model_id.eq_ignore_ascii_case("placeholder")
+                && !matches!(provider_config, ProviderConfig::None)
+        };
+        let prompt_tokens = estimated_text_tokens(summarize_prompt);
+        let Some(max_summary_input_tokens) = candidates
+            .iter()
+            .filter(|(model_id, _, provider_config)| model_is_usable(model_id, provider_config))
+            .map(|(_, context_limit, _)| {
+                context_limit
+                    .saturating_sub(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS)
+                    .saturating_sub(PROGRESSIVE_SUMMARY_CONTEXT_SAFETY_TOKENS)
+                    .saturating_sub(prompt_tokens)
+            })
+            .max()
+        else {
+            log::warn!(
+                "[progressive-summary] No configured model is available for conversation {:?}",
+                conversation_id,
+            );
+            return;
+        };
+        let max_summary_chars = usize::try_from(max_summary_input_tokens)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(3);
+        let summarize_content = progressive_summary_content(
+            &messages_to_summarize,
+            existing_summary.as_deref(),
+            max_summary_chars,
+        );
+        let estimated_summary_input_tokens =
+            prompt_tokens.saturating_add(estimated_text_tokens(&summarize_content));
         let candidate_fits = |context_limit: u32| {
             estimated_summary_input_tokens
                 .saturating_add(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS)
                 .saturating_add(PROGRESSIVE_SUMMARY_CONTEXT_SAFETY_TOKENS)
                 <= context_limit
-        };
-        let model_is_usable = |model_id: &str, provider_config: &ProviderConfig| {
-            !model_id.trim().is_empty()
-                && !model_id.eq_ignore_ascii_case("placeholder")
-                && !matches!(provider_config, ProviderConfig::None)
         };
         let mut candidates = Vec::new();
         if model_is_usable(&terminal_model_id, &terminal_provider_config)

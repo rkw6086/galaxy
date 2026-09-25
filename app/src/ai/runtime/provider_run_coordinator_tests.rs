@@ -190,6 +190,34 @@ fn estimates_turn_request_with_system_tools_messages_and_output() {
     );
 }
 
+#[test]
+fn estimates_image_payloads_without_counting_raw_bytes_as_text() {
+    let image_bytes = vec![255; 3_750_000];
+    let serialized_text_tokens = serde_json::to_string(&image_bytes)
+        .unwrap()
+        .len()
+        .div_ceil(ESTIMATED_BYTES_PER_TOKEN as usize) as u64;
+    let request = TurnRequest::new(
+        "test-model",
+        vec![ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![
+                ContentPart::Text("what is in this screenshot?".to_string()),
+                ContentPart::Image {
+                    data: image_bytes,
+                    mime_type: "image/jpeg".to_string(),
+                },
+            ]),
+        }],
+    );
+
+    let estimate = estimate_turn_request_tokens(&request);
+
+    assert!(estimate < 10_000);
+    assert!(estimate > ESTIMATED_REQUEST_OVERHEAD_TOKENS + ESTIMATED_IMAGE_TOKENS);
+    assert!(serialized_text_tokens > estimate);
+}
+
 #[tokio::test]
 async fn proactively_compacts_before_starting_an_oversized_request() {
     let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
@@ -276,8 +304,7 @@ fn answer_turn() -> ScriptedTurn {
 fn coordinator(runtime: Arc<dyn AgentRuntime>) -> ProviderRunCoordinator {
     ProviderRunCoordinator::from_request(
         "run-1",
-        runtime,
-        request(),
+        ProviderRunProfile::new(runtime, request()),
         Vec::new(),
         ProviderRunLimits::default(),
     )
@@ -1357,8 +1384,7 @@ fn session_runtime_is_rejected_before_any_turn_can_start() {
     });
     let error = ProviderRunCoordinator::from_request(
         "run-1",
-        runtime,
-        request(),
+        ProviderRunProfile::new(runtime, request()),
         Vec::new(),
         ProviderRunLimits::default(),
     )
@@ -1379,8 +1405,7 @@ fn context_estimate_tracks_live_transcript_and_reserves_fixed_context() {
     request.max_output_tokens = Some(4_000);
     let mut coordinator = ProviderRunCoordinator::from_request(
         "context-budget",
-        runtime,
-        request,
+        ProviderRunProfile::new(runtime, request),
         Vec::new(),
         ProviderRunLimits::default(),
     )
@@ -1400,6 +1425,140 @@ fn context_estimate_tracks_live_transcript_and_reserves_fixed_context() {
     let (after, fixed_after) = coordinator.estimated_context_tokens().unwrap();
     assert!(after > before + 4_000);
     assert_eq!(fixed_before, fixed_after);
+}
+
+#[tokio::test]
+async fn monitor_request_uses_its_profile_context_limit() {
+    let base_runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let cli_runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let original_content = format!("start:{}:end", "x".repeat(20_000));
+    let large_result = ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::ToolResult {
+            tool_use_id: "large-result".to_string(),
+            content: original_content.clone(),
+            is_error: false,
+        },
+    };
+    let run = ProviderRun::new(
+        "profile-limit-run",
+        vec![large_result],
+        CLI_MONITOR_PROVIDER_PROFILE,
+        ProviderRunLimits::default(),
+    );
+    let mut profiles = BTreeMap::new();
+    profiles.insert(
+        BASE_PROVIDER_PROFILE.to_string(),
+        ProviderRunProfile::new(base_runtime, request()).with_max_context_tokens(Some(100_000)),
+    );
+    profiles.insert(
+        CLI_MONITOR_PROVIDER_PROFILE.to_string(),
+        ProviderRunProfile::new(cli_runtime.clone(), request())
+            .with_max_context_tokens(Some(8_000)),
+    );
+    let mut coordinator = ProviderRunCoordinator::new(run, profiles).unwrap();
+    coordinator.set_max_context_tokens(Some(100_000));
+
+    let (_sender, control) = turn_control();
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+    let requests = cli_runtime.requests();
+    let MessageContent::ToolResult { content, .. } = &requests[0].messages[0].content else {
+        panic!("expected bounded monitor tool result");
+    };
+    assert!(content.chars().count() <= galaxy_agent_core::provider_output_char_limit(Some(8_000)));
+    assert!(content.contains("tool result truncated"));
+    let MessageContent::ToolResult { content, .. } = &coordinator.run().transcript()[0].content
+    else {
+        panic!("expected original monitor tool result");
+    };
+    assert_eq!(content, &original_content);
+}
+
+#[tokio::test]
+async fn final_model_request_bounds_restored_tagged_terminal_text() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let original_output = format!("first:{}:last", "x".repeat(20_000));
+    let restored_message = ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text(format!(
+            "[Running command: verbose]\n[Terminal output:\n{original_output}\n]\nContinue"
+        )),
+    };
+    let mut turn_request = request();
+    turn_request.messages = vec![restored_message];
+    let mut coordinator = ProviderRunCoordinator::from_request(
+        "restored-terminal-run",
+        ProviderRunProfile::new(runtime.clone(), turn_request).with_max_context_tokens(Some(8_000)),
+        Vec::new(),
+        ProviderRunLimits::default(),
+    )
+    .unwrap();
+
+    let (_sender, control) = turn_control();
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+    let requests = runtime.requests();
+    let MessageContent::Text(content) = &requests[0].messages[0].content else {
+        panic!("expected bounded restored terminal text");
+    };
+    assert!(content.contains("terminal output truncated for model context"));
+    assert!(!content.contains(&original_output));
+    let MessageContent::Text(content) = &coordinator.run().transcript()[0].content else {
+        panic!("expected original restored terminal text");
+    };
+    assert!(content.contains(&original_output));
+}
+
+#[tokio::test]
+async fn final_model_request_bounds_new_tool_results_to_the_active_context() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let original_content = format!("start:{}:end", "界".repeat(20_000));
+    let large_result = ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::ToolResult {
+            tool_use_id: "large-result".to_string(),
+            content: original_content.clone(),
+            is_error: false,
+        },
+    };
+    let mut turn_request = request();
+    turn_request.messages = vec![large_result];
+    let mut coordinator = ProviderRunCoordinator::from_request(
+        "large-result-run",
+        ProviderRunProfile::new(runtime.clone(), turn_request),
+        Vec::new(),
+        ProviderRunLimits::default(),
+    )
+    .unwrap();
+    coordinator.set_max_context_tokens(Some(8_000));
+
+    let (_sender, control) = turn_control();
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+    let requests = runtime.requests();
+    let MessageContent::ToolResult { content, .. } = &requests[0].messages[0].content else {
+        panic!("expected bounded tool result");
+    };
+    assert!(content.chars().count() <= galaxy_agent_core::provider_output_char_limit(Some(8_000)));
+    assert!(content.contains("tool result truncated"));
+    let MessageContent::ToolResult { content, .. } = &coordinator.run().transcript()[0].content
+    else {
+        panic!("expected original tool result");
+    };
+    assert_eq!(content, &original_content);
 }
 
 #[tokio::test]

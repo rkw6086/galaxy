@@ -104,7 +104,8 @@ use crate::terminal::shell::ShellType;
 use crate::terminal::{ShellLaunchData, TerminalModel};
 #[cfg(feature = "local_fs")]
 use crate::util::image::{
-    is_supported_image_mime_type, process_image_for_agent, ProcessImageResult,
+    infer_mime_type, is_supported_image_mime_type, process_image_for_agent, ProcessImageResult,
+    MIME_SNIFF_BYTES,
 };
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::is_binary_file;
@@ -1554,7 +1555,19 @@ async fn read_binary_file_context(
     let mime_type = from_path(path).first_or_octet_stream().to_string();
     let processed_content = if is_supported_image_mime_type(&mime_type) {
         match process_image_for_agent(&content) {
-            ProcessImageResult::Success { data } => Some(data),
+            ProcessImageResult::Success { data, mime_type } => {
+                let sniff_len = data.len().min(MIME_SNIFF_BYTES);
+                let inferred_mime_type = infer_mime_type(path, &data[..sniff_len]);
+                if inferred_mime_type != mime_type {
+                    log::warn!(
+                        "Processed image MIME mismatch for {}: declared {}, sniffed {}",
+                        path.display(),
+                        mime_type,
+                        inferred_mime_type
+                    );
+                }
+                Some(data)
+            }
             ProcessImageResult::TooLarge => {
                 log::warn!("Image file too large after processing: {}", path.display());
                 return Ok(BinaryFileReadResult::Missing);

@@ -125,8 +125,8 @@ use crate::util::bindings::{cmd_or_ctrl_shift, keybinding_name_to_keystroke, Cus
 use crate::util::clipboard::clipboard_content_with_escaped_paths;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
 use crate::util::image::{
-    infer_mime_type, is_supported_image_mime_type, resize_image, MAX_IMAGE_COUNT_FOR_QUERY,
-    MAX_IMAGE_SIZE_BYTES, MIME_SNIFF_BYTES,
+    infer_mime_type, is_supported_image_mime_type, prepare_image_for_agent,
+    MAX_IMAGE_COUNT_FOR_QUERY, MIME_SNIFF_BYTES,
 };
 use crate::util::merge_ranges;
 use crate::view_components::DismissibleToast;
@@ -5371,8 +5371,12 @@ impl EditorView {
                 for image in pending_images {
                     let is_figma = is_figma_png(&image.data);
 
-                    let resized_image_bytes = match resize_image(&image.data) {
-                        Ok(resized_image_bytes) => resized_image_bytes,
+                    let processed_image = match prepare_image_for_agent(&image.data) {
+                        Ok(Some(processed_image)) => processed_image,
+                        Ok(None) => {
+                            num_oversized_images += 1;
+                            continue;
+                        }
                         Err(err) => {
                             num_unprocessed_images += 1;
                             log::warn!("Error resizing attached image {err:?}");
@@ -5380,26 +5384,28 @@ impl EditorView {
                         }
                     };
 
-                    if resized_image_bytes.len() > MAX_IMAGE_SIZE_BYTES {
-                        num_oversized_images += 1;
-                        continue;
-                    }
-
-                    let sniff_len = resized_image_bytes.len().min(MIME_SNIFF_BYTES);
-                    let mime_type = infer_mime_type(
+                    let sniff_len = processed_image.data.len().min(MIME_SNIFF_BYTES);
+                    let sniffed_mime_type = infer_mime_type(
                         Path::new(&image.file_name),
-                        &resized_image_bytes[..sniff_len],
+                        &processed_image.data[..sniff_len],
                     );
-                    if !is_supported_image_mime_type(&mime_type) {
+                    if !is_supported_image_mime_type(&processed_image.mime_type) {
                         num_unprocessed_images += 1;
                         continue;
                     }
+                    if sniffed_mime_type != processed_image.mime_type {
+                        log::warn!(
+                            "Processed image MIME mismatch: declared {}, sniffed {}",
+                            processed_image.mime_type,
+                            sniffed_mime_type
+                        );
+                    }
 
-                    let base64_str = general_purpose::STANDARD.encode(&resized_image_bytes);
+                    let base64_str = general_purpose::STANDARD.encode(&processed_image.data);
 
                     processed_pending_images.push(ImageContext {
                         data: base64_str,
-                        mime_type,
+                        mime_type: processed_image.mime_type,
                         file_name: image.file_name,
                         is_figma,
                     });
