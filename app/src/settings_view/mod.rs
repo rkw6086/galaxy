@@ -246,7 +246,6 @@ pub enum SettingsSection {
     Knowledge,
     ThirdPartyCLIAgents,
     Models,
-    Experiments,
     // ── Providers umbrella subpages ──
     ProviderOpenAI,
     ProviderLiteLLM,
@@ -280,7 +279,6 @@ impl Display for SettingsSection {
             SettingsSection::Knowledge => write!(f, "Knowledge"),
             SettingsSection::ThirdPartyCLIAgents => write!(f, "Third party CLI agents"),
             SettingsSection::Models => write!(f, "Models"),
-            SettingsSection::Experiments => write!(f, "Experiments"),
             SettingsSection::ProviderOpenAI => write!(f, "OpenAI"),
             SettingsSection::ProviderLiteLLM => write!(f, "LiteLLM"),
             SettingsSection::ProviderChatGPTSubscription => write!(f, "ChatGPT Subscription"),
@@ -310,7 +308,6 @@ impl SettingsSection {
                 | Self::Knowledge
                 | Self::ThirdPartyCLIAgents
                 | Self::Models
-                | Self::Experiments
         )
     }
 
@@ -335,7 +332,6 @@ impl SettingsSection {
                 | Self::Knowledge
                 | Self::ThirdPartyCLIAgents
                 | Self::Models
-                | Self::Experiments
                 | Self::ProviderOpenAI
                 | Self::ProviderLiteLLM
                 | Self::ProviderChatGPTSubscription
@@ -371,7 +367,6 @@ impl SettingsSection {
             Self::AgentMCPServers,
             Self::Knowledge,
             Self::ThirdPartyCLIAgents,
-            Self::Experiments,
         ]
     }
 
@@ -421,7 +416,6 @@ impl FromStr for SettingsSection {
             "Agent Client Protocol" | "ACP" => Ok(Self::ProviderACP),
             "Indexing and projects" | "CodeIndexing" => Ok(Self::CodeIndexing),
             "Editor and Code Review" | "EditorAndCodeReview" => Ok(Self::EditorAndCodeReview),
-            "Experiments" => Ok(Self::Experiments),
             "Wormhole" => Ok(Self::Wormhole),
             _ => Err(()),
         }

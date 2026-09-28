@@ -160,7 +160,7 @@ impl ResponseStream {
         }
     }
 
-    pub(super) fn resolve_provider_config(model_id: &str, ctx: &AppContext) -> ProviderConfig {
+    pub(crate) fn resolve_provider_config(model_id: &str, ctx: &AppContext) -> ProviderConfig {
         let settings = AISettings::as_ref(ctx);
 
         // Check if this specific model has an OpenAI-compatible routing entry.

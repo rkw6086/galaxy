@@ -216,6 +216,14 @@ Key invariants:
 - `StartAgentWaitPolicy` follows child execution ownership, not parent `run_id`: grouped local children use `LocalStartup`, legacy local completion waits retain `Completion`, and hosted children use `Startup` with the hosted timeout. Direct-provider `start_agent` is normalized to a one-child `RunAgents` group. Cancelling or replacing a parent turn must not cancel independently running children or erase their group membership.
 - Hosted `RunAgents` startup timeouts detach the exact `StartAgentRequestId`; late launch callbacks must not register the child after the timeout result, while children linked before cancellation remain independently running
 
+### Galaxy Decides Permissions
+
+- `GalaxyDecides` is an opt-in execution-profile permission for Galaxy-owned files, commands, PTY input, MCP, computer use, and agent coordination. External CLI agents retain their own permission flows. Existing profile defaults remain unchanged.
+- `app/src/ai/blocklist/action_model/risk_review.rs` assesses the exact pending action with the active terminal-use model in a separate, tool-free request, falling back to the base model when the terminal-use model is unconfigured. Risk 0–3 permits automatic execution; 4–5 requires user approval. Existing denylist/protected-path/organization restrictions still require confirmation.
+- Invalid, unavailable, oversized, or timed-out assessments never grant execution. Assessment calls are bounded to 30 seconds; approval requests expire after 60 seconds and return a correlated denial telling the agent to choose another approach.
+- Reviews are scoped to conversation, action contents, and provider execution identity. Cancellation, replacement, and conversation cleanup invalidate them and cancel the reviewer request. Never treat a late callback or expired approval click as authorization.
+- Output polling and user-question behavior retain their existing policies. Risk assessment must not add another model call for each command-output poll.
+
 ### Platform Setup
 - `./script/bootstrap` - Platform-specific setup plus common agent skill installation from `skills-lock.json`; prompts for project/global when an install or update is needed unless a target flag or environment override is provided.
 - `./script/bootstrap --skip-common-skills` - Platform setup without installing or updating common agent skills.

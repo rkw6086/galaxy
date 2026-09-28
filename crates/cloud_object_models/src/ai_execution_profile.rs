@@ -20,6 +20,8 @@ pub enum ActionPermission {
     AgentDecides,
     AlwaysAllow,
     AlwaysAsk,
+    /// Independently assess each action before allowing execution.
+    GalaxyDecides,
     // This is intended to catch deserialization errors whenever we add new variants to this enum. Say we
     // want to add a "Never" variant. Without this catch-all, old clients wouldn't be able to deserialize
     // a "Never" into one of the existing options.
@@ -30,6 +32,9 @@ pub enum ActionPermission {
 impl ActionPermission {
     pub fn description(&self) -> &'static str {
         match self {
+            ActionPermission::GalaxyDecides => {
+                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 asks you, and is rejected after 60 seconds without a response."
+            }
             ActionPermission::AgentDecides | ActionPermission::Unknown => {
                 "The Agent chooses the safest path: acting on its own when confident, and asking for approval when uncertain."
             }
@@ -59,6 +64,8 @@ pub enum WriteToPtyPermission {
     #[default]
     AlwaysAsk,
     AskOnFirstWrite,
+    /// Independently assess each action before allowing execution.
+    GalaxyDecides,
     // This is intended to catch deserialization errors whenever we add new variants to this enum.
     #[serde(other)]
     Unknown,
@@ -67,6 +74,9 @@ pub enum WriteToPtyPermission {
 impl WriteToPtyPermission {
     pub fn description(&self) -> &'static str {
         match self {
+            WriteToPtyPermission::GalaxyDecides => {
+                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 asks you, and is rejected after 60 seconds without a response."
+            }
             WriteToPtyPermission::AlwaysAllow => ActionPermission::AlwaysAllow.description(),
             WriteToPtyPermission::AskOnFirstWrite => {
                 "The agent will ask for permission the first time it needs to interact with a running command. After that, it will continue automatically for the rest of that command."
@@ -89,6 +99,8 @@ pub enum ComputerUsePermission {
     Never,
     AlwaysAsk,
     AlwaysAllow,
+    /// Independently assess each action before allowing execution.
+    GalaxyDecides,
     // This is intended to catch deserialization errors whenever we add new variants to this enum.
     #[serde(other)]
     Unknown,
@@ -97,6 +109,9 @@ pub enum ComputerUsePermission {
 impl ComputerUsePermission {
     pub fn description(&self) -> &'static str {
         match self {
+            ComputerUsePermission::GalaxyDecides => {
+                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 asks you, and is rejected after 60 seconds without a response."
+            }
             ComputerUsePermission::Never => {
                 "Computer use tools are disabled and will not be available to the Agent."
             }
@@ -126,6 +141,8 @@ pub enum RunAgentsPermission {
     #[default]
     AlwaysAsk,
 
+    /// Independently assess each action before allowing execution.
+    GalaxyDecides,
     // This is intended to catch deserialization errors whenever we add new variants to this enum.
     #[serde(other)]
     Unknown,
@@ -134,6 +151,9 @@ pub enum RunAgentsPermission {
 impl RunAgentsPermission {
     pub fn description(&self) -> &'static str {
         match self {
+            RunAgentsPermission::GalaxyDecides => {
+                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 asks you, and is rejected after 60 seconds without a response."
+            }
             RunAgentsPermission::NeverAllow => {
                 "The Agent cannot run child agents and the run_agents tool will not be available."
             }
@@ -148,7 +168,10 @@ impl RunAgentsPermission {
     }
 
     pub fn is_enabled(&self) -> bool {
-        matches!(self, Self::AlwaysAllow | Self::AlwaysAsk)
+        matches!(
+            self,
+            Self::AlwaysAllow | Self::AlwaysAsk | Self::GalaxyDecides
+        )
     }
 
     pub fn is_always_allow(&self) -> bool {

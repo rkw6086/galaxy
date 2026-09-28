@@ -302,6 +302,12 @@ impl ExecutionProfileEditorView {
                             permission: ActionPermission::AlwaysAsk,
                         },
                     ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        ExecutionProfileEditorViewAction::SetApplyCodeDiffs {
+                            permission: ActionPermission::GalaxyDecides,
+                        },
+                    ),
                 ],
                 ctx,
             );
@@ -328,6 +334,12 @@ impl ExecutionProfileEditorView {
                         "Always ask",
                         ExecutionProfileEditorViewAction::SetReadFiles {
                             permission: ActionPermission::AlwaysAsk,
+                        },
+                    ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        ExecutionProfileEditorViewAction::SetReadFiles {
+                            permission: ActionPermission::GalaxyDecides,
                         },
                     ),
                 ],
@@ -358,6 +370,12 @@ impl ExecutionProfileEditorView {
                             permission: ActionPermission::AlwaysAsk,
                         },
                     ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        ExecutionProfileEditorViewAction::SetExecuteCommands {
+                            permission: ActionPermission::GalaxyDecides,
+                        },
+                    ),
                 ],
                 ctx,
             );
@@ -384,6 +402,12 @@ impl ExecutionProfileEditorView {
                         "Ask on first write",
                         ExecutionProfileEditorViewAction::SetWriteToPty {
                             permission: WriteToPtyPermission::AskOnFirstWrite,
+                        },
+                    ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        ExecutionProfileEditorViewAction::SetWriteToPty {
+                            permission: WriteToPtyPermission::GalaxyDecides,
                         },
                     ),
                 ],
@@ -414,6 +438,12 @@ impl ExecutionProfileEditorView {
                             permission: ActionPermission::AlwaysAsk,
                         },
                     ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        ExecutionProfileEditorViewAction::SetCallMcpServers {
+                            permission: ActionPermission::GalaxyDecides,
+                        },
+                    ),
                 ],
                 ctx,
             );
@@ -440,6 +470,12 @@ impl ExecutionProfileEditorView {
                         "Always allow",
                         ExecutionProfileEditorViewAction::SetComputerUse {
                             permission: super::ComputerUsePermission::AlwaysAllow,
+                        },
+                    ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        ExecutionProfileEditorViewAction::SetComputerUse {
+                            permission: super::ComputerUsePermission::GalaxyDecides,
                         },
                     ),
                 ],
@@ -496,6 +532,12 @@ impl ExecutionProfileEditorView {
                         "Always ask",
                         ExecutionProfileEditorViewAction::SetRunAgents {
                             permission: RunAgentsPermission::AlwaysAsk,
+                        },
+                    ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        ExecutionProfileEditorViewAction::SetRunAgents {
+                            permission: RunAgentsPermission::GalaxyDecides,
                         },
                     ),
                 ],
@@ -1052,6 +1094,7 @@ impl ExecutionProfileEditorView {
                 ActionPermission::AgentDecides | ActionPermission::Unknown => 0,
                 ActionPermission::AlwaysAllow => 1,
                 ActionPermission::AlwaysAsk => 2,
+                ActionPermission::GalaxyDecides => 3,
             };
 
             menu.set_selected_by_index(active, ctx);
@@ -1077,6 +1120,7 @@ impl ExecutionProfileEditorView {
                 WriteToPtyPermission::AlwaysAllow => 0,
                 WriteToPtyPermission::AlwaysAsk | WriteToPtyPermission::Unknown => 1,
                 WriteToPtyPermission::AskOnFirstWrite => 2,
+                WriteToPtyPermission::GalaxyDecides => 3,
             };
 
             menu.set_selected_by_index(active, ctx);
@@ -1102,6 +1146,7 @@ impl ExecutionProfileEditorView {
                 super::ComputerUsePermission::Never | super::ComputerUsePermission::Unknown => 0,
                 super::ComputerUsePermission::AlwaysAsk => 1,
                 super::ComputerUsePermission::AlwaysAllow => 2,
+                super::ComputerUsePermission::GalaxyDecides => 3,
             };
 
             menu.set_selected_by_index(active, ctx);
@@ -1153,6 +1198,7 @@ impl ExecutionProfileEditorView {
                 RunAgentsPermission::NeverAllow | RunAgentsPermission::Unknown => 0,
                 RunAgentsPermission::AlwaysAllow => 1,
                 RunAgentsPermission::AlwaysAsk => 2,
+                RunAgentsPermission::GalaxyDecides => 3,
             };
 
             menu.set_selected_by_index(active, ctx);

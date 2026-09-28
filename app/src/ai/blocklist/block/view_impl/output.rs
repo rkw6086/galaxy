@@ -318,6 +318,26 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                 }
 
                 for output_message in output.messages.iter() {
+                    if let AIAgentOutputMessageType::Action(action) = &output_message.message {
+                        if let Some(reason) = props
+                            .action_model
+                            .as_ref(app)
+                            .review_reason(props.conversation_id, &action.id)
+                        {
+                            output_items.add_child(
+                                Text::new(
+                                    reason,
+                                    appearance.ai_font_family(),
+                                    appearance.monospace_font_size(),
+                                )
+                                .with_color(blended_colors::text_main(
+                                    appearance.theme(),
+                                    appearance.theme().surface_1(),
+                                ))
+                                .finish(),
+                            );
+                        }
+                    }
                     match &output_message.message {
                         // Skip rendering text and reasoning sections if this is a passive conversation.
                         AIAgentOutputMessageType::Text(_)

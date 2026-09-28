@@ -96,8 +96,8 @@ use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettings, AISettingsChangedEvent, AcpEnabled,
     AcpProviderConfig, AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
     AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAutoLogin,
-    BedrockEnabled, BedrockModelConfig, CodeSettings, CodebaseContextEnabled, CrosscheckEnabled,
-    FileBasedMcpEnabled, GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
+    BedrockEnabled, BedrockModelConfig, CodeSettings, CodebaseContextEnabled, FileBasedMcpEnabled,
+    GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
     IntelligentAutosuggestionsEnabled, LongRunningCommandSubmissionMode, MemoryEnabled,
     NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, OpenAIModelConfig,
     OpenAIProviderConfig, OrchestrationMessageDisplayMode, PromptSubmissionMode,
@@ -167,8 +167,6 @@ pub enum AISubpage {
     ProviderBedrock,
     /// ACP provider settings.
     ProviderACP,
-    /// Experimental features.
-    Experiments,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -189,7 +187,6 @@ impl AISubpage {
             SettingsSection::ProviderChatGPTSubscription => Some(Self::ProviderChatGPTSubscription),
             SettingsSection::ProviderBedrock => Some(Self::ProviderBedrock),
             SettingsSection::ProviderACP => Some(Self::ProviderACP),
-            SettingsSection::Experiments => Some(Self::Experiments),
             // AgentMCPServers renders the standalone MCPServers page, not an AI subpage.
             _ => None,
         }
@@ -1430,6 +1427,10 @@ impl AISettingsPageView {
                         "Always ask",
                         AISettingsPageAction::SetApplyCodeDiffs(ActionPermission::AlwaysAsk),
                     ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        AISettingsPageAction::SetApplyCodeDiffs(ActionPermission::GalaxyDecides),
+                    ),
                 ],
                 ctx,
             );
@@ -1459,6 +1460,10 @@ impl AISettingsPageView {
                     DropdownItem::new(
                         "Always ask",
                         AISettingsPageAction::SetReadFiles(ActionPermission::AlwaysAsk),
+                    ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        AISettingsPageAction::SetReadFiles(ActionPermission::GalaxyDecides),
                     ),
                 ],
                 ctx,
@@ -1490,6 +1495,10 @@ impl AISettingsPageView {
                         "Always ask",
                         AISettingsPageAction::SetExecuteCommands(ActionPermission::AlwaysAsk),
                     ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        AISettingsPageAction::SetExecuteCommands(ActionPermission::GalaxyDecides),
+                    ),
                 ],
                 ctx,
             );
@@ -1520,6 +1529,10 @@ impl AISettingsPageView {
                         "Ask on first write",
                         AISettingsPageAction::SetWriteToPty(WriteToPtyPermission::AskOnFirstWrite),
                     ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        AISettingsPageAction::SetWriteToPty(WriteToPtyPermission::GalaxyDecides),
+                    ),
                 ],
                 ctx,
             );
@@ -1549,6 +1562,10 @@ impl AISettingsPageView {
                     DropdownItem::new(
                         "Always ask",
                         AISettingsPageAction::SetMCPPermissions(ActionPermission::AlwaysAsk),
+                    ),
+                    DropdownItem::new(
+                        "Galaxy Decides",
+                        AISettingsPageAction::SetMCPPermissions(ActionPermission::GalaxyDecides),
                     ),
                 ],
                 ctx,
@@ -2214,9 +2231,6 @@ impl AISettingsPageView {
                     ProviderSetupProviderType::Acp,
                 )));
             }
-            Some(AISubpage::Experiments) => {
-                widgets.push(Box::new(ExperimentsWidget::default()));
-            }
         }
 
         // Subpage widgets render their own subheader-sized titles internally,
@@ -2598,6 +2612,7 @@ impl AISettingsPageView {
                 ActionPermission::AgentDecides | ActionPermission::Unknown => 0,
                 ActionPermission::AlwaysAllow => 1,
                 ActionPermission::AlwaysAsk => 2,
+                ActionPermission::GalaxyDecides => 3,
             };
 
             menu.set_selected_by_index(active, ctx);
@@ -2623,6 +2638,7 @@ impl AISettingsPageView {
                 WriteToPtyPermission::AlwaysAllow => 0,
                 WriteToPtyPermission::AlwaysAsk | WriteToPtyPermission::Unknown => 1,
                 WriteToPtyPermission::AskOnFirstWrite => 2,
+                WriteToPtyPermission::GalaxyDecides => 3,
             };
 
             menu.set_selected_by_index(active, ctx);
@@ -2999,7 +3015,6 @@ pub enum AISettingsPageAction {
         agent: Option<CLIAgent>,
     },
     ToggleCloudAgentComputerUse,
-    ToggleCrosscheckEnabled,
 }
 
 impl TypedActionView for AISettingsPageView {
@@ -3661,12 +3676,6 @@ impl TypedActionView for AISettingsPageView {
                     report_if_error!(settings
                         .cloud_agent_computer_use_enabled
                         .toggle_and_save_value(ctx));
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::ToggleCrosscheckEnabled => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.crosscheck_enabled.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }
@@ -5265,6 +5274,7 @@ impl AgentsWidget {
         }
 
         if current_mcp_setting == ActionPermission::AlwaysAllow
+            || current_mcp_setting == ActionPermission::GalaxyDecides
             || current_mcp_setting == ActionPermission::AgentDecides
         {
             let denylist = self.render_mcp_list(
@@ -8069,75 +8079,6 @@ impl SettingsWidget for CustomModelRoutersWidget {
         // against the router cards.
         Container::new(column.finish())
             .with_margin_bottom(HEADER_PADDING)
-            .finish()
-    }
-}
-
-// ── Experiments widget ──────────────────────────────────────────────────────
-
-#[derive(Default)]
-struct ExperimentsWidget {
-    crosscheck_toggle: SwitchStateHandle,
-}
-
-impl SettingsWidget for ExperimentsWidget {
-    type View = AISettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "experiments crosscheck review reviewer sub-agent feedback loop lgtm"
-    }
-
-    fn should_render(&self, _app: &AppContext) -> bool {
-        FeatureFlag::CrosscheckWork.is_enabled()
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_any_ai_enabled = ai_settings.is_any_ai_enabled(app);
-
-        let header = build_sub_header(
-            appearance,
-            "Experiments",
-            Some(styles::header_font_color(is_any_ai_enabled, app)),
-        )
-        .with_margin_bottom(HEADER_PADDING)
-        .finish();
-
-        let crosscheck_toggle = render_ai_setting_toggle::<CrosscheckEnabled>(
-            "Crosscheck Work",
-            AISettingsPageAction::ToggleCrosscheckEnabled,
-            *ai_settings.crosscheck_enabled,
-            is_any_ai_enabled,
-            self.crosscheck_toggle.clone(),
-            &view.local_only_icon_tooltip_states,
-            app,
-        );
-
-        let crosscheck_description = render_ai_setting_description(
-            "When enabled, a reviewer agent critiques the main agent's output after each turn. \
-             The feedback loop continues until the reviewer responds with \"LGTM!\" or the \
-             maximum iteration count is reached.",
-            is_any_ai_enabled,
-            app,
-        );
-
-        let model_description = render_ai_setting_description(
-            "Configure the reviewer model and max iterations in settings.toml under \
-             [agents.experiments].",
-            is_any_ai_enabled,
-            app,
-        );
-
-        Flex::column()
-            .with_child(header)
-            .with_child(crosscheck_toggle)
-            .with_child(crosscheck_description)
-            .with_child(model_description)
             .finish()
     }
 }

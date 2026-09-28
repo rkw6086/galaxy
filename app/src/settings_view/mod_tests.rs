@@ -110,7 +110,6 @@ fn current_settings_display_names_round_trip() {
             SettingsSection::ThirdPartyCLIAgents,
             "Third party CLI agents",
         ),
-        (SettingsSection::Experiments, "Experiments"),
         (SettingsSection::ProviderOpenAI, "OpenAI"),
         (SettingsSection::ProviderLiteLLM, "LiteLLM"),
         (
@@ -217,7 +216,7 @@ fn collapsed_umbrellas_each_form_one_navigation_stop() {
         NavStop::CollapsedUmbrella {
             nav_index: 0,
             first_subpage: SettingsSection::WarpAgent,
-            last_subpage: SettingsSection::Experiments,
+            last_subpage: SettingsSection::ThirdPartyCLIAgents,
         }
     );
     assert_eq!(
@@ -272,7 +271,7 @@ fn collapsed_umbrella_uses_first_and_last_visible_subpages() {
     let stops = build_nav_stops(&nav_items, |section| {
         !matches!(
             section,
-            SettingsSection::WarpAgent | SettingsSection::Models | SettingsSection::Experiments
+            SettingsSection::WarpAgent | SettingsSection::Models
         )
     });
 
@@ -412,7 +411,7 @@ fn cycling_leaves_an_expanded_umbrella_after_its_last_subpage() {
         simulate_cycle(
             &nav_items,
             &stops,
-            SettingsSection::Experiments,
+            SettingsSection::ThirdPartyCLIAgents,
             CycleDirection::Down,
         ),
         SettingsSection::ProviderOpenAI

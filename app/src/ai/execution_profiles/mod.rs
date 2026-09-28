@@ -78,10 +78,12 @@ pub fn resolve_cloud_agent_computer_use_state(ctx: &AppContext) -> CloudAgentCom
         // AlwaysAsk variant isn't accessible in the admin console. We need to figure
         // out how to handle it when it eventually becomes available. For now, I'm
         // treating this conservatively and marking computer use as disabled.
-        Some(ComputerUsePermission::AlwaysAsk) => CloudAgentComputerUseState {
-            enabled: false,
-            is_forced_by_org: true,
-        },
+        Some(ComputerUsePermission::AlwaysAsk | ComputerUsePermission::GalaxyDecides) => {
+            CloudAgentComputerUseState {
+                enabled: false,
+                is_forced_by_org: true,
+            }
+        }
         Some(ComputerUsePermission::Unknown) | None => CloudAgentComputerUseState {
             enabled: user_preference,
             is_forced_by_org: false,

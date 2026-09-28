@@ -14,6 +14,7 @@
 
 mod execute;
 mod preprocess;
+mod risk_review;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -752,6 +753,7 @@ fn log_tool_event(
 
 pub struct BlocklistAIActionModel {
     executor: ModelHandle<BlocklistAIActionExecutor>,
+    active_session: ModelHandle<ActiveSession>,
 
     pending_preprocessed_actions: HashMap<AIConversationId, PendingPreprocessedActions>,
 
@@ -781,6 +783,8 @@ pub struct BlocklistAIActionModel {
     /// Permission-card rejections whose cancelled action result must not emit a second provider event.
     denied_permissions: HashSet<(AIConversationId, AIAgentActionId)>,
     pending_permissions: HashSet<(AIConversationId, AIAgentActionId)>,
+    action_reviews: HashMap<(AIConversationId, AIAgentActionId), risk_review::ActionReview>,
+    permission_denial_reasons: HashMap<(AIConversationId, AIAgentActionId), String>,
 
     /// Actions parked because their executor-specific UI or state was not ready yet.
     not_ready_actions: NotReadyActionTracker,
@@ -900,11 +904,14 @@ impl BlocklistAIActionModel {
             finished_tool_results: Default::default(),
             provider_finished_action_results: Default::default(),
             executor,
+            active_session,
             past_action_results: HashMap::new(),
             running_actions: Default::default(),
             action_order: Default::default(),
             denied_permissions: Default::default(),
             pending_permissions: Default::default(),
+            action_reviews: Default::default(),
+            permission_denial_reasons: Default::default(),
             not_ready_actions: Default::default(),
             deferred_provider_preprocessing: Default::default(),
             provider_tool_executions: Default::default(),
@@ -1287,6 +1294,9 @@ impl BlocklistAIActionModel {
         conversation_id: AIConversationId,
         id: &AIAgentActionId,
     ) -> Option<AIActionStatus> {
+        if self.is_reviewing_action(conversation_id, id) {
+            return Some(AIActionStatus::Preprocessing);
+        }
         if self
             .deferred_provider_preprocessing
             .get(&(conversation_id, id.clone()))
@@ -1564,12 +1574,17 @@ impl BlocklistAIActionModel {
                             id: permission_request_id(&action.id),
                             call_id: action.id.to_string(),
                             kind: permission_kind_for_action(&action.action),
-                            reason: Some(action.action.user_friendly_name()),
+                            reason: Some(
+                                self.review_reason(conversation_id, &action.id)
+                                    .unwrap_or_else(|| action.action.user_friendly_name()),
+                            ),
                         },
                     },
                 });
                 BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-                    let blocked_action_user_friendly_str = action.action.user_friendly_name();
+                    let blocked_action_user_friendly_str = self
+                        .review_reason(conversation_id, &action.id)
+                        .unwrap_or_else(|| action.action.user_friendly_name());
                     history_model.update_conversation_status(
                         self.terminal_view_id,
                         conversation_id,
@@ -1680,6 +1695,10 @@ impl BlocklistAIActionModel {
             return None;
         }
 
+        let candidate = self.pending_actions[&conversation_id][idx].clone();
+        let review_approved =
+            self.review_pending_action(&candidate, conversation_id, is_user_initiated, ctx)?;
+
         let action = self
             .pending_actions
             .get_mut(&conversation_id)?
@@ -1698,6 +1717,7 @@ impl BlocklistAIActionModel {
         });
         let resolves_permission = self.pending_permissions.contains(&key)
             && (is_user_initiated
+                || review_approved
                 || self.executor.update(ctx, |executor, ctx| {
                     executor.can_autoexecute_action(&action, conversation_id, ctx)
                 }));
@@ -1728,7 +1748,13 @@ impl BlocklistAIActionModel {
         // in-progress update.
         let is_wait_for_events = matches!(action.action, AIAgentActionType::WaitForEvents { .. });
         let execute_result = self.executor.update(ctx, |executor, ctx| {
-            executor.try_to_execute_action(action, conversation_id, is_user_initiated, ctx)
+            executor.try_to_execute_action(
+                action,
+                conversation_id,
+                is_user_initiated,
+                review_approved,
+                ctx,
+            )
         });
 
         match execute_result {
@@ -2335,6 +2361,10 @@ impl BlocklistAIActionModel {
             .retain(|(conv_id, _)| *conv_id != conversation_id);
         self.pending_permissions
             .retain(|(conv_id, _)| *conv_id != conversation_id);
+        self.action_reviews
+            .retain(|(conv_id, _), _| *conv_id != conversation_id);
+        self.permission_denial_reasons
+            .retain(|(conv_id, _), _| *conv_id != conversation_id);
         self.pending_actions.remove(&conversation_id);
         self.running_actions.remove(&conversation_id);
         self.finished_action_results.remove(&conversation_id);
@@ -2452,6 +2482,8 @@ impl BlocklistAIActionModel {
             .remove(&(conversation_id, action_result.id.clone()));
         self.pending_permissions
             .remove(&(conversation_id, action_result.id.clone()));
+        self.action_reviews
+            .remove(&(conversation_id, action_result.id.clone()));
         let permission_denied = self
             .denied_permissions
             .remove(&(conversation_id, action_result.id.clone()));
@@ -2465,7 +2497,13 @@ impl BlocklistAIActionModel {
                 }
             });
         }
-        let tool_result = domain_tool_result(&action_result, permission_denied);
+        let mut tool_result = domain_tool_result(&action_result, permission_denied);
+        if let Some(reason) = self
+            .permission_denial_reasons
+            .remove(&(conversation_id, action_result.id.clone()))
+        {
+            tool_result.content = reason;
+        }
         if execution_ref.is_none() {
             self.finished_tool_results
                 .entry(conversation_id)

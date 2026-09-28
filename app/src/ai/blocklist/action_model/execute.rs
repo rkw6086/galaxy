@@ -721,6 +721,7 @@ impl BlocklistAIActionExecutor {
         action: AIAgentAction,
         conversation_id: AIConversationId,
         is_user_initiated: bool,
+        review_approved: bool,
         ctx: &mut ModelContext<Self>,
     ) -> TryExecuteResult {
         crate::ai::tool_diagnostics::tool_debug!(
@@ -745,7 +746,7 @@ impl BlocklistAIActionExecutor {
             action: &action,
             conversation_id,
         };
-        let can_auto_execute = self.should_autoexecute(input, ctx);
+        let can_auto_execute = review_approved || self.should_autoexecute(input, ctx);
         let is_agent_autonomous = AppExecutionMode::as_ref(ctx).is_autonomous();
         crate::ai::tool_diagnostics::tool_debug!(
             "try_to_execute_action: can_auto_execute={}, is_agent_autonomous={}",

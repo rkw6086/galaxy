@@ -712,7 +712,7 @@ impl BlocklistAIPermissions {
             ActionPermission::AlwaysAllow => {
                 FileReadPermission::Allowed(FileReadPermissionAllowedReason::AutoreadSettingEnabled)
             }
-            ActionPermission::AlwaysAsk => {
+            ActionPermission::AlwaysAsk | ActionPermission::GalaxyDecides => {
                 let allowlisted_paths = self.get_read_files_allowlist(ctx, terminal_view_id);
                 if paths
                     .iter()
@@ -842,7 +842,9 @@ impl BlocklistAIPermissions {
                 allowlisted && !denylisted
             }
             ActionPermission::AlwaysAllow => !denylisted,
-            ActionPermission::AlwaysAsk => allowlisted && !denylisted,
+            ActionPermission::AlwaysAsk | ActionPermission::GalaxyDecides => {
+                allowlisted && !denylisted
+            }
         }
     }
 
@@ -859,7 +861,7 @@ impl BlocklistAIPermissions {
             ActionPermission::AlwaysAllow => FileWritePermission::Allowed(
                 FileWritePermissionAllowedReason::AutowriteSettingEnabled,
             ),
-            ActionPermission::AlwaysAsk => {
+            ActionPermission::AlwaysAsk | ActionPermission::GalaxyDecides => {
                 FileWritePermission::Denied(FileWritePermissionDeniedReason::AlwaysAskEnabled)
             }
         }
@@ -953,7 +955,7 @@ impl BlocklistAIPermissions {
             ActionPermission::AlwaysAllow => CommandExecutionPermission::Allowed(
                 CommandExecutionPermissionAllowedReason::AlwaysAllowed,
             ),
-            ActionPermission::AlwaysAsk => {
+            ActionPermission::AlwaysAsk | ActionPermission::GalaxyDecides => {
                 let allowlist = self.get_execute_commands_allowlist(ctx, terminal_view_id);
 
                 if commands.iter().all(|command| {

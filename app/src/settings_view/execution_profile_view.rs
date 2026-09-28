@@ -245,7 +245,7 @@ impl View for ExecutionProfileView {
                         ));
 
                         match profile.execute_commands {
-                            ActionPermission::AlwaysAllow => {
+                            ActionPermission::AlwaysAllow | ActionPermission::GalaxyDecides => {
                                 permissions_column.add_child(render_command_denylist(
                                     &profile,
                                     appearance,
@@ -325,7 +325,7 @@ impl View for ExecutionProfileView {
                         ));
 
                         match profile.mcp_permissions {
-                            ActionPermission::AlwaysAllow => {
+                            ActionPermission::AlwaysAllow | ActionPermission::GalaxyDecides => {
                                 permissions_column.add_child(render_mcp_denylist(
                                     &profile,
                                     appearance,
@@ -700,6 +700,7 @@ fn render_action_permission_line_with_icon(
         ActionPermission::AgentDecides => "Agent decides",
         ActionPermission::AlwaysAllow => "Always allow",
         ActionPermission::AlwaysAsk => "Always ask",
+        ActionPermission::GalaxyDecides => "Galaxy Decides",
         ActionPermission::Unknown => "Unknown",
     };
     render_permission_line_with_icon(icon, label, permission_text, appearance, is_ai_enabled)
@@ -715,6 +716,7 @@ fn render_write_to_pty_permission_line_with_icon(
     let permission_text = match permission {
         WriteToPtyPermission::AlwaysAllow => "Always allow",
         WriteToPtyPermission::AlwaysAsk => "Always ask",
+        WriteToPtyPermission::GalaxyDecides => "Galaxy Decides",
         WriteToPtyPermission::AskOnFirstWrite => "Ask on first write",
         WriteToPtyPermission::Unknown => "Unknown",
     };
@@ -732,6 +734,7 @@ fn render_computer_use_permission_line_with_icon(
         crate::ai::execution_profiles::ComputerUsePermission::Never
         | crate::ai::execution_profiles::ComputerUsePermission::Unknown => "Never",
         crate::ai::execution_profiles::ComputerUsePermission::AlwaysAsk => "Always ask",
+        crate::ai::execution_profiles::ComputerUsePermission::GalaxyDecides => "Galaxy Decides",
         crate::ai::execution_profiles::ComputerUsePermission::AlwaysAllow => "Always allow",
     };
     render_permission_line_with_icon(icon, label, permission_text, appearance, is_ai_enabled)
@@ -765,6 +768,7 @@ fn render_run_agents_permission_line_with_icon(
         RunAgentsPermission::NeverAllow | RunAgentsPermission::Unknown => "Never",
         RunAgentsPermission::AlwaysAllow => "Always allow",
         RunAgentsPermission::AlwaysAsk => "Always ask",
+        RunAgentsPermission::GalaxyDecides => "Galaxy Decides",
     };
     render_permission_line_with_icon(icon, label, permission_text, appearance, is_ai_enabled)
 }

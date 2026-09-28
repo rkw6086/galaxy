@@ -498,7 +498,7 @@ pub fn render_permissions_section(
     ));
 
     match profile_data.execute_commands {
-        ActionPermission::AlwaysAllow => {
+        ActionPermission::AlwaysAllow | ActionPermission::GalaxyDecides => {
             column.add_child(render_command_denylist_section(
                 view,
                 profile_data,
@@ -584,7 +584,7 @@ pub fn render_permissions_section(
     ));
 
     match profile_data.mcp_permissions {
-        ActionPermission::AlwaysAllow => {
+        ActionPermission::AlwaysAllow | ActionPermission::GalaxyDecides => {
             column.add_child(render_mcp_denylist_section(
                 view,
                 profile_data,
