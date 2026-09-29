@@ -27,13 +27,14 @@ const MAX_LOG_LINES = 15;
 function runCommandStreaming(
   cmd: string,
   cwd: string,
-  onLog: (line: string) => void
+  onLog: (line: string) => void,
+  interactive = false
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, {
       cwd,
       shell: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: interactive ? "inherit" : ["ignore", "pipe", "pipe"],
     });
 
     const createChunkProcessor = () => {
@@ -233,16 +234,36 @@ function App() {
 
         await stopApp("Galaxy", (line) => appendLog(3, line));
 
+        const isWritable = (target: string) => {
+          try {
+            fs.accessSync(target, fs.constants.W_OK);
+            return true;
+          } catch {
+            return false;
+          }
+        };
+        const useSudo =
+          !isWritable("/Applications") ||
+          (fs.existsSync(destPath) &&
+            (!isWritable(destPath) || fs.statSync(destPath).uid !== process.getuid?.()));
+        const privilege = useSudo ? "sudo " : "";
+
         if (fs.existsSync(destPath)) {
           appendLog(3, `Removing existing ${destPath}`);
-          execSync(`rm -rf "${destPath}"`, { stdio: "pipe" });
+          await runCommandStreaming(
+            `${privilege}rm -rf "${destPath}"`,
+            WORKSPACE_ROOT,
+            (line) => appendLog(3, line),
+            useSudo
+          );
         }
 
         appendLog(3, `Copying ${appPath} → ${destPath}`);
         await runCommandStreaming(
-          `ditto "${appPath}" "${destPath}"`,
+          `${privilege}ditto "${appPath}" "${destPath}"`,
           WORKSPACE_ROOT,
-          (line) => appendLog(3, line)
+          (line) => appendLog(3, line),
+          useSudo
         );
 
         updateStep(3, { status: "done", detail: destPath });
