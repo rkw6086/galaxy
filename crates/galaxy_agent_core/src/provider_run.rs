@@ -867,6 +867,18 @@ impl ProviderRun {
         matches!(self.state, ProviderRunState::ReadyToCallModel).then(|| self.current_work_id())
     }
 
+    /// Selects the runtime for the next turn after a tool batch has been committed.
+    pub fn set_ready_profile(
+        &mut self,
+        profile: impl Into<ProviderRequestProfile>,
+    ) -> Result<(), ProviderRunProtocolError> {
+        if !matches!(self.state, ProviderRunState::ReadyToCallModel) {
+            return Err(self.unexpected_state(ProviderRunPhase::ReadyToCallModel));
+        }
+        self.profile = profile.into();
+        Ok(())
+    }
+
     fn model_turn_limit_reached(&self) -> bool {
         self.limits
             .max_model_turns

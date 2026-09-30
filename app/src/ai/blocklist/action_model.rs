@@ -15,7 +15,6 @@
 mod execute;
 mod preprocess;
 mod risk_review;
-
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,6 +42,7 @@ use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, Singleto
 use itertools::Itertools;
 use parking_lot::FairMutex;
 use preprocess::{PendingPreprocessedActions, PreprocessId};
+pub(crate) use risk_review::{ReviewDisplay, ReviewDisplayState};
 
 use self::execute::ask_user_question::AskUserQuestionExecutor;
 use self::execute::search_codebase::SearchCodebaseExecutor;
@@ -784,6 +784,7 @@ pub struct BlocklistAIActionModel {
     denied_permissions: HashSet<(AIConversationId, AIAgentActionId)>,
     pending_permissions: HashSet<(AIConversationId, AIAgentActionId)>,
     action_reviews: HashMap<(AIConversationId, AIAgentActionId), risk_review::ActionReview>,
+    review_outcomes: HashMap<(AIConversationId, AIAgentActionId), risk_review::ReviewOutcome>,
     permission_denial_reasons: HashMap<(AIConversationId, AIAgentActionId), String>,
 
     /// Actions parked because their executor-specific UI or state was not ready yet.
@@ -911,6 +912,7 @@ impl BlocklistAIActionModel {
             denied_permissions: Default::default(),
             pending_permissions: Default::default(),
             action_reviews: Default::default(),
+            review_outcomes: Default::default(),
             permission_denial_reasons: Default::default(),
             not_ready_actions: Default::default(),
             deferred_provider_preprocessing: Default::default(),
@@ -2214,6 +2216,15 @@ impl BlocklistAIActionModel {
         pending_action: &AIAgentAction,
         ctx: &mut ModelContext<Self>,
     ) {
+        if self
+            .review_reason(conversation_id, &pending_action.id)
+            .is_some()
+        {
+            self.review_outcomes.insert(
+                (conversation_id, pending_action.id.clone()),
+                risk_review::ReviewOutcome::denied_by_user(pending_action),
+            );
+        }
         self.denied_permissions
             .insert((conversation_id, pending_action.id.clone()));
         #[cfg(not(target_family = "wasm"))]
@@ -2362,6 +2373,8 @@ impl BlocklistAIActionModel {
         self.pending_permissions
             .retain(|(conv_id, _)| *conv_id != conversation_id);
         self.action_reviews
+            .retain(|(conv_id, _), _| *conv_id != conversation_id);
+        self.review_outcomes
             .retain(|(conv_id, _), _| *conv_id != conversation_id);
         self.permission_denial_reasons
             .retain(|(conv_id, _), _| *conv_id != conversation_id);

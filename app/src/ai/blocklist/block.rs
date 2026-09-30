@@ -4918,6 +4918,7 @@ impl AIBlock {
                 }
                 BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. } => {
                     ctx.emit(AIBlockEvent::ActionBlockedOnUserConfirmation);
+                    ctx.notify();
                 }
                 BlocklistAIActionEvent::FinishedAction { action_id, .. } => {
                     me.abort_auto_expand_requested_command_timer();

@@ -122,7 +122,11 @@ impl View for ExecutionProfileView {
         let computer_use_model = profile
             .computer_use_model
             .as_ref()
-            .and_then(|id| llm_preferences.get_llm_info(id))
+            .and_then(|id| {
+                llm_preferences
+                    .get_computer_use_llm_choices(app)
+                    .find(|info| info.id == *id)
+            })
             .map(|info| info.display_name.clone())
             .unwrap_or_else(|| "Auto".to_string());
 
@@ -224,9 +228,7 @@ impl View for ExecutionProfileView {
                                 ),
                             ));
 
-                        if profile.read_files == ActionPermission::AlwaysAsk
-                            || profile.read_files == ActionPermission::AgentDecides
-                        {
+                        if profile.read_files == ActionPermission::AlwaysAsk {
                             permissions_column.add_child(render_directory_allowlist(
                                 &profile,
                                 appearance,
@@ -259,7 +261,7 @@ impl View for ExecutionProfileView {
                                     is_any_ai_enabled,
                                 ));
                             }
-                            ActionPermission::AgentDecides | ActionPermission::Unknown => {
+                            ActionPermission::Unknown => {
                                 permissions_column.add_child(render_command_allowlist(
                                     &profile,
                                     appearance,
@@ -341,7 +343,7 @@ impl View for ExecutionProfileView {
                                     is_any_ai_enabled,
                                 ));
                             }
-                            ActionPermission::AgentDecides | ActionPermission::Unknown => {
+                            ActionPermission::Unknown => {
                                 permissions_column.add_child(render_mcp_allowlist(
                                     &profile,
                                     appearance,
@@ -697,7 +699,6 @@ fn render_action_permission_line_with_icon(
     is_ai_enabled: bool,
 ) -> Box<dyn Element> {
     let permission_text = match permission {
-        ActionPermission::AgentDecides => "Agent decides",
         ActionPermission::AlwaysAllow => "Always allow",
         ActionPermission::AlwaysAsk => "Always ask",
         ActionPermission::GalaxyDecides => "Galaxy Decides",

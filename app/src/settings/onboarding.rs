@@ -219,13 +219,13 @@ fn action_permissions_for_onboarding_autonomy(
             write_to_pty: WriteToPtyPermission::AlwaysAllow,
         },
         // Partial autonomy: reads are always allowed, applying code diffs
-        // always asks, and the agent decides on command / MCP execution
-        // (asking only for sensitive actions).
+        // always asks, and Galaxy reviews command / MCP execution
+        // (asking for approval on higher-risk actions).
         AgentAutonomy::Partial => OnboardingAutonomyPermissions {
             apply_code_diffs: ActionPermission::AlwaysAsk,
             read_files: ActionPermission::AlwaysAllow,
-            execute_commands: ActionPermission::AgentDecides,
-            mcp_permissions: ActionPermission::AgentDecides,
+            execute_commands: ActionPermission::GalaxyDecides,
+            mcp_permissions: ActionPermission::GalaxyDecides,
             write_to_pty: WriteToPtyPermission::AlwaysAsk,
         },
         AgentAutonomy::None => OnboardingAutonomyPermissions {

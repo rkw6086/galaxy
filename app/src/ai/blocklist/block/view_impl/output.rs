@@ -70,7 +70,7 @@ use crate::ai::agent::{
 };
 use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::blocklist::action_model::AIActionStatus;
+use crate::ai::blocklist::action_model::{AIActionStatus, ReviewDisplay, ReviewDisplayState};
 use crate::ai::blocklist::block::model::{AIBlockModel, AIBlockModelHelper, AIBlockOutputStatus};
 use crate::ai::blocklist::block::view_impl::common::{
     MaybeShimmeringText, BLOCKED_ACTION_MESSAGE_FOR_GREP_OR_FILE_GLOB,
@@ -319,23 +319,12 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
 
                 for output_message in output.messages.iter() {
                     if let AIAgentOutputMessageType::Action(action) = &output_message.message {
-                        if let Some(reason) = props
+                        if let Some(review) = props
                             .action_model
                             .as_ref(app)
-                            .review_reason(props.conversation_id, &action.id)
+                            .review_display(props.conversation_id, &action.id)
                         {
-                            output_items.add_child(
-                                Text::new(
-                                    reason,
-                                    appearance.ai_font_family(),
-                                    appearance.monospace_font_size(),
-                                )
-                                .with_color(blended_colors::text_main(
-                                    appearance.theme(),
-                                    appearance.theme().surface_1(),
-                                ))
-                                .finish(),
-                            );
+                            output_items.add_child(render_review_status(review, app));
                         }
                     }
                     match &output_message.message {
@@ -1329,6 +1318,55 @@ fn render_streaming_tool_call(
         .render(app);
 
     render_tool_pane_shell(Clipped::new(header).finish(), false, false, false, app)
+}
+
+fn render_review_status(review: ReviewDisplay, app: &AppContext) -> Box<dyn Element> {
+    let appearance = Appearance::as_ref(app);
+    let icon = match review.state {
+        ReviewDisplayState::Assessing => Icon::Loading.to_galaxyui_icon(
+            galaxy_core::ui::theme::Fill::Solid(internal_colors::neutral_6(appearance.theme())),
+        ),
+        ReviewDisplayState::AwaitingApproval => icons::yellow_stop_icon(appearance),
+        ReviewDisplayState::Approved => inline_action_icons::green_check_icon(appearance),
+        ReviewDisplayState::Denied => inline_action_icons::red_x_icon(appearance),
+    };
+    let title = match review.state {
+        ReviewDisplayState::Assessing => "Checking permission",
+        ReviewDisplayState::AwaitingApproval => "Approval required · 60 seconds",
+        ReviewDisplayState::Approved => "Approved",
+        ReviewDisplayState::Denied => "Denied",
+    };
+    let header = HeaderConfig::new(title, app)
+        .with_icon(icon)
+        .with_corner_radius_override(CornerRadius::with_all(Radius::Pixels(8.)))
+        .render(app);
+    let detail = format!("{}\n{}", review.summary, review.detail);
+    let body = Container::new(
+        Text::new(
+            detail,
+            appearance.ai_font_family(),
+            appearance.monospace_font_size(),
+        )
+        .with_color(blended_colors::text_main(
+            appearance.theme(),
+            appearance.theme().surface_1(),
+        ))
+        .finish(),
+    )
+    .with_margin_left(16.)
+    .with_margin_right(16.)
+    .with_margin_bottom(12.)
+    .finish();
+    render_tool_pane_shell(
+        Flex::column()
+            .with_child(Clipped::new(header).finish())
+            .with_child(body)
+            .finish(),
+        matches!(review.state, ReviewDisplayState::AwaitingApproval),
+        false,
+        false,
+        app,
+    )
 }
 
 fn render_runtime_activity(
@@ -3084,9 +3122,32 @@ fn render_use_computer(
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::handle(app).as_ref(app);
-
-    let mut renderable_action = RenderableAction::new(&request.action_summary, app)
-        .with_icon(action_icon(action_id, props.action_model, props.model, app).finish());
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, action_id);
+    let mut renderable_action = RenderableAction::new(&request.action_summary, app);
+    if status.as_ref().is_some_and(|status| status.is_blocked()) {
+        let buttons = props
+            .action_buttons
+            .get(action_id)
+            .expect("Button states must exist for each requested action.");
+        renderable_action = renderable_action
+            .with_header(blocked_action_header(
+                action_id.clone(),
+                "OK if I use computer control for this action?",
+                buttons.run_button.clone(),
+                buttons.cancel_button.clone(),
+                props.action_model,
+                props.model,
+                app,
+            ))
+            .with_highlighted_border()
+            .with_background_color(appearance.theme().background().into_solid());
+    } else {
+        renderable_action = renderable_action
+            .with_icon(action_icon(action_id, props.action_model, props.model, app).finish());
+    }
 
     // Add a "View screenshot" button if the action result contains a screenshot.
     let has_screenshot = props

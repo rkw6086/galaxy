@@ -285,12 +285,6 @@ impl ExecutionProfileEditorView {
             dropdown.set_items(
                 vec![
                     DropdownItem::new(
-                        "Agent decides",
-                        ExecutionProfileEditorViewAction::SetApplyCodeDiffs {
-                            permission: ActionPermission::AgentDecides,
-                        },
-                    ),
-                    DropdownItem::new(
                         "Always allow",
                         ExecutionProfileEditorViewAction::SetApplyCodeDiffs {
                             permission: ActionPermission::AlwaysAllow,
@@ -319,12 +313,6 @@ impl ExecutionProfileEditorView {
             dropdown.set_items(
                 vec![
                     DropdownItem::new(
-                        "Agent decides",
-                        ExecutionProfileEditorViewAction::SetReadFiles {
-                            permission: ActionPermission::AgentDecides,
-                        },
-                    ),
-                    DropdownItem::new(
                         "Always allow",
                         ExecutionProfileEditorViewAction::SetReadFiles {
                             permission: ActionPermission::AlwaysAllow,
@@ -352,12 +340,6 @@ impl ExecutionProfileEditorView {
             let mut dropdown = Dropdown::new(ctx);
             dropdown.set_items(
                 vec![
-                    DropdownItem::new(
-                        "Agent decides",
-                        ExecutionProfileEditorViewAction::SetExecuteCommands {
-                            permission: ActionPermission::AgentDecides,
-                        },
-                    ),
                     DropdownItem::new(
                         "Always allow",
                         ExecutionProfileEditorViewAction::SetExecuteCommands {
@@ -420,12 +402,6 @@ impl ExecutionProfileEditorView {
             let mut dropdown = Dropdown::new(ctx);
             dropdown.set_items(
                 vec![
-                    DropdownItem::new(
-                        "Agent decides",
-                        ExecutionProfileEditorViewAction::SetCallMcpServers {
-                            permission: ActionPermission::AgentDecides,
-                        },
-                    ),
                     DropdownItem::new(
                         "Always allow",
                         ExecutionProfileEditorViewAction::SetCallMcpServers {
@@ -824,7 +800,7 @@ impl ExecutionProfileEditorView {
                     Self::refresh_filterable_model_dropdown(
                         &me.computer_use_model_dropdown,
                         current_permissions.computer_use_model.clone(),
-                        |prefs, _| prefs.get_computer_use_llm_choices().collect_vec(),
+                        |prefs, app| prefs.get_computer_use_llm_choices(app).collect_vec(),
                         |id| ExecutionProfileEditorViewAction::SetComputerUseModel { id },
                         |prefs| prefs.get_default_computer_use_model().id.clone(),
                         &me.upgrade_footer_mouse_state,
@@ -1003,7 +979,7 @@ impl ExecutionProfileEditorView {
         Self::refresh_filterable_model_dropdown(
             &self.computer_use_model_dropdown,
             current_permissions.computer_use_model.clone(),
-            |prefs, _| prefs.get_computer_use_llm_choices().collect_vec(),
+            |prefs, app| prefs.get_computer_use_llm_choices(app).collect_vec(),
             |id| ExecutionProfileEditorViewAction::SetComputerUseModel { id },
             |prefs| prefs.get_default_computer_use_model().id.clone(),
             &self.upgrade_footer_mouse_state,
@@ -1091,10 +1067,9 @@ impl ExecutionProfileEditorView {
             }
 
             let active = match current_permission {
-                ActionPermission::AgentDecides | ActionPermission::Unknown => 0,
-                ActionPermission::AlwaysAllow => 1,
-                ActionPermission::AlwaysAsk => 2,
-                ActionPermission::GalaxyDecides => 3,
+                ActionPermission::AlwaysAllow => 0,
+                ActionPermission::AlwaysAsk | ActionPermission::Unknown => 1,
+                ActionPermission::GalaxyDecides => 2,
             };
 
             menu.set_selected_by_index(active, ctx);

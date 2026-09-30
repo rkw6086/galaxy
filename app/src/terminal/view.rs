@@ -20439,6 +20439,11 @@ impl TerminalView {
                 if is_restored {
                     return;
                 }
+                self.model
+                    .lock()
+                    .block_list_mut()
+                    .mark_rich_content_dirty(block.id());
+                ctx.notify();
                 self.focus_ai_block_if_self_focused(&block, ctx);
                 self.maybe_send_agent_mode_desktop_notification(&conversation_id, ctx);
             }

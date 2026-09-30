@@ -84,6 +84,57 @@ enum ReviewDecision {
     Ask { reason: String, deadline: Instant },
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum ReviewDisplayState {
+    Assessing,
+    AwaitingApproval,
+    Approved,
+    Denied,
+}
+
+pub(crate) struct ReviewDisplay {
+    pub(crate) state: ReviewDisplayState,
+    pub(crate) summary: String,
+    pub(crate) detail: String,
+}
+
+pub(super) struct ReviewOutcome {
+    summary: String,
+    detail: String,
+    approved: bool,
+}
+
+impl ReviewOutcome {
+    pub(super) fn denied_by_user(action: &AIAgentAction) -> Self {
+        Self {
+            summary: review_summary(action),
+            detail: "Denied by you.".to_string(),
+            approved: false,
+        }
+    }
+}
+
+fn review_summary(action: &AIAgentAction) -> String {
+    let description = match &action.action {
+        AIAgentActionType::RequestCommandOutput { command, .. } => {
+            format!("Run: {command}")
+        }
+        _ => action.action.user_friendly_name(),
+    };
+    let summary = description.split_whitespace().collect::<Vec<_>>().join(" ");
+    shorten_for_review(&summary, 160)
+}
+
+fn shorten_for_review(text: &str, limit: usize) -> String {
+    let mut characters = text.chars();
+    let shortened = characters.by_ref().take(limit).collect::<String>();
+    if characters.next().is_some() {
+        format!("{shortened}…")
+    } else {
+        shortened
+    }
+}
+
 impl BlocklistAIActionModel {
     fn review_environment(&self, ctx: &AppContext) -> ReviewEnvironment {
         let session = self.active_session.as_ref(ctx);
@@ -267,6 +318,7 @@ impl BlocklistAIActionModel {
                     && self.review_requires_human(action, conversation_id, ctx))
         }) {
             self.action_reviews.remove(&key);
+            self.review_outcomes.remove(&key);
         }
         if let Some(ActionReview {
             decision: ReviewDecision::Ask { deadline, .. },
@@ -279,6 +331,20 @@ impl BlocklistAIActionModel {
             }
         }
         if user_initiated || !self.uses_galaxy_decides(action, ctx) {
+            if user_initiated {
+                if let Some(review) = self.action_reviews.get(&key) {
+                    if let ReviewDecision::Ask { reason, .. } = &review.decision {
+                        self.review_outcomes.insert(
+                            key.clone(),
+                            ReviewOutcome {
+                                summary: review_summary(action),
+                                detail: format!("Approved by you. {reason}"),
+                                approved: true,
+                            },
+                        );
+                    }
+                }
+            }
             self.action_reviews.remove(&key);
             return Some(false);
         }
@@ -289,6 +355,7 @@ impl BlocklistAIActionModel {
             };
         }
         let token = uuid::Uuid::new_v4();
+        self.review_outcomes.remove(&key);
         let (cancel, control) = turn_control();
         let execution_ref = self.provider_tool_execution_ref(conversation_id, &action.id);
         self.action_reviews.insert(
@@ -408,6 +475,18 @@ impl BlocklistAIActionModel {
             .as_ref()
             .is_ok_and(|assessment| assessment.allows_automatic_execution(policy_requires_human))
         {
+            let assessment = result.as_ref().unwrap();
+            self.review_outcomes.insert(
+                key.clone(),
+                ReviewOutcome {
+                    summary: review_summary(&action),
+                    detail: format!(
+                        "Approved by Galaxy · risk {}/5. {}",
+                        assessment.risk, assessment.reason
+                    ),
+                    approved: true,
+                },
+            );
             self.action_reviews.get_mut(&key).unwrap().decision = ReviewDecision::Allow;
             self.try_to_execute_available_actions(conversation_id, ctx);
             return;
@@ -486,6 +565,43 @@ impl BlocklistAIActionModel {
         }
     }
 
+    pub(crate) fn review_display(
+        &self,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) -> Option<ReviewDisplay> {
+        let key = (conversation_id, action_id.clone());
+        if let Some(review) = self.action_reviews.get(&key) {
+            let summary = review_summary(&review.action);
+            return Some(match &review.decision {
+                ReviewDecision::Assessing => ReviewDisplay {
+                    state: ReviewDisplayState::Assessing,
+                    summary,
+                    detail: "Galaxy is assessing the permission risk…".to_string(),
+                },
+                ReviewDecision::Ask { reason, .. } => ReviewDisplay {
+                    state: ReviewDisplayState::AwaitingApproval,
+                    summary,
+                    detail: shorten_for_review(reason, 320),
+                },
+                ReviewDecision::Allow => ReviewDisplay {
+                    state: ReviewDisplayState::Approved,
+                    summary,
+                    detail: shorten_for_review(&self.review_outcomes.get(&key)?.detail, 320),
+                },
+            });
+        }
+        self.review_outcomes.get(&key).map(|outcome| ReviewDisplay {
+            state: if outcome.approved {
+                ReviewDisplayState::Approved
+            } else {
+                ReviewDisplayState::Denied
+            },
+            summary: outcome.summary.clone(),
+            detail: shorten_for_review(&outcome.detail, 320),
+        })
+    }
+
     fn reject_reviewed_action(
         &mut self,
         action: &AIAgentAction,
@@ -507,6 +623,14 @@ impl BlocklistAIActionModel {
             return;
         };
         let action = queue.remove(index).unwrap();
+        self.review_outcomes.insert(
+            key.clone(),
+            ReviewOutcome {
+                summary: review_summary(&action),
+                detail: "Denied automatically after 60 seconds without a response.".to_string(),
+                approved: false,
+            },
+        );
         self.pending_permissions.remove(&key);
         #[cfg(not(target_family = "wasm"))]
         log_tool_event(

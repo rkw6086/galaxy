@@ -108,12 +108,12 @@ fn edits_persist_default_profile_locally_when_logged_out() {
         let default_profile_id = profile_model.read(&app, |model, _ctx| model.default_profile_id());
 
         // Sanity-check the precondition: the baseline `apply_code_diffs`
-        // on a fresh default profile is the enum default (`AgentDecides`).
+        // on a fresh default profile is `GalaxyDecides`.
         profile_model.read(&app, |model, ctx| {
             assert!(
                 matches!(
                     model.default_profile(ctx).data().apply_code_diffs,
-                    ActionPermission::AgentDecides
+                    ActionPermission::GalaxyDecides
                 ),
                 "unexpected baseline apply_code_diffs"
             );
@@ -401,4 +401,14 @@ fn filters_non_owned_non_default_profile_from_list() {
             );
         });
     })
+}
+
+#[test]
+fn legacy_agent_decides_profiles_use_galaxy_decides() {
+    let permission: ActionPermission = serde_json::from_str("\"AgentDecides\"").unwrap();
+    assert_eq!(permission, ActionPermission::GalaxyDecides);
+    assert_eq!(
+        serde_json::to_string(&permission).unwrap(),
+        "\"GalaxyDecides\""
+    );
 }

@@ -705,7 +705,7 @@ impl BlocklistAIPermissions {
         }
 
         match self.get_read_files_setting(ctx, terminal_view_id) {
-            ActionPermission::AgentDecides | ActionPermission::Unknown => {
+            ActionPermission::Unknown => {
                 // For now, we always read files. We don't ask the user for permission.
                 FileReadPermission::Allowed(FileReadPermissionAllowedReason::AgentDecided)
             }
@@ -838,9 +838,7 @@ impl BlocklistAIPermissions {
             .is_some_and(|uid| self.get_mcp_denylist(ctx, terminal_view_id).contains(&uid));
 
         match self.get_mcp_permissions_setting(ctx, terminal_view_id) {
-            ActionPermission::AgentDecides | ActionPermission::Unknown => {
-                allowlisted && !denylisted
-            }
+            ActionPermission::Unknown => allowlisted && !denylisted,
             ActionPermission::AlwaysAllow => !denylisted,
             ActionPermission::AlwaysAsk | ActionPermission::GalaxyDecides => {
                 allowlisted && !denylisted
@@ -855,7 +853,7 @@ impl BlocklistAIPermissions {
         ctx: &AppContext,
     ) -> FileWritePermission {
         match self.get_apply_code_diffs_setting(ctx, terminal_view_id) {
-            ActionPermission::AgentDecides | ActionPermission::Unknown => {
+            ActionPermission::Unknown => {
                 FileWritePermission::Denied(FileWritePermissionDeniedReason::AgentDecided)
             }
             ActionPermission::AlwaysAllow => FileWritePermission::Allowed(
@@ -915,7 +913,7 @@ impl BlocklistAIPermissions {
         }
 
         match self.get_execute_commands_setting(ctx, terminal_view_id) {
-            ActionPermission::AgentDecides | ActionPermission::Unknown => {
+            ActionPermission::Unknown => {
                 if FeatureFlag::AgentDecidesCommandExecution.is_enabled() && is_risky == Some(false)
                 {
                     return CommandExecutionPermission::Allowed(

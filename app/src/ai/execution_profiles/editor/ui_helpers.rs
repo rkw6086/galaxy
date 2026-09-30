@@ -474,9 +474,7 @@ pub fn render_permissions_section(
         ),
     ]);
 
-    if profile_data.read_files == ActionPermission::AlwaysAsk
-        || profile_data.read_files == ActionPermission::AgentDecides
-    {
+    if profile_data.read_files == ActionPermission::AlwaysAsk {
         column.add_child(render_directory_allowlist_section(
             view,
             profile_data,
@@ -514,7 +512,7 @@ pub fn render_permissions_section(
                 app,
             ));
         }
-        ActionPermission::AgentDecides | ActionPermission::Unknown => {
+        ActionPermission::Unknown => {
             column.add_children([
                 render_command_allowlist_section(view, profile_data, appearance, app),
                 render_command_denylist_section(view, profile_data, appearance, app),
@@ -600,7 +598,7 @@ pub fn render_permissions_section(
                 appearance,
             ));
         }
-        ActionPermission::AgentDecides | ActionPermission::Unknown => {
+        ActionPermission::Unknown => {
             column.add_children([
                 render_mcp_allowlist_section(view, profile_data, app, appearance),
                 render_mcp_denylist_section(view, profile_data, app, appearance),

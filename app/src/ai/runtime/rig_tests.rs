@@ -31,6 +31,7 @@ async fn missing_cli_provider_route_falls_back_to_base_provider_profile() {
     let prepared = prepare_provider_run(
         ProviderConfig::OpenAI(openai_config("base-provider-model")),
         ProviderConfig::None,
+        ProviderConfig::None,
         params,
         Vec::new(),
     )
@@ -56,6 +57,34 @@ async fn missing_cli_provider_route_falls_back_to_base_provider_profile() {
         .tools
         .iter()
         .any(|tool| tool.name == "read_shell_command_output"));
+}
+
+#[tokio::test]
+async fn selected_computer_use_model_gets_its_own_profile() {
+    let mut params = RequestParams::new_for_test();
+    params.model = LLMId::from("base-selection");
+    params.computer_use_model = LLMId::from("computer-selection");
+    params.computer_use_enabled = true;
+
+    let prepared = prepare_provider_run(
+        ProviderConfig::OpenAI(openai_config("base-provider-model")),
+        ProviderConfig::None,
+        ProviderConfig::OpenAI(openai_config("computer-provider-model")),
+        params,
+        Vec::new(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        prepared
+            .computer_use_profile
+            .expect("selected computer-use model should have a profile")
+            .request
+            .model
+            .as_str(),
+        "computer-provider-model"
+    );
 }
 
 #[test]

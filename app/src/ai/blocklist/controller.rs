@@ -87,6 +87,7 @@ use crate::ai::runtime::{
     ProviderRunCoordinator, ProviderRunProfile, ProviderRunProjection,
     ProviderRunResponseProjector, ProviderToolExecutionRef, ProviderToolLifecycleOutcome,
     RuntimeResponseConfig, BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE,
+    COMPUTER_USE_PROVIDER_PROFILE,
 };
 use crate::ai::AIRequestUsageModel;
 use crate::cloud_object::model::persistence::CloudModel;
@@ -1206,6 +1207,7 @@ struct ActiveProviderRunCheckpoint {
     run: ProviderRun,
     base_request: TurnRequest,
     cli_monitor_request: Option<TurnRequest>,
+    computer_use_request: Option<TurnRequest>,
     response_config: RuntimeResponseConfig,
     action_context: ProviderActionContext,
     persistence_offset: usize,
@@ -1229,10 +1231,15 @@ impl ActiveProviderRunCheckpoint {
             .coordinator
             .profile_request(CLI_MONITOR_PROVIDER_PROFILE)
             .cloned();
+        let computer_use_request = run
+            .coordinator
+            .profile_request(COMPUTER_USE_PROVIDER_PROFILE)
+            .cloned();
         Ok(Self {
             run: run.coordinator.run().clone(),
             base_request,
             cli_monitor_request,
+            computer_use_request,
             response_config: run.response_config.clone(),
             action_context: run.action_context.clone(),
             persistence_offset: run.persistence_offset,
@@ -1255,6 +1262,8 @@ struct ActiveProviderRunSnapshot {
     run: ProviderRun,
     base_request: TurnRequest,
     cli_monitor_request: Option<TurnRequest>,
+    #[serde(default)]
+    computer_use_request: Option<TurnRequest>,
     response_config: RuntimeResponseConfig,
     action_context: ProviderActionContext,
     projection_target: ProviderProjectionTarget,
@@ -1303,6 +1312,7 @@ impl ActiveProviderRunSnapshot {
             run: checkpoint.run,
             base_request: checkpoint.base_request,
             cli_monitor_request: checkpoint.cli_monitor_request,
+            computer_use_request: checkpoint.computer_use_request,
             response_config: checkpoint.response_config,
             action_context: checkpoint.action_context,
             projection_target: slot.projection_target.clone(),
@@ -1370,6 +1380,13 @@ impl ActiveProviderRunSnapshot {
             CLI_MONITOR_PROVIDER_PROFILE => {
                 return Err(
                     "provider run uses the CLI profile without a persisted request".to_string(),
+                );
+            }
+            COMPUTER_USE_PROVIDER_PROFILE if self.computer_use_request.is_some() => {}
+            COMPUTER_USE_PROVIDER_PROFILE => {
+                return Err(
+                    "provider run uses the computer-use profile without a persisted request"
+                        .to_string(),
                 );
             }
             profile => {
@@ -2212,18 +2229,18 @@ fn provider_run_terminal_remote_log_record(
 
 enum ProviderDriveMessage {
     Projection {
-        lifecycle: Option<ProviderLlmLifecycle>,
+        lifecycle: Box<Option<ProviderLlmLifecycle>>,
         latest_usage: Option<Usage>,
         tool_call_progress: ProviderToolCallProgressUpdate,
         events: Vec<warp_multi_agent_api::ResponseEvent>,
         acknowledgement: oneshot::Sender<Result<(), String>>,
     },
     Checkpoint {
-        checkpoint: ActiveProviderRunCheckpoint,
+        checkpoint: Box<ActiveProviderRunCheckpoint>,
         acknowledgement: oneshot::Sender<Result<(), String>>,
     },
     Blocked {
-        run: ActiveProviderRun,
+        run: Box<ActiveProviderRun>,
         result: Result<ProviderRunBlock, String>,
     },
 }
@@ -5881,6 +5898,10 @@ impl BlocklistAIController {
             .cli_monitor_request
             .as_ref()
             .map(|request| ResponseStream::resolve_provider_config(request.model.as_str(), ctx));
+        let computer_use_provider_config = snapshot
+            .computer_use_request
+            .as_ref()
+            .map(|request| ResponseStream::resolve_provider_config(request.model.as_str(), ctx));
         let _ = ctx.spawn(
             async move {
                 let base_runtime =
@@ -5908,6 +5929,23 @@ impl BlocklistAIController {
                         CLI_MONITOR_PROVIDER_PROFILE.to_string(),
                         ProviderRunProfile::new(cli_runtime, cli_monitor_request.clone())
                             .with_max_context_tokens(cli_context_limit),
+                    );
+                }
+                if let Some(computer_use_request) = snapshot.computer_use_request.as_ref() {
+                    let provider_config = computer_use_provider_config.ok_or_else(|| {
+                        anyhow!("restored computer-use request is missing its provider config")
+                    })?;
+                    let context_limit = provider_context_window_tokens(
+                        &provider_config,
+                        computer_use_request.model.as_str(),
+                        base_context_limit,
+                    );
+                    let runtime =
+                        provider_runtime_for_request(provider_config, computer_use_request).await?;
+                    profiles.insert(
+                        COMPUTER_USE_PROVIDER_PROFILE.to_string(),
+                        ProviderRunProfile::new(runtime, computer_use_request.clone())
+                            .with_max_context_tokens(context_limit),
                     );
                 }
                 Ok::<_, anyhow::Error>(PreparedRestoredProviderRun {
@@ -6071,6 +6109,7 @@ impl BlocklistAIController {
             run: provider_run,
             base_request: _,
             cli_monitor_request: _,
+            computer_use_request: _,
             response_config,
             action_context,
             projection_target,
@@ -6533,11 +6572,16 @@ impl BlocklistAIController {
                 credit_multiplier: model.usage_metadata.credit_multiplier,
             })
             .collect();
+        let computer_use_provider_config = ResponseStream::resolve_provider_config(
+            request_params.computer_use_model.as_str(),
+            ctx,
+        );
         let _ = ctx.spawn(
             async move {
                 prepare_provider_run(
                     base_provider_config,
                     cli_provider_config,
+                    computer_use_provider_config,
                     request_params,
                     orchestration_models,
                 )
@@ -6587,6 +6631,7 @@ impl BlocklistAIController {
         let PreparedProviderRun {
             base_profile,
             cli_monitor_profile,
+            computer_use_profile,
             tool_result_archive,
             messages_sent,
             persistence_offset,
@@ -6608,6 +6653,12 @@ impl BlocklistAIController {
         coordinator.set_max_context_tokens(response_config.max_context_tokens);
         if let Some(profile) = cli_monitor_profile {
             if let Err(error) = coordinator.insert_profile(CLI_MONITOR_PROVIDER_PROFILE, profile) {
+                self.fail_provider_startup(conversation_id, stream_id, error.to_string(), ctx);
+                return;
+            }
+        }
+        if let Some(profile) = computer_use_profile {
+            if let Err(error) = coordinator.insert_profile(COMPUTER_USE_PROVIDER_PROFILE, profile) {
                 self.fail_provider_startup(conversation_id, stream_id, error.to_string(), ctx);
                 return;
             }
@@ -7481,7 +7532,7 @@ impl BlocklistAIController {
                                 let (acknowledgement, receiver) = oneshot::channel();
                                 projection_sender
                                     .send(ProviderDriveMessage::Projection {
-                                        lifecycle,
+                                        lifecycle: Box::new(lifecycle),
                                         latest_usage,
                                         tool_call_progress,
                                         events,
@@ -7503,7 +7554,7 @@ impl BlocklistAIController {
                                 let (acknowledgement, receiver) = oneshot::channel();
                                 checkpoint_sender
                                     .send(ProviderDriveMessage::Checkpoint {
-                                        checkpoint,
+                                        checkpoint: Box::new(checkpoint),
                                         acknowledgement,
                                     })
                                     .await
@@ -7519,7 +7570,10 @@ impl BlocklistAIController {
                     .await
                     .map_err(|error| error.to_string());
                 let _ = sender
-                    .send(ProviderDriveMessage::Blocked { run, result })
+                    .send(ProviderDriveMessage::Blocked {
+                        run: Box::new(run),
+                        result,
+                    })
                     .await;
             },
             |_, _, _| {},
@@ -7598,7 +7652,7 @@ impl BlocklistAIController {
                     }
                 };
                 let mut should_refresh_status = progress_changed;
-                if let Some(lifecycle) = lifecycle.as_ref() {
+                if let Some(lifecycle) = lifecycle.as_ref().as_ref() {
                     should_refresh_status |= {
                         let slot = self
                             .active_provider_runs
@@ -7648,7 +7702,7 @@ impl BlocklistAIController {
                         );
                     });
                 }
-                let model_turn_requested = lifecycle.as_ref().is_some_and(|lifecycle| {
+                let model_turn_requested = lifecycle.as_ref().as_ref().is_some_and(|lifecycle| {
                     matches!(lifecycle.phase, ProviderLlmLifecyclePhase::Requested)
                 });
                 let projection_succeeded = result.is_ok();
@@ -7681,7 +7735,7 @@ impl BlocklistAIController {
             } => {
                 let result = match self.active_provider_runs.get_mut(&conversation_id) {
                     Some(slot) if checkpoint.run.id() == &slot.run_id => {
-                        slot.checkpoint = Some(checkpoint);
+                        slot.checkpoint = Some(*checkpoint);
                         self.persist_active_provider_run(conversation_id, ctx)
                     }
                     Some(_) => Err("provider checkpoint run identity did not match".to_string()),
@@ -7690,7 +7744,7 @@ impl BlocklistAIController {
                 let _ = acknowledgement.send(result);
             }
             ProviderDriveMessage::Blocked { run, result } => {
-                self.handle_provider_run_blocked(conversation_id, run, result, ctx);
+                self.handle_provider_run_blocked(conversation_id, *run, result, ctx);
             }
         }
     }
@@ -8263,10 +8317,44 @@ impl BlocklistAIController {
         ) {
             return;
         }
+        // Screenshot results belong to the next model turn. Select its runtime only after
+        // the complete tool batch is committed, so a restart sees the same decision.
+        let next_tool_profile = match run.coordinator.run().state() {
+            ProviderRunState::AwaitingTools { batch } => {
+                let used_computer = batch.calls.iter().any(|pending| {
+                    matches!(
+                        pending.call.name.as_str(),
+                        "request_computer_use" | "use_computer"
+                    )
+                });
+                used_computer.then_some(COMPUTER_USE_PROVIDER_PROFILE)
+            }
+            _ => None,
+        };
         let mut should_resume = false;
         let should_drive = match run.coordinator.apply_tool_lifecycle(execution_ref, event) {
             Ok(ProviderToolLifecycleOutcome::Pending) => false,
             Ok(ProviderToolLifecycleOutcome::BatchCommitted) => {
+                if let Some(profile) = next_tool_profile.filter(|_| {
+                    run.coordinator
+                        .profile_request(COMPUTER_USE_PROVIDER_PROFILE)
+                        .is_some()
+                }) {
+                    if let Err(error) = run.coordinator.run_mut().set_ready_profile(profile) {
+                        self.fail_active_provider_run(conversation_id, error.to_string(), ctx);
+                        return;
+                    }
+                } else if run.coordinator.run().profile().as_str() == COMPUTER_USE_PROVIDER_PROFILE
+                {
+                    if let Err(error) = run
+                        .coordinator
+                        .run_mut()
+                        .set_ready_profile(BASE_PROVIDER_PROFILE)
+                    {
+                        self.fail_active_provider_run(conversation_id, error.to_string(), ctx);
+                        return;
+                    }
+                }
                 let work_id = execution_ref.work_id();
                 should_resume = record_provider_batch_signal(
                     &mut slot.committed_provider_batch,

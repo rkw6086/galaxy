@@ -2076,9 +2076,15 @@ impl LLMPreferences {
             .unwrap_or(&self.models_by_feature.agent_mode)
     }
 
-    /// Returns the set of LLMs available for computer use agent.
-    pub fn get_computer_use_llm_choices(&self) -> impl Iterator<Item = &LLMInfo> {
-        self.get_computer_use_available().choices.iter()
+    /// Returns computer-use models plus configured models that can inspect screenshots.
+    pub fn get_computer_use_llm_choices(&self, app: &AppContext) -> impl Iterator<Item = &LLMInfo> {
+        let available = self.get_computer_use_available();
+        available.choices.iter().chain(
+            self.get_base_llm_choices_for_agent_mode(app)
+                .filter(move |info| {
+                    info.vision_supported && available.info_for_id(&info.id).is_none()
+                }),
+        )
     }
 
     /// Returns the `LLMInfo` for the computer use agent model.
@@ -2089,13 +2095,15 @@ impl LLMPreferences {
     ) -> &'a LLMInfo {
         let profile = AIExecutionProfilesModel::as_ref(app).active_profile(terminal_view_id, app);
 
-        let available = self.get_computer_use_available();
         profile
             .data()
             .computer_use_model
             .clone()
-            .and_then(|id| available.info_for_id(&id))
-            .unwrap_or_else(|| available.default_llm_info())
+            .and_then(|id| {
+                self.get_computer_use_llm_choices(app)
+                    .find(|info| info.id == id)
+            })
+            .unwrap_or_else(|| self.get_default_computer_use_model())
     }
 
     /// Returns the default computer use model as a fallback.
@@ -2600,8 +2608,15 @@ impl LLMPreferences {
                     }
                     if let Some(preferred_llm_id) = &profile.data().computer_use_model {
                         if self
-                            .get_computer_use_available()
-                            .usable_info_for_id(preferred_llm_id, ctx)
+                            .get_computer_use_llm_choices(ctx)
+                            .find(|info| info.id == *preferred_llm_id)
+                            .filter(|info| {
+                                let has_byok_key =
+                                    is_using_api_key_for_provider(&info.provider, ctx);
+                                info.disable_reason.as_ref().is_none_or(|reason| {
+                                    !reason.should_clear_preference(has_byok_key)
+                                })
+                            })
                             .is_none()
                         {
                             profiles.set_computer_use_model(profile_id, None, ctx);

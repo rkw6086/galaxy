@@ -31,6 +31,7 @@ use crate::settings::OpenAIProviderKind;
 pub(crate) struct PreparedProviderRun {
     pub(crate) base_profile: ProviderRunProfile,
     pub(crate) cli_monitor_profile: Option<ProviderRunProfile>,
+    pub(crate) computer_use_profile: Option<ProviderRunProfile>,
     pub(crate) tool_result_archive: Vec<ConversationMessage>,
     pub(crate) messages_sent: Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
     pub(crate) persistence_offset: usize,
@@ -123,6 +124,7 @@ impl ProviderActionContext {
 pub(crate) async fn prepare_provider_run(
     base_provider_config: crate::ai::provider::ProviderConfig,
     cli_provider_config: crate::ai::provider::ProviderConfig,
+    computer_use_provider_config: crate::ai::provider::ProviderConfig,
     mut params: RequestParams,
     orchestration_models: Vec<OrchestrationModelOption>,
 ) -> anyhow::Result<PreparedProviderRun> {
@@ -130,6 +132,32 @@ pub(crate) async fn prepare_provider_run(
         crate::ai::agent::api::prepare_direct_provider_params(&mut params);
     let skill_path_origin = params.session_context.skill_path_origin();
     let mut cli_params = params.clone();
+    let computer_use_model = params.computer_use_model.as_str();
+    let computer_use_profile = if params.computer_use_enabled
+        && !computer_use_model.is_empty()
+        && computer_use_model != "computer-use-agent-auto"
+        && computer_use_model != params.model.as_str()
+        && !matches!(
+            &computer_use_provider_config,
+            crate::ai::provider::ProviderConfig::None
+        ) {
+        let mut computer_params = params.clone();
+        computer_params.model = params.computer_use_model.clone();
+        let (runtime, prepared) = prepare_provider_profile(
+            computer_use_provider_config,
+            computer_params,
+            supported_tools.clone(),
+            supported_cli_agent_tools.clone(),
+            None,
+        )
+        .await?;
+        Some(
+            ProviderRunProfile::new(runtime, prepared.request)
+                .with_max_context_tokens(prepared.max_context_tokens),
+        )
+    } else {
+        None
+    };
     let cli_model_is_placeholder = params.cli_agent_model.as_str().trim().is_empty()
         || params
             .cli_agent_model
@@ -210,6 +238,7 @@ pub(crate) async fn prepare_provider_run(
         base_profile: ProviderRunProfile::new(base_runtime, request)
             .with_max_context_tokens(prepared_context_tokens),
         cli_monitor_profile,
+        computer_use_profile,
         tool_result_archive,
         messages_sent,
         persistence_offset,

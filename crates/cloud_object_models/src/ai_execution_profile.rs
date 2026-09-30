@@ -17,10 +17,10 @@ pub const PROFILE_NAME_MAX_LENGTH: usize = 50;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ActionPermission {
-    AgentDecides,
     AlwaysAllow,
     AlwaysAsk,
     /// Independently assess each action before allowing execution.
+    #[serde(alias = "AgentDecides")]
     GalaxyDecides,
     // This is intended to catch deserialization errors whenever we add new variants to this enum. Say we
     // want to add a "Never" variant. Without this catch-all, old clients wouldn't be able to deserialize
@@ -35,9 +35,7 @@ impl ActionPermission {
             ActionPermission::GalaxyDecides => {
                 "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 asks you, and is rejected after 60 seconds without a response."
             }
-            ActionPermission::AgentDecides | ActionPermission::Unknown => {
-                "The Agent chooses the safest path: acting on its own when confident, and asking for approval when uncertain."
-            }
+            ActionPermission::Unknown => "Unknown setting.",
             ActionPermission::AlwaysAllow => {
                 "Give the Agent full autonomy  — no manual approval ever required."
             }
@@ -419,11 +417,11 @@ impl Default for AIExecutionProfile {
         Self {
             name: Default::default(),
             is_default_profile: false,
-            apply_code_diffs: ActionPermission::AgentDecides,
-            read_files: ActionPermission::AgentDecides,
+            apply_code_diffs: ActionPermission::GalaxyDecides,
+            read_files: ActionPermission::GalaxyDecides,
             execute_commands: ActionPermission::AlwaysAsk,
             write_to_pty: WriteToPtyPermission::AlwaysAsk,
-            mcp_permissions: ActionPermission::AgentDecides,
+            mcp_permissions: ActionPermission::GalaxyDecides,
             ask_user_question: AskUserQuestionPermission::AlwaysAsk,
             run_agents: RunAgentsPermission::AlwaysAsk,
             command_denylist: DEFAULT_COMMAND_EXECUTION_DENYLIST.clone(),

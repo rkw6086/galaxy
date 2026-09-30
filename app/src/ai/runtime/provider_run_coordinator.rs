@@ -23,6 +23,7 @@ use crate::ai::model_output_logging;
 
 pub(crate) const BASE_PROVIDER_PROFILE: &str = "base";
 pub(crate) const CLI_MONITOR_PROVIDER_PROFILE: &str = "cli-monitor";
+pub(crate) const COMPUTER_USE_PROVIDER_PROFILE: &str = "computer-use";
 const PROVIDER_MODEL_START_TIMEOUT: Duration = Duration::from_secs(120);
 const PROVIDER_MODEL_EVENT_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 const PROVIDER_MODEL_RETRY_DELAYS: [Duration; 3] = [
@@ -752,18 +753,6 @@ impl ProviderRunCoordinator {
                         return Ok(());
                     }
                     buffer.text.push_str(&text);
-                    if !self
-                        .project_or_fail_acknowledged(
-                            ProviderRunProjection::ModelEvent {
-                                work_id: call.work_id.clone(),
-                                event: AgentEvent::TextDelta { text },
-                            },
-                            project,
-                        )
-                        .await?
-                    {
-                        return Ok(());
-                    }
                 }
                 AgentEvent::ReasoningDelta { text } => {
                     if !self
@@ -775,18 +764,6 @@ impl ProviderRunCoordinator {
                         return Ok(());
                     }
                     buffer.reasoning.push_str(&text);
-                    if !self
-                        .project_or_fail_acknowledged(
-                            ProviderRunProjection::ModelEvent {
-                                work_id: call.work_id.clone(),
-                                event: AgentEvent::ReasoningDelta { text },
-                            },
-                            project,
-                        )
-                        .await?
-                    {
-                        return Ok(());
-                    }
                 }
                 AgentEvent::ReasoningCompleted { text, signature }
                     if text.is_empty() && signature.is_none() =>
@@ -806,18 +783,6 @@ impl ProviderRunCoordinator {
                     }
                     buffer.reasoning.clone_from(&text);
                     buffer.reasoning_signature.clone_from(&signature);
-                    if !self
-                        .project_or_fail_acknowledged(
-                            ProviderRunProjection::ModelEvent {
-                                work_id: call.work_id.clone(),
-                                event: AgentEvent::ReasoningCompleted { text, signature },
-                            },
-                            project,
-                        )
-                        .await?
-                    {
-                        return Ok(());
-                    }
                 }
                 AgentEvent::Tool {
                     event: ToolEvent::Proposed { call: tool_call },
@@ -863,6 +828,47 @@ impl ProviderRunCoordinator {
                         .await?
                     {
                         return Ok(());
+                    }
+                    // A model can speak before its tool call arrives. Wait until the turn
+                    // finishes so routine tool-turn narration never reaches the conversation.
+                    // Keep it in the canonical turn for provider continuity.
+                    if buffer.tool_calls.is_empty()
+                        && !matches!(
+                            &reason,
+                            StopReason::Cancelled | StopReason::ContextWindowExceeded
+                        )
+                    {
+                        if !buffer.reasoning.is_empty()
+                            && !self
+                                .project_or_fail_acknowledged(
+                                    ProviderRunProjection::ModelEvent {
+                                        work_id: call.work_id.clone(),
+                                        event: AgentEvent::ReasoningCompleted {
+                                            text: buffer.reasoning.clone(),
+                                            signature: buffer.reasoning_signature.clone(),
+                                        },
+                                    },
+                                    project,
+                                )
+                                .await?
+                        {
+                            return Ok(());
+                        }
+                        if !buffer.text.is_empty()
+                            && !self
+                                .project_or_fail_acknowledged(
+                                    ProviderRunProjection::ModelEvent {
+                                        work_id: call.work_id.clone(),
+                                        event: AgentEvent::TextDelta {
+                                            text: buffer.text.clone(),
+                                        },
+                                    },
+                                    project,
+                                )
+                                .await?
+                        {
+                            return Ok(());
+                        }
                     }
                     if !self
                         .project_or_fail_acknowledged(

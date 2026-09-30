@@ -260,6 +260,7 @@ fn provider_snapshot(conversation_id: AIConversationId) -> super::ActiveProvider
         ),
         base_request: TurnRequest::new("provider-model", messages),
         cli_monitor_request: None,
+        computer_use_request: None,
         response_config: crate::ai::runtime::RuntimeResponseConfig {
             task_id: task_id.to_string(),
             conversation_id: conversation_id.to_string(),
@@ -1042,6 +1043,7 @@ fn cancelling_provider_startup_keeps_slot_and_durable_cancellation() {
                 run: snapshot.run.clone(),
                 base_request: snapshot.base_request.clone(),
                 cli_monitor_request: snapshot.cli_monitor_request.clone(),
+                computer_use_request: snapshot.computer_use_request.clone(),
                 response_config: snapshot.response_config.clone(),
                 action_context: snapshot.action_context.clone(),
                 persistence_offset: snapshot.persistence_offset,
@@ -1157,6 +1159,7 @@ fn same_conversation_follow_up_waits_for_cancelled_provider_generation_cleanup()
                             run: old_snapshot.run.clone(),
                             base_request: old_snapshot.base_request.clone(),
                             cli_monitor_request: old_snapshot.cli_monitor_request.clone(),
+                            computer_use_request: old_snapshot.computer_use_request.clone(),
                             response_config: old_snapshot.response_config.clone(),
                             action_context: old_snapshot.action_context.clone(),
                             persistence_offset: old_snapshot.persistence_offset,

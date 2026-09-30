@@ -1250,13 +1250,20 @@ impl RequestedCommandView {
                                         self.block_model.as_ref().conversation(app).is_some_and(
                                             |conversation| conversation.status().is_error(),
                                         );
-
-                                    if is_errored {
-                                        AGENT_ERRORED_COMMAND_MESSAGE.into()
+                                    let (status, short_status) = if is_errored {
+                                        (AGENT_ERRORED_COMMAND_MESSAGE, "Agent needs help")
                                     } else if *is_blocked {
-                                        AGENT_NEEDS_INPUT_MESSAGE.into()
+                                        (AGENT_NEEDS_INPUT_MESSAGE, "Needs input")
                                     } else {
-                                        MONITORING_COMMAND_MESSAGE.into()
+                                        (MONITORING_COMMAND_MESSAGE, "Agent monitoring")
+                                    };
+                                    let command = self.get_header_title_text();
+                                    if command.trim().is_empty() {
+                                        status.into()
+                                    } else {
+                                        font_override = Some(appearance.monospace_font_family());
+                                        badge = Some(short_status.to_string());
+                                        command.into()
                                     }
                                 }
                                 LongRunningCommandControlState::User { reason } => {

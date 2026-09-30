@@ -1416,10 +1416,6 @@ impl AISettingsPageView {
             dropdown.set_items(
                 vec![
                     DropdownItem::new(
-                        "Agent decides",
-                        AISettingsPageAction::SetApplyCodeDiffs(ActionPermission::AgentDecides),
-                    ),
-                    DropdownItem::new(
                         "Always allow",
                         AISettingsPageAction::SetApplyCodeDiffs(ActionPermission::AlwaysAllow),
                     ),
@@ -1450,10 +1446,6 @@ impl AISettingsPageView {
             dropdown.set_items(
                 vec![
                     DropdownItem::new(
-                        "Agent decides",
-                        AISettingsPageAction::SetReadFiles(ActionPermission::AgentDecides),
-                    ),
-                    DropdownItem::new(
                         "Always allow",
                         AISettingsPageAction::SetReadFiles(ActionPermission::AlwaysAllow),
                     ),
@@ -1483,10 +1475,6 @@ impl AISettingsPageView {
             dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
             dropdown.set_items(
                 vec![
-                    DropdownItem::new(
-                        "Agent decides",
-                        AISettingsPageAction::SetExecuteCommands(ActionPermission::AgentDecides),
-                    ),
                     DropdownItem::new(
                         "Always allow",
                         AISettingsPageAction::SetExecuteCommands(ActionPermission::AlwaysAllow),
@@ -1551,10 +1539,6 @@ impl AISettingsPageView {
             dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
             dropdown.set_items(
                 vec![
-                    DropdownItem::new(
-                        "Agent decides",
-                        AISettingsPageAction::SetMCPPermissions(ActionPermission::AgentDecides),
-                    ),
                     DropdownItem::new(
                         "Always allow",
                         AISettingsPageAction::SetMCPPermissions(ActionPermission::AlwaysAllow),
@@ -2609,10 +2593,9 @@ impl AISettingsPageView {
             }
 
             let active = match current_permission {
-                ActionPermission::AgentDecides | ActionPermission::Unknown => 0,
-                ActionPermission::AlwaysAllow => 1,
-                ActionPermission::AlwaysAsk => 2,
-                ActionPermission::GalaxyDecides => 3,
+                ActionPermission::AlwaysAllow => 0,
+                ActionPermission::AlwaysAsk | ActionPermission::Unknown => 1,
+                ActionPermission::GalaxyDecides => 2,
             };
 
             menu.set_selected_by_index(active, ctx);
@@ -4748,9 +4731,7 @@ impl AgentsWidget {
             app,
         ));
 
-        if execute_commands_setting == ActionPermission::AlwaysAsk
-            || execute_commands_setting == ActionPermission::AgentDecides
-        {
+        if execute_commands_setting == ActionPermission::AlwaysAsk {
             let command_allowlist =
                 BlocklistAIPermissions::as_ref(app).get_execute_commands_allowlist(app, None);
             execute_commands_flex.add_child(
@@ -5256,9 +5237,7 @@ impl AgentsWidget {
         );
         column.add_child(permission_setting);
 
-        if current_mcp_setting == ActionPermission::AlwaysAsk
-            || current_mcp_setting == ActionPermission::AgentDecides
-        {
+        if current_mcp_setting == ActionPermission::AlwaysAsk {
             let allowlist = self.render_mcp_list(
                 "MCP allowlist",
                 "Allow the Galaxy Agent to call these MCP servers.",
@@ -5275,7 +5254,6 @@ impl AgentsWidget {
 
         if current_mcp_setting == ActionPermission::AlwaysAllow
             || current_mcp_setting == ActionPermission::GalaxyDecides
-            || current_mcp_setting == ActionPermission::AgentDecides
         {
             let denylist = self.render_mcp_list(
                 "MCP denylist",

@@ -237,6 +237,36 @@ fn empty_preferences() -> LLMPreferences {
 }
 
 #[test]
+fn computer_use_picker_includes_vision_models_without_duplicate_entries() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let mut preferences = empty_preferences();
+        let auto = default_computer_use_llms().choices[0].clone();
+        let mut visual = auto.clone();
+        visual.id = "visual-model".into();
+        visual.display_name = "Visual model".to_owned();
+        visual.vision_supported = true;
+        let mut text_only = auto.clone();
+        text_only.id = "text-only-model".into();
+        text_only.display_name = "Text-only model".to_owned();
+        preferences.models_by_feature.agent_mode.choices = vec![visual.clone(), text_only];
+        preferences.models_by_feature.computer_use = Some(AvailableLLMs {
+            default_id: "computer-use-agent-auto".into(),
+            choices: vec![auto, visual],
+            preferred_codex_model_id: None,
+        });
+
+        app.read(|ctx| {
+            let ids = preferences
+                .get_computer_use_llm_choices(ctx)
+                .map(|info| info.id.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(ids, ["computer-use-agent-auto", "visual-model"]);
+        });
+    });
+}
+
+#[test]
 fn bedrock_and_openai_provider_models_coexist_in_picker() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);

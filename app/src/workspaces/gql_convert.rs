@@ -661,7 +661,7 @@ fn convert_gql_ai_autonomy_value_to_action_permission(
     gql_ai_autonomy_value: GqlAiAutonomyValue,
 ) -> Option<ActionPermission> {
     match gql_ai_autonomy_value {
-        GqlAiAutonomyValue::AgentDecides => Some(ActionPermission::AgentDecides),
+        GqlAiAutonomyValue::AgentDecides => Some(ActionPermission::GalaxyDecides),
         GqlAiAutonomyValue::AlwaysAllow => Some(ActionPermission::AlwaysAllow),
         GqlAiAutonomyValue::AlwaysAsk => Some(ActionPermission::AlwaysAsk),
         GqlAiAutonomyValue::RespectUserSetting => None,

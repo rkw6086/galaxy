@@ -337,11 +337,11 @@ fn test_can_write_files() {
             ..
         } = initialize_permissions_test(&mut app);
 
-        // Test AgentDecides setting
+        // Test GalaxyDecides setting before the independent review gate.
         profile_model.update(&mut app, |model, ctx| {
             model.set_apply_code_diffs(
                 *model.active_profile(Some(terminal_view_id), ctx).id(),
-                &ActionPermission::AgentDecides,
+                &ActionPermission::GalaxyDecides,
                 ctx,
             );
         });
@@ -352,9 +352,9 @@ fn test_can_write_files() {
             assert!(
                 matches!(
                     result,
-                    FileWritePermission::Denied(FileWritePermissionDeniedReason::AgentDecided)
+                    FileWritePermission::Denied(FileWritePermissionDeniedReason::AlwaysAskEnabled)
                 ),
-                "not allowed because AgentDecides right now just means ask"
+                "GalaxyDecides requires the independent action review"
             );
         });
 
@@ -1223,7 +1223,7 @@ fn test_can_use_mcp_server_always_ask_denylist_overrides_allowlist() {
 }
 
 #[test]
-fn test_can_use_mcp_server_agent_decides() {
+fn test_can_use_mcp_server_galaxy_decides() {
     App::test((), |mut app| async move {
         let PermissionsTestState {
             convo_id,
@@ -1239,7 +1239,7 @@ fn test_can_use_mcp_server_agent_decides() {
         profile_model.update(&mut app, |model, ctx| {
             model.set_mcp_permissions(
                 *model.active_profile(Some(terminal_view_id), ctx).id(),
-                &ActionPermission::AgentDecides,
+                &ActionPermission::GalaxyDecides,
                 ctx,
             );
             model.add_to_mcp_allowlist(
@@ -1269,7 +1269,7 @@ fn test_can_use_mcp_server_agent_decides() {
 }
 
 #[test]
-fn test_can_use_mcp_server_agent_decides_denylist_overrides_allowlist() {
+fn test_can_use_mcp_server_galaxy_decides_denylist_overrides_allowlist() {
     App::test((), |mut app| async move {
         let PermissionsTestState {
             convo_id,
@@ -1284,7 +1284,7 @@ fn test_can_use_mcp_server_agent_decides_denylist_overrides_allowlist() {
         profile_model.update(&mut app, |model, ctx| {
             model.set_mcp_permissions(
                 *model.active_profile(Some(terminal_view_id), ctx).id(),
-                &ActionPermission::AgentDecides,
+                &ActionPermission::GalaxyDecides,
                 ctx,
             );
             model.add_to_mcp_allowlist(

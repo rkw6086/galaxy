@@ -301,6 +301,56 @@ fn answer_turn() -> ScriptedTurn {
     ])
 }
 
+#[tokio::test]
+async fn tool_turn_narration_stays_in_history_but_out_of_visible_output() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![tool_turn()]));
+    let mut coordinator = coordinator(runtime);
+    let mut projections = Vec::new();
+    let (_sender, control) = turn_control();
+
+    let block = coordinator
+        .drive_until_blocked(control, collect_projection(&mut projections))
+        .await
+        .unwrap();
+
+    assert!(matches!(block, ProviderRunBlock::Tools(_)));
+    assert!(coordinator
+        .run()
+        .transcript()
+        .iter()
+        .any(|message| format!("{:?}", message.content).contains("I will inspect it.")));
+    assert!(!projections.iter().any(|projection| matches!(
+        projection,
+        ProviderRunProjection::ModelEvent {
+            event: AgentEvent::TextDelta { .. }
+                | AgentEvent::ReasoningDelta { .. }
+                | AgentEvent::ReasoningCompleted { .. },
+            ..
+        }
+    )));
+}
+
+#[tokio::test]
+async fn completed_answer_is_still_projected() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let mut coordinator = coordinator(runtime);
+    let mut projections = Vec::new();
+    let (_sender, control) = turn_control();
+
+    coordinator
+        .drive_until_blocked(control, collect_projection(&mut projections))
+        .await
+        .unwrap();
+
+    assert!(projections.iter().any(|projection| matches!(
+        projection,
+        ProviderRunProjection::ModelEvent {
+            event: AgentEvent::TextDelta { text },
+            ..
+        } if text == "The issue is fixed."
+    )));
+}
+
 fn coordinator(runtime: Arc<dyn AgentRuntime>) -> ProviderRunCoordinator {
     ProviderRunCoordinator::from_request(
         "run-1",

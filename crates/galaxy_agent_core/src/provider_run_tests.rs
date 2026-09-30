@@ -18,6 +18,18 @@ fn run() -> ProviderRun {
     run_with_limits(ProviderRunLimits::default())
 }
 
+#[test]
+fn ready_profile_can_change_without_replaying_or_adding_history() {
+    let mut run = run();
+    let original_transcript = run.transcript().to_vec();
+    run.set_ready_profile("computer-use").unwrap();
+
+    assert_eq!(run.profile().as_str(), "computer-use");
+    assert_eq!(run.transcript(), original_transcript);
+    assert_eq!(next_model_call(&mut run).profile.as_str(), "computer-use");
+    assert!(run.set_ready_profile("base").is_err());
+}
+
 fn next_model_call(run: &mut ProviderRun) -> ProviderModelCall {
     let Some(ProviderRunStep::CallModel(call)) = run.next_step().unwrap() else {
         panic!("expected model call");

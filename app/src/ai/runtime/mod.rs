@@ -12,7 +12,7 @@ pub(crate) use event_translator::{
 pub(crate) use provider_run_coordinator::{
     ProviderRunBlock, ProviderRunCoordinator, ProviderRunProfile, ProviderRunProjection,
     ProviderToolExecutionRef, ProviderToolLifecycleOutcome, BASE_PROVIDER_PROFILE,
-    CLI_MONITOR_PROVIDER_PROFILE,
+    CLI_MONITOR_PROVIDER_PROFILE, COMPUTER_USE_PROVIDER_PROFILE,
 };
 pub(crate) use rig::{
     prepare_provider_run, provider_context_window_tokens, provider_runtime_for_request,
