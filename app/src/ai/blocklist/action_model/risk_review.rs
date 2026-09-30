@@ -119,6 +119,17 @@ fn review_summary(action: &AIAgentAction) -> String {
         AIAgentActionType::RequestCommandOutput { command, .. } => {
             format!("Run: {command}")
         }
+        AIAgentActionType::WriteToLongRunningShellCommand { input, mode, .. }
+            if mode.is_shell_interrupt(input) =>
+        {
+            "Interrupt the running command (Ctrl+C)".to_string()
+        }
+        AIAgentActionType::WriteToLongRunningShellCommand { input, .. } => {
+            format!(
+                "Send to running command: {}",
+                String::from_utf8_lossy(input)
+            )
+        }
         _ => action.action.user_friendly_name(),
     };
     let summary = description.split_whitespace().collect::<Vec<_>>().join(" ");

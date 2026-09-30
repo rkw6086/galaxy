@@ -191,6 +191,7 @@ struct StateHandles {
     query_scroll_state: ClippedScrollStateHandle,
     input_hover_state: MouseStateHandle,
     dismiss_input_mouse_state: MouseStateHandle,
+    approval_header_mouse_state: MouseStateHandle,
 }
 
 pub struct CLISubagentView {
@@ -218,6 +219,7 @@ pub struct CLISubagentView {
     transfer_control_button: CompactibleActionButton,
     allow_menu: ViewHandle<Menu<CLISubagentAction>>,
     is_allow_menu_open: bool,
+    is_approval_expanded: bool,
     always_allow_write_to_pty_checked: bool,
     always_allow_read_files_checked: bool,
 
@@ -439,6 +441,20 @@ impl CLISubagentView {
             ctx,
         );
 
+        // Permission changes can arrive after the model output stops streaming.
+        // Redraw immediately so the approval controls appear without window focus.
+        ctx.subscribe_to_model(&action_model, |me, _, event, ctx| {
+            if event.conversation_id() == Some(me.conversation_id) {
+                if matches!(
+                    event,
+                    crate::ai::blocklist::action_model::BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. }
+                ) {
+                    me.is_approval_expanded = true;
+                }
+                ctx.notify();
+            }
+        });
+
         ctx.subscribe_to_model(&subagent_controller, |me, _, event, ctx| match event {
             CLISubagentEvent::UpdatedControl { block_id, .. } => {
                 if *block_id == me.block_id {
@@ -473,6 +489,7 @@ impl CLISubagentView {
             transfer_control_button,
             allow_menu,
             is_allow_menu_open: false,
+            is_approval_expanded: true,
             always_allow_write_to_pty_checked,
             always_allow_read_files_checked,
             is_input_dismissed: false,
@@ -1364,6 +1381,13 @@ impl View for CLISubagentView {
                 Some(render_blocked_action(
                     BlockedActionProps {
                         header: header.to_string(),
+                        review_detail: self
+                            .action_model
+                            .as_ref(app)
+                            .review_display(self.conversation_id, &action.id)
+                            .map(|review| review.detail),
+                        is_expanded: self.is_approval_expanded,
+                        header_mouse_state: &self.state_handles.approval_header_mouse_state,
                         description: Some(render_write_to_pty_input(
                             WriteToPtyInputProps {
                                 input: input.clone(),
@@ -1399,6 +1423,13 @@ impl View for CLISubagentView {
                 Some(render_blocked_action(
                     BlockedActionProps {
                         header: BLOCKED_ACTION_MESSAGE_FOR_TRANSFER_CONTROL.to_string(),
+                        review_detail: self
+                            .action_model
+                            .as_ref(app)
+                            .review_display(self.conversation_id, &action.id)
+                            .map(|review| review.detail),
+                        is_expanded: self.is_approval_expanded,
+                        header_mouse_state: &self.state_handles.approval_header_mouse_state,
                         description: Some(render_transfer_control_reason(reason, app)),
                         is_allow_menu_open: false,
                         allow_menu: None,
@@ -1414,6 +1445,13 @@ impl View for CLISubagentView {
             | AIAgentActionType::FileGlobV2 { .. } => Some(render_blocked_action(
                 BlockedActionProps {
                     header: get_blocked_action_header(action.action.clone()).unwrap_or_default(),
+                    review_detail: self
+                        .action_model
+                        .as_ref(app)
+                        .review_display(self.conversation_id, &action.id)
+                        .map(|review| review.detail),
+                    is_expanded: self.is_approval_expanded,
+                    header_mouse_state: &self.state_handles.approval_header_mouse_state,
                     description: render_search_action_input(action.action.clone(), app),
                     is_allow_menu_open: self.is_allow_menu_open,
                     allow_menu: Some(&self.allow_menu),
@@ -1516,6 +1554,7 @@ pub enum CLISubagentAction {
     RejectBlockedAction { should_user_take_over: bool },
     TakeControlOfRunningCommand,
     ToggleAllowMenu,
+    ToggleApprovalExpanded,
     ToggleAlwaysAllowWriteToPty,
     ToggleAlwaysAllowReadFiles,
     DismissInput,
@@ -1561,6 +1600,10 @@ impl TypedActionView for CLISubagentView {
             }
             CLISubagentAction::ToggleAllowMenu => {
                 self.toggle_allow_menu(ctx);
+            }
+            CLISubagentAction::ToggleApprovalExpanded => {
+                self.is_approval_expanded = !self.is_approval_expanded;
+                ctx.notify();
             }
             CLISubagentAction::ToggleAlwaysAllowWriteToPty => {
                 self.always_allow_write_to_pty_checked = !self.always_allow_write_to_pty_checked;
@@ -1895,14 +1938,14 @@ fn render_action_buttons(
     let regular_wrapped = Container::new(regular_row)
         .with_vertical_padding(8.)
         .with_horizontal_padding(CONTENT_PADDING)
-        .with_background_color(internal_colors::neutral_2(theme))
+        .with_background(theme.background())
         .with_border(Border::top(1.).with_border_color(internal_colors::neutral_3(theme)))
         .finish();
 
     let compact_wrapped = Container::new(compact_row)
         .with_vertical_padding(8.)
         .with_horizontal_padding(CONTENT_PADDING)
-        .with_background_color(internal_colors::neutral_2(theme))
+        .with_background(theme.background())
         .with_border(Border::top(1.).with_border_color(internal_colors::neutral_3(theme)))
         .finish();
 
@@ -2002,7 +2045,7 @@ fn render_permissions_speedbump(
     )
     .with_vertical_padding(8.)
     .with_horizontal_padding(CONTENT_PADDING)
-    .with_background_color(internal_colors::neutral_2(theme))
+    .with_background(theme.background())
     .with_border(Border::top(1.).with_border_color(internal_colors::neutral_3(theme)))
     .finish()
 }
@@ -2111,9 +2154,10 @@ fn render_write_to_pty_input(props: WriteToPtyInputProps, app: &AppContext) -> B
         .finish();
 
     Container::new(clipped)
-        .with_background_color(internal_colors::neutral_2(theme))
+        .with_background(theme.background())
         .with_horizontal_padding(CONTENT_PADDING)
-        .with_vertical_padding(8.)
+        .with_padding_top(8.)
+        .with_padding_bottom(12.)
         .finish()
 }
 
@@ -2191,7 +2235,7 @@ fn render_search_action_input(
 
     Some(
         Container::new(text)
-            .with_background_color(internal_colors::neutral_2(theme))
+            .with_background(theme.background())
             .with_uniform_padding(CONTENT_PADDING)
             .finish(),
     )
@@ -2199,6 +2243,9 @@ fn render_search_action_input(
 
 struct BlockedActionProps<'a> {
     header: String,
+    review_detail: Option<String>,
+    is_expanded: bool,
+    header_mouse_state: &'a MouseStateHandle,
     description: Option<Box<dyn Element>>,
 
     is_allow_menu_open: bool,
@@ -2217,7 +2264,7 @@ fn render_blocked_action(props: BlockedActionProps<'_>, app: &AppContext) -> Box
         appearance.ui_font_family(),
         appearance.monospace_font_size(),
     )
-    .with_color(theme.active_ui_text_color().into())
+    .with_color(blended_colors::text_main(theme, theme.surface_2()))
     .finish();
 
     let icon = Container::new(
@@ -2229,27 +2276,101 @@ fn render_blocked_action(props: BlockedActionProps<'_>, app: &AppContext) -> Box
     .with_margin_right(AVATAR_RIGHT_MARGIN)
     .finish();
 
+    let chevron = if props.is_expanded {
+        Icon::ChevronDown
+    } else {
+        Icon::ChevronRight
+    };
     let header = Container::new(
         Flex::row()
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_children(vec![icon, Shrinkable::new(1.0, text).finish()])
+            .with_children(vec![
+                icon,
+                Shrinkable::new(1.0, text).finish(),
+                chevron
+                    .to_galaxyui_icon(theme.sub_text_color(theme.surface_2()))
+                    .finish(),
+            ])
             .finish(),
     )
-    .with_background_color(internal_colors::neutral_3(theme))
+    .with_background(theme.surface_2())
     .with_uniform_padding(CONTENT_PADDING)
+    .with_corner_radius(CornerRadius::with_top(Radius::Pixels(4.)))
     .finish();
 
+    let header = Hoverable::new(props.header_mouse_state.clone(), |_| header)
+        .on_click(|ctx, _, _| {
+            ctx.dispatch_typed_action(CLISubagentAction::ToggleApprovalExpanded);
+        })
+        .with_cursor(Cursor::PointingHand)
+        .finish();
     let mut body_children = vec![header];
 
-    if let Some(description) = props.description {
-        body_children.push(description);
+    if props.is_expanded {
+        if let Some(description) = props.description {
+            body_children.push(
+                Container::new(
+                    Flex::column()
+                        .with_child(
+                            Text::new(
+                                "REQUESTED ACTION",
+                                appearance.ui_font_family(),
+                                appearance.ui_font_size(),
+                            )
+                            .with_color(theme.accent().into())
+                            .finish(),
+                        )
+                        .with_child(Container::new(description).with_margin_top(4.).finish())
+                        .finish(),
+                )
+                .with_background(theme.background())
+                .with_horizontal_padding(CONTENT_PADDING)
+                .with_padding_top(14.)
+                .finish(),
+            );
+        }
+        if let Some(review_detail) = props.review_detail {
+            body_children.push(
+                Container::new(
+                    Flex::column()
+                        .with_child(
+                            Text::new(
+                                "RISK REVIEW",
+                                appearance.ui_font_family(),
+                                appearance.ui_font_size(),
+                            )
+                            .with_color(theme.accent().into())
+                            .finish(),
+                        )
+                        .with_child(
+                            Container::new(
+                                Text::new(
+                                    review_detail,
+                                    appearance.ai_font_family(),
+                                    appearance.monospace_font_size(),
+                                )
+                                .with_color(blended_colors::text_sub(theme, theme.surface_1()))
+                                .finish(),
+                            )
+                            .with_margin_top(4.)
+                            .finish(),
+                        )
+                        .finish(),
+                )
+                .with_background(theme.background())
+                .with_horizontal_padding(CONTENT_PADDING)
+                .with_padding_top(12.)
+                .with_padding_bottom(12.)
+                .finish(),
+            );
+        }
+        if let Some(speedbump) = props.speedbump {
+            body_children.push(render_permissions_speedbump(speedbump, app));
+        }
     }
 
     let buttons = render_action_buttons(props.buttons, app);
     body_children.push(buttons);
-    if let Some(speedbump) = props.speedbump {
-        body_children.push(render_permissions_speedbump(speedbump, app));
-    }
 
     let body = Flex::column()
         .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -2281,7 +2402,7 @@ fn render_blocked_action(props: BlockedActionProps<'_>, app: &AppContext) -> Box
     Expanded::new(
         1.0,
         Container::new(stack.finish())
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
+            .with_corner_radius(CornerRadius::with_top(Radius::Pixels(4.)))
             .with_border(Border::all(1.).with_border_color(internal_colors::neutral_3(theme)))
             .finish(),
     )

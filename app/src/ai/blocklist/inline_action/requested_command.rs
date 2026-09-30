@@ -934,7 +934,7 @@ impl RequestedCommandView {
                 )
                 .with_child(
                     Text::new(
-                        "Your profile is set to always ask for permission to execute commands.",
+                        "Command auto-execution is disabled in this profile.",
                         appearance.ui_font_family(),
                         font_size,
                     )

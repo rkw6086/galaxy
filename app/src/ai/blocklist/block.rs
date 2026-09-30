@@ -1088,6 +1088,9 @@ pub struct AIBlock {
     /// Map from collapsible block message IDs (reasoning or summarization) to their states.
     collapsible_block_states: HashMap<MessageId, CollapsibleElementState>,
 
+    /// Expansion state for Galaxy's per-action permission review panes.
+    review_pane_states: HashMap<AIAgentActionId, CollapsibleElementState>,
+
     /// Map from suggested prompt action ID to its view handle and status.
     unit_tests_suggestions: HashMap<AIAgentActionId, ViewHandle<SuggestedUnitTestsView>>,
 
@@ -1658,6 +1661,7 @@ impl AIBlock {
             todo_list_states: Default::default(),
             comment_states,
             collapsible_block_states: Default::default(),
+            review_pane_states: Default::default(),
             unit_tests_suggestions: Default::default(),
             secret_redaction_state,
             find_state: FindState::default(),
@@ -2173,6 +2177,10 @@ impl AIBlock {
                 }
             }
             self.requested_action_ids = new_action_ids;
+
+            self.review_pane_states
+                .entry(action.id.clone())
+                .or_default();
 
             if !self.action_buttons.contains_key(&action.id) {
                 let run_button = CompactibleActionButton::new(
@@ -4847,6 +4855,9 @@ impl AIBlock {
 
             match event {
                 BlocklistAIActionEvent::ExecutingAction { .. } => {
+                    if let Some(state) = me.review_pane_states.get_mut(action_id) {
+                        state.finish_summarization();
+                    }
                     match &me.autonomy_setting_speedbump {
                         AutonomySettingSpeedbump::ShouldShowForAutoexecutingReadonlyCommands {
                             action_id: speedbump_action_id,
@@ -4917,10 +4928,23 @@ impl AIBlock {
                     }
                 }
                 BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. } => {
+                    if let Some(state) = me.review_pane_states.get_mut(action_id) {
+                        state.sync_finished_state(false);
+                        if !state.user_toggled_while_streaming {
+                            state.expand();
+                        }
+                    }
+                    if let Some(buttons) = me.action_buttons.get_mut(action_id) {
+                        buttons.run_button.set_label("Approve".to_string(), ctx);
+                        buttons.cancel_button.set_label("Deny".to_string(), ctx);
+                    }
                     ctx.emit(AIBlockEvent::ActionBlockedOnUserConfirmation);
                     ctx.notify();
                 }
                 BlocklistAIActionEvent::FinishedAction { action_id, .. } => {
+                    if let Some(state) = me.review_pane_states.get_mut(action_id) {
+                        state.finish_summarization();
+                    }
                     me.abort_auto_expand_requested_command_timer();
 
                     // Handle auto-collapsing of requested commands that were marked for auto-collapse
@@ -6590,6 +6614,8 @@ pub enum AIBlockAction {
         action_id: AIAgentActionId,
     },
 
+    ToggleReviewPaneExpanded(AIAgentActionId),
+
     /// Execute the next pending action, if any.
     ExecuteNextPendingAction,
 
@@ -6839,6 +6865,12 @@ impl TypedActionView for AIBlock {
                 self.action_model.update(ctx, |action_model, ctx| {
                     action_model.execute_action(action_id, self.client_ids.conversation_id, ctx)
                 });
+            }
+            AIBlockAction::ToggleReviewPaneExpanded(action_id) => {
+                if let Some(state) = self.review_pane_states.get_mut(action_id) {
+                    state.toggle_expansion();
+                    ctx.notify();
+                }
             }
             AIBlockAction::ChangedHoverOnLink {
                 link_range,

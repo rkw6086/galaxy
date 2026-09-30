@@ -164,6 +164,7 @@ pub(crate) struct Props<'a> {
         &'a HashMap<AIAgentActionId, ViewHandle<SuggestedUnitTestsView>>,
     pub(super) todo_list_states: &'a HashMap<MessageId, TodoListElementState>,
     pub(super) collapsible_block_states: &'a HashMap<MessageId, CollapsibleElementState>,
+    pub(super) review_pane_states: &'a HashMap<AIAgentActionId, CollapsibleElementState>,
     pub(crate) is_selecting_text: bool,
     pub(super) is_ai_input_enabled: bool,
     pub(crate) find_context: Option<FindContext<'a>>,
@@ -324,7 +325,8 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             .as_ref(app)
                             .review_display(props.conversation_id, &action.id)
                         {
-                            output_items.add_child(render_review_status(review, app));
+                            output_items
+                                .add_child(render_review_status(&action.id, review, props, app));
                         }
                     }
                     match &output_message.message {
@@ -1320,8 +1322,22 @@ fn render_streaming_tool_call(
     render_tool_pane_shell(Clipped::new(header).finish(), false, false, false, app)
 }
 
-fn render_review_status(review: ReviewDisplay, app: &AppContext) -> Box<dyn Element> {
+fn render_review_status(
+    action_id: &AIAgentActionId,
+    review: ReviewDisplay,
+    props: Props,
+    app: &AppContext,
+) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
+    let theme = appearance.theme();
+    let state = props.review_pane_states.get(action_id);
+    let is_expanded = state.is_some_and(|state| {
+        matches!(
+            state.expansion_state,
+            CollapsibleExpansionState::Expanded { .. }
+        )
+    });
+    let needs_approval = matches!(review.state, ReviewDisplayState::AwaitingApproval);
     let icon = match review.state {
         ReviewDisplayState::Assessing => Icon::Loading.to_galaxyui_icon(
             galaxy_core::ui::theme::Fill::Solid(internal_colors::neutral_6(appearance.theme())),
@@ -1336,37 +1352,117 @@ fn render_review_status(review: ReviewDisplay, app: &AppContext) -> Box<dyn Elem
         ReviewDisplayState::Approved => "Approved",
         ReviewDisplayState::Denied => "Denied",
     };
-    let header = HeaderConfig::new(title, app)
+    let mut header = HeaderConfig::new(title, app)
         .with_icon(icon)
-        .with_corner_radius_override(CornerRadius::with_all(Radius::Pixels(8.)))
-        .render(app);
-    let detail = format!("{}\n{}", review.summary, review.detail);
-    let body = Container::new(
-        Text::new(
-            detail,
-            appearance.ai_font_family(),
-            appearance.monospace_font_size(),
-        )
-        .with_color(blended_colors::text_main(
-            appearance.theme(),
-            appearance.theme().surface_1(),
-        ))
-        .finish(),
-    )
-    .with_margin_left(16.)
-    .with_margin_right(16.)
-    .with_margin_bottom(12.)
-    .finish();
-    render_tool_pane_shell(
-        Flex::column()
-            .with_child(Clipped::new(header).finish())
-            .with_child(body)
-            .finish(),
-        matches!(review.state, ReviewDisplayState::AwaitingApproval),
-        false,
-        false,
-        app,
-    )
+        .with_corner_radius_override(CornerRadius::with_top(Radius::Pixels(8.)));
+    if let Some(state) = state {
+        let action_id = action_id.clone();
+        header = header.with_interaction_mode(InteractionMode::ManuallyExpandable(
+            ExpandedConfig::new(is_expanded, state.expansion_toggle_mouse_state.clone())
+                .with_toggle_callback(move |ctx| {
+                    ctx.dispatch_typed_action(AIBlockAction::ToggleReviewPaneExpanded(
+                        action_id.clone(),
+                    ));
+                }),
+        ));
+    }
+
+    let mut content = Flex::column()
+        .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .with_child(Clipped::new(header.render(app)).finish());
+    if is_expanded {
+        let detail = Flex::column()
+            .with_child(
+                Text::new(
+                    "ACTION",
+                    appearance.ui_font_family(),
+                    appearance.ui_font_size(),
+                )
+                .with_color(theme.accent().into())
+                .finish(),
+            )
+            .with_child(
+                Container::new(
+                    Text::new(
+                        review.summary,
+                        appearance.monospace_font_family(),
+                        appearance.monospace_font_size(),
+                    )
+                    .with_color(blended_colors::text_main(theme, theme.surface_1()))
+                    .with_selectable(true)
+                    .finish(),
+                )
+                .with_margin_top(4.)
+                .with_margin_bottom(12.)
+                .finish(),
+            )
+            .with_child(
+                Text::new(
+                    "REVIEW",
+                    appearance.ui_font_family(),
+                    appearance.ui_font_size(),
+                )
+                .with_color(theme.accent().into())
+                .finish(),
+            )
+            .with_child(
+                Container::new(
+                    Text::new(
+                        review.detail,
+                        appearance.ai_font_family(),
+                        appearance.monospace_font_size(),
+                    )
+                    .with_color(blended_colors::text_sub(theme, theme.surface_1()))
+                    .with_selectable(true)
+                    .finish(),
+                )
+                .with_margin_top(4.)
+                .finish(),
+            )
+            .finish();
+        content.add_child(
+            Container::new(detail)
+                .with_horizontal_padding(INLINE_ACTION_HORIZONTAL_PADDING)
+                .with_padding_top(14.)
+                .with_padding_bottom(12.)
+                .with_background(theme.background())
+                .finish(),
+        );
+    }
+    if needs_approval {
+        if let Some(buttons) = props.action_buttons.get(action_id) {
+            content.add_child(
+                Container::new(
+                    Flex::row()
+                        .with_main_axis_alignment(MainAxisAlignment::End)
+                        .with_child(buttons.cancel_button.render_expanded_button())
+                        .with_child(
+                            Container::new(buttons.run_button.render_expanded_button())
+                                .with_margin_left(8.)
+                                .finish(),
+                        )
+                        .finish(),
+                )
+                .with_horizontal_padding(INLINE_ACTION_HORIZONTAL_PADDING)
+                .with_padding_top(8.)
+                .with_padding_bottom(12.)
+                .with_background(theme.background())
+                .finish(),
+            );
+        }
+    }
+    let border_color = if needs_approval {
+        theme.accent()
+    } else {
+        theme.surface_2()
+    };
+    Container::new(content.finish())
+        .with_margin_left(CONTENT_HORIZONTAL_PADDING)
+        .with_margin_right(CONTENT_HORIZONTAL_PADDING)
+        .with_margin_bottom(CONTENT_ITEM_VERTICAL_MARGIN)
+        .with_corner_radius(CornerRadius::with_top(Radius::Pixels(8.)))
+        .with_border(Border::all(1.).with_border_fill(border_color))
+        .finish()
 }
 
 fn render_runtime_activity(
