@@ -27,13 +27,14 @@ const MAX_LOG_LINES = 15;
 function runCommandStreaming(
   cmd: string,
   cwd: string,
-  onLog: (line: string) => void
+  onLog: (line: string) => void,
+  interactive = false
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, {
       cwd,
       shell: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: interactive ? "inherit" : ["ignore", "pipe", "pipe"],
     });
 
     const createChunkProcessor = () => {
@@ -194,11 +195,14 @@ function App() {
 
         // ─── Step 0: Check working directory ───────────────────────────
         updateStep(0, { status: "running" });
-        await runCommandStreaming(
-          `if [ -n "$(git status --porcelain)" ]; then git status --short; exit 1; fi`,
-          WORKSPACE_ROOT,
-          (line) => appendLog(0, line)
-        );
+        const changes = execFileSync("git", ["status", "--short"], {
+          cwd: WORKSPACE_ROOT,
+          encoding: "utf8",
+        }).trimEnd();
+        if (changes) {
+          for (const line of changes.split("\n")) appendLog(0, line);
+          throw new Error("Working directory has uncommitted changes. Commit or stash them before installing.");
+        }
         updateStep(0, { status: "done" });
 
         // ─── Step 1: Pull current branch ────────────────────────────────
@@ -233,14 +237,26 @@ function App() {
 
         await stopApp("Galaxy", (line) => appendLog(3, line));
 
+        appendLog(3, "Administrator password required to install in /Applications");
+        await runCommandStreaming(
+          "sudo -k && sudo -v",
+          WORKSPACE_ROOT,
+          (line) => appendLog(3, line),
+          true
+        );
+
         if (fs.existsSync(destPath)) {
           appendLog(3, `Removing existing ${destPath}`);
-          execSync(`rm -rf "${destPath}"`, { stdio: "pipe" });
+          await runCommandStreaming(
+            `sudo -n rm -rf "${destPath}"`,
+            WORKSPACE_ROOT,
+            (line) => appendLog(3, line)
+          );
         }
 
         appendLog(3, `Copying ${appPath} → ${destPath}`);
         await runCommandStreaming(
-          `ditto "${appPath}" "${destPath}"`,
+          `sudo -n ditto "${appPath}" "${destPath}"`,
           WORKSPACE_ROOT,
           (line) => appendLog(3, line)
         );
@@ -252,6 +268,7 @@ function App() {
         execSync(`open "${destPath}"`, { stdio: "ignore" });
         updateStep(4, { status: "done" });
       } catch (err: any) {
+        process.exitCode = 1;
         setSteps((prev) =>
           prev.map((s) =>
             s.status === "running"
@@ -263,8 +280,8 @@ function App() {
     })();
   }, []);
 
-  const allDone = steps.every((s) => s.status === "done" || s.status === "error");
   const hasError = steps.some((s) => s.status === "error");
+  const allDone = hasError || steps.every((s) => s.status === "done");
 
   return (
     <Box flexDirection="column" padding={1}>
