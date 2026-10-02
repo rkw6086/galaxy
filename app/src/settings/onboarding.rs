@@ -5,13 +5,12 @@ use settings::Setting as _;
 use warpui::{AppContext, SingletonEntity as _};
 
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
-use crate::ai::execution_profiles::{ActionPermission, WriteToPtyPermission};
+use crate::ai::execution_profiles::PermissionMode;
 use crate::drive::settings::WarpDriveSettings;
 use crate::report_if_error;
 use crate::settings::ai::DefaultSessionMode;
 use crate::settings::{AISettings, CodeSettings};
 use crate::workspace::tab_settings::TabSettings;
-use crate::workspaces::user_workspaces::UserWorkspaces;
 
 /// Applies onboarding settings based on the user's selected mode.
 ///
@@ -130,8 +129,6 @@ fn apply_agent_settings(agent_settings: &AgentDevelopmentSettings, app: &mut App
             .set_value(default_mode, ctx));
     });
 
-    let workspace_autonomy_settings = UserWorkspaces::as_ref(app).ai_autonomy_settings();
-
     AISettings::handle(app).update(app, |settings, ctx| {
         report_if_error!(settings
             .should_render_cli_agent_footer
@@ -174,68 +171,13 @@ fn apply_agent_settings(agent_settings: &AgentDevelopmentSettings, app: &mut App
             return;
         };
 
-        let permissions = action_permissions_for_onboarding_autonomy(autonomy);
-
-        // Only set permissions that are not enforced by the workspace
-        if !workspace_autonomy_settings.has_override_for_code_diffs() {
-            profiles.set_apply_code_diffs(default_profile_id, &permissions.apply_code_diffs, ctx);
-        }
-        if !workspace_autonomy_settings.has_override_for_read_files() {
-            profiles.set_read_files(default_profile_id, &permissions.read_files, ctx);
-        }
-        if !workspace_autonomy_settings.has_override_for_execute_commands() {
-            profiles.set_execute_commands(default_profile_id, &permissions.execute_commands, ctx);
-        }
-        // Note: MCP permissions don't have a workspace-level override, so always set them
-        profiles.set_mcp_permissions(default_profile_id, &permissions.mcp_permissions, ctx);
-        if !workspace_autonomy_settings.has_override_for_write_to_pty() {
-            profiles.set_write_to_pty(default_profile_id, &permissions.write_to_pty, ctx);
-        }
+        let mode = match autonomy {
+            AgentAutonomy::Full => PermissionMode::GalaxyDecides,
+            AgentAutonomy::Partial => PermissionMode::AskFirst,
+            AgentAutonomy::None => PermissionMode::ReadOnly,
+        };
+        profiles.set_permission_mode(default_profile_id, mode, ctx);
     });
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct OnboardingAutonomyPermissions {
-    apply_code_diffs: ActionPermission,
-    read_files: ActionPermission,
-    execute_commands: ActionPermission,
-    mcp_permissions: ActionPermission,
-    write_to_pty: WriteToPtyPermission,
-}
-
-fn action_permissions_for_onboarding_autonomy(
-    autonomy: AgentAutonomy,
-) -> OnboardingAutonomyPermissions {
-    match autonomy {
-        // Full autonomy promises "Runs commands, writes code, and reads files
-        // without asking," so every permission is `AlwaysAllow`. The command
-        // denylist still takes precedence at runtime when a specific command
-        // is considered unsafe.
-        AgentAutonomy::Full => OnboardingAutonomyPermissions {
-            apply_code_diffs: ActionPermission::AlwaysAllow,
-            read_files: ActionPermission::AlwaysAllow,
-            execute_commands: ActionPermission::AlwaysAllow,
-            mcp_permissions: ActionPermission::AlwaysAllow,
-            write_to_pty: WriteToPtyPermission::AlwaysAllow,
-        },
-        // Partial autonomy: reads are always allowed, applying code diffs
-        // always asks, and Galaxy reviews command / MCP execution
-        // (asking for approval on higher-risk actions).
-        AgentAutonomy::Partial => OnboardingAutonomyPermissions {
-            apply_code_diffs: ActionPermission::AlwaysAsk,
-            read_files: ActionPermission::AlwaysAllow,
-            execute_commands: ActionPermission::GalaxyDecides,
-            mcp_permissions: ActionPermission::GalaxyDecides,
-            write_to_pty: WriteToPtyPermission::AlwaysAsk,
-        },
-        AgentAutonomy::None => OnboardingAutonomyPermissions {
-            apply_code_diffs: ActionPermission::AlwaysAsk,
-            read_files: ActionPermission::AlwaysAsk,
-            execute_commands: ActionPermission::AlwaysAsk,
-            mcp_permissions: ActionPermission::AlwaysAsk,
-            write_to_pty: WriteToPtyPermission::AlwaysAsk,
-        },
-    }
 }
 
 #[cfg(test)]

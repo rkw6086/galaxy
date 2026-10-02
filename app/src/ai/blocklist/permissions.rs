@@ -15,7 +15,8 @@ use super::BlocklistAIHistoryModel;
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::execution_profiles::profiles::{AIExecutionProfilesModel, ClientProfileId};
 use crate::ai::execution_profiles::{
-    AIExecutionProfile, ActionPermission, AskUserQuestionPermission, WriteToPtyPermission,
+    AIExecutionProfile, ActionPermission, AskUserQuestionPermission, PermissionMode,
+    WriteToPtyPermission,
 };
 use crate::ai::mcp::mcp_provider_from_file_path;
 #[cfg(not(target_family = "wasm"))]
@@ -168,6 +169,32 @@ impl BlocklistAIPermissions {
         }
     }
 
+    pub fn get_permission_mode(
+        &self,
+        ctx: &AppContext,
+        terminal_view_id: Option<EntityId>,
+    ) -> PermissionMode {
+        AIExecutionProfilesModel::as_ref(ctx)
+            .active_profile(terminal_view_id, ctx)
+            .data()
+            .permission_mode
+    }
+
+    fn projected_profile(
+        &self,
+        profile_id: ClientProfileId,
+        ctx: &AppContext,
+    ) -> AIExecutionProfile {
+        let profiles = AIExecutionProfilesModel::as_ref(ctx);
+        let mut profile = profiles
+            .get_profile_by_id(profile_id, ctx)
+            .unwrap_or_else(|| profiles.default_profile(ctx))
+            .data()
+            .clone();
+        profile.project_permission_mode();
+        profile
+    }
+
     /// Returns the active permissions profile, accounting for any enterprise overrides.
     pub fn permissions_profile_for_id(
         &self,
@@ -181,6 +208,8 @@ impl BlocklistAIPermissions {
         let profile_data = profile.data();
 
         AIExecutionProfile {
+            permission_mode: profile_data.permission_mode,
+            approved_command_hashes: profile_data.approved_command_hashes.clone(),
             // Some fields may have an enterprise override.
             apply_code_diffs: self.get_apply_code_diffs_setting_for_profile(ctx, profile_id),
             read_files: self.get_read_files_setting_for_profile(ctx, profile_id),
@@ -242,14 +271,8 @@ impl BlocklistAIPermissions {
         let autonomy_settings = Self::workspace_autonomy_settings(ctx);
         let apply_code_diffs_workspace_setting = autonomy_settings.apply_code_diffs_setting;
 
-        apply_code_diffs_workspace_setting.unwrap_or_else(|| {
-            let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
-            profiles_model
-                .get_profile_by_id(profile_id, ctx)
-                .unwrap_or_else(|| profiles_model.default_profile(ctx))
-                .data()
-                .apply_code_diffs
-        })
+        apply_code_diffs_workspace_setting
+            .unwrap_or_else(|| self.projected_profile(profile_id, ctx).apply_code_diffs)
     }
 
     /// Returns what the current setting is for applying code diffs,
@@ -273,14 +296,8 @@ impl BlocklistAIPermissions {
         let autonomy_settings = Self::workspace_autonomy_settings(ctx);
         let read_files_workspace_setting = autonomy_settings.read_files_setting;
 
-        read_files_workspace_setting.unwrap_or_else(|| {
-            let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
-            profiles_model
-                .get_profile_by_id(profile_id, ctx)
-                .unwrap_or_else(|| profiles_model.default_profile(ctx))
-                .data()
-                .read_files
-        })
+        read_files_workspace_setting
+            .unwrap_or_else(|| self.projected_profile(profile_id, ctx).read_files)
     }
 
     /// Returns what the current setting is for reading files,
@@ -335,14 +352,8 @@ impl BlocklistAIPermissions {
         let autonomy_settings = Self::workspace_autonomy_settings(ctx);
         let execute_commands_workspace_setting = autonomy_settings.execute_commands_setting;
 
-        execute_commands_workspace_setting.unwrap_or_else(|| {
-            let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
-            profiles_model
-                .get_profile_by_id(profile_id, ctx)
-                .unwrap_or_else(|| profiles_model.default_profile(ctx))
-                .data()
-                .execute_commands
-        })
+        execute_commands_workspace_setting
+            .unwrap_or_else(|| self.projected_profile(profile_id, ctx).execute_commands)
     }
 
     /// Returns what the current setting is for executing commands,
@@ -447,14 +458,8 @@ impl BlocklistAIPermissions {
         let autonomy_settings = Self::workspace_autonomy_settings(ctx);
         let write_to_pty_workspace_setting = autonomy_settings.write_to_pty_setting;
 
-        write_to_pty_workspace_setting.unwrap_or_else(|| {
-            let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
-            profiles_model
-                .get_profile_by_id(profile_id, ctx)
-                .unwrap_or_else(|| profiles_model.default_profile(ctx))
-                .data()
-                .write_to_pty
-        })
+        write_to_pty_workspace_setting
+            .unwrap_or_else(|| self.projected_profile(profile_id, ctx).write_to_pty)
     }
 
     pub fn get_write_to_pty_setting(
@@ -489,12 +494,7 @@ impl BlocklistAIPermissions {
     ) -> ActionPermission {
         // TODO: allow a workspace override on MCP permissions.
 
-        let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
-        profiles_model
-            .get_profile_by_id(profile_id, ctx)
-            .unwrap_or_else(|| profiles_model.default_profile(ctx))
-            .data()
-            .mcp_permissions
+        self.projected_profile(profile_id, ctx).mcp_permissions
     }
 
     pub fn get_mcp_permissions_setting(
@@ -590,14 +590,8 @@ impl BlocklistAIPermissions {
         let autonomy_settings = Self::workspace_autonomy_settings(ctx);
         let computer_use_workspace_setting = autonomy_settings.computer_use_setting;
 
-        computer_use_workspace_setting.unwrap_or_else(|| {
-            let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
-            profiles_model
-                .get_profile_by_id(profile_id, ctx)
-                .unwrap_or_else(|| profiles_model.default_profile(ctx))
-                .data()
-                .computer_use
-        })
+        computer_use_workspace_setting
+            .unwrap_or_else(|| self.projected_profile(profile_id, ctx).computer_use)
     }
 
     pub fn get_computer_use_setting(
@@ -615,12 +609,7 @@ impl BlocklistAIPermissions {
         ctx: &AppContext,
         profile_id: ClientProfileId,
     ) -> AskUserQuestionPermission {
-        let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
-        profiles_model
-            .get_profile_by_id(profile_id, ctx)
-            .unwrap_or_else(|| profiles_model.default_profile(ctx))
-            .data()
-            .ask_user_question
+        self.projected_profile(profile_id, ctx).ask_user_question
     }
 
     pub fn get_ask_user_question_setting(
@@ -638,12 +627,7 @@ impl BlocklistAIPermissions {
         ctx: &AppContext,
         profile_id: ClientProfileId,
     ) -> crate::ai::execution_profiles::RunAgentsPermission {
-        let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
-        profiles_model
-            .get_profile_by_id(profile_id, ctx)
-            .unwrap_or_else(|| profiles_model.default_profile(ctx))
-            .data()
-            .run_agents
+        self.projected_profile(profile_id, ctx).run_agents
     }
 
     pub fn get_run_agents_setting(

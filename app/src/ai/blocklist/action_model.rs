@@ -51,7 +51,7 @@ use self::execute::{
     RunningActionPhase, TryExecuteResult,
 };
 use super::history_model::BlocklistAIHistoryEvent;
-use super::BlocklistAIHistoryModel;
+use super::{BlocklistAIHistoryModel, BlocklistAIPermissions};
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionId, AIAgentActionResult, AIAgentActionResultType,
@@ -878,6 +878,19 @@ impl BlocklistAIActionModel {
             }
         });
 
+        let profiles =
+            crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::handle(ctx);
+        ctx.subscribe_to_model(&profiles, |_, _, _, ctx| {
+            // Re-evaluate queued tools after a mode/profile change. Defer until the
+            // profile edit and any current approval callback have completed.
+            ctx.spawn(futures::future::ready(()), |me, (), ctx| {
+                let conversations = me.pending_actions.keys().copied().collect::<Vec<_>>();
+                for conversation_id in conversations {
+                    me.try_to_execute_available_actions(conversation_id, ctx);
+                }
+            });
+        });
+
         let history_model = BlocklistAIHistoryModel::handle(ctx);
         ctx.subscribe_to_model(&history_model, |me, _, event, ctx| match event {
             BlocklistAIHistoryEvent::RemoveConversation {
@@ -1674,6 +1687,15 @@ impl BlocklistAIActionModel {
                 return None;
             }
         }
+        if BlocklistAIPermissions::as_ref(ctx).get_permission_mode(ctx, Some(self.terminal_view_id))
+            == crate::ai::execution_profiles::PermissionMode::ReadOnly
+            && !risk_review::is_read_only_inspection(
+                &self.pending_actions[&conversation_id][idx].action,
+            )
+        {
+            let candidate = self.pending_actions[&conversation_id][idx].clone();
+            self.review_pending_action(&candidate, conversation_id, is_user_initiated, ctx)?;
+        }
         if let Some(in_flight) = self.deferred_provider_preprocessing.get_mut(&key) {
             if *in_flight {
                 return None;
@@ -1980,6 +2002,12 @@ impl BlocklistAIActionModel {
             {
                 self.deferred_provider_preprocessing
                     .insert((conversation_id, action.id.clone()), false);
+            } else if BlocklistAIPermissions::as_ref(ctx)
+                .get_permission_mode(ctx, Some(self.terminal_view_id))
+                == crate::ai::execution_profiles::PermissionMode::ReadOnly
+                && !risk_review::is_read_only_inspection(&action.action)
+            {
+                // A prohibited action must not perform even preprocessing in Read Only.
             } else {
                 preprocess_future.push(self.preprocess_action(action, conversation_id, ctx));
             }
@@ -2760,6 +2788,10 @@ fn provider_action_correlations(
 
 #[derive(Debug, Clone)]
 pub enum BlocklistAIActionEvent {
+    PermissionReviewChanged {
+        conversation_id: AIConversationId,
+        action_id: AIAgentActionId,
+    },
     /// Emitted when the action with the given ID is enqueued for execution.
     QueuedAction {
         action_id: AIAgentActionId,
@@ -2803,7 +2835,8 @@ pub enum BlocklistAIActionEvent {
 impl BlocklistAIActionEvent {
     pub fn action_id(&self) -> &AIAgentActionId {
         match self {
-            BlocklistAIActionEvent::QueuedAction { action_id, .. }
+            BlocklistAIActionEvent::PermissionReviewChanged { action_id, .. }
+            | BlocklistAIActionEvent::QueuedAction { action_id, .. }
             | BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { action_id, .. }
             | BlocklistAIActionEvent::ExecutingAction { action_id, .. }
             | BlocklistAIActionEvent::FinishedAction { action_id, .. } => action_id,
@@ -2816,7 +2849,10 @@ impl BlocklistAIActionEvent {
 
     pub fn conversation_id(&self) -> Option<AIConversationId> {
         match self {
-            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
+            BlocklistAIActionEvent::PermissionReviewChanged {
+                conversation_id, ..
+            }
+            | BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
                 conversation_id, ..
             }
             | BlocklistAIActionEvent::ExecutingAction {

@@ -48,6 +48,28 @@ pub struct ShellCommandExecutor {
 }
 
 impl ShellCommandExecutor {
+    /// Command launch already passed the permission gate. Continuing that exact
+    /// active command shares its authorization, not an unrelated terminal prompt.
+    pub(crate) fn can_continue_authorized_command(
+        &self,
+        conversation_id: crate::AIConversationId,
+        block_id: &BlockId,
+    ) -> bool {
+        let model = self.terminal_model.lock();
+        let Some(block) = model.block_list().block_with_id(block_id) else {
+            return false;
+        };
+        block.ai_conversation_id() == Some(conversation_id)
+            && (block.requested_command_action_id().is_some()
+                || block.cli_subagent_task_id().is_some())
+            // The executor returns the final snapshot instead of writing to a
+            // finished block; no new permission is needed to retrieve its output.
+            && (block.finished()
+                || (model.block_list().active_block().id() == block_id
+                    && block.is_active_and_long_running()
+                    && block.is_agent_driving_command()))
+    }
+
     pub const MAX_WAIT_DURATION: Duration = Duration::from_secs(2);
     /// Maximum delay we will honor for any agent-requested wait. Applies both  
     /// to finite `ShellCommandDelay::Duration` requests and to  

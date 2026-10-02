@@ -79,7 +79,7 @@ use crate::ai::blocklist::block::view_impl::common::{
 use crate::ai::blocklist::block::{
     AIBlock, AIBlockAction, AIBlockStateHandles, ActionButtons, AutonomySettingSpeedbump,
     CollapsibleElementState, CollapsibleExpansionState, EmbeddedCodeEditorView, FinishReason,
-    ImportedCommentGroup, RequestedEdit, TextLocation, TodoListElementState,
+    ImportedCommentGroup, RequestedEdit, ReviewPaneState, TextLocation, TodoListElementState,
 };
 use crate::ai::blocklist::controller::ProviderToolCallProgressStatus;
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
@@ -164,7 +164,7 @@ pub(crate) struct Props<'a> {
         &'a HashMap<AIAgentActionId, ViewHandle<SuggestedUnitTestsView>>,
     pub(super) todo_list_states: &'a HashMap<MessageId, TodoListElementState>,
     pub(super) collapsible_block_states: &'a HashMap<MessageId, CollapsibleElementState>,
-    pub(super) review_pane_states: &'a HashMap<AIAgentActionId, CollapsibleElementState>,
+    pub(super) review_pane_states: &'a HashMap<AIAgentActionId, ReviewPaneState>,
     pub(crate) is_selecting_text: bool,
     pub(super) is_ai_input_enabled: bool,
     pub(crate) find_context: Option<FindContext<'a>>,
@@ -325,8 +325,14 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             .as_ref(app)
                             .review_display(props.conversation_id, &action.id)
                         {
-                            output_items
-                                .add_child(render_review_status(&action.id, review, props, app));
+                            if crate::ai::blocklist::BlocklistAIPermissions::as_ref(app)
+                                .get_permission_mode(app, Some(props.terminal_view_id))
+                                != crate::ai::execution_profiles::PermissionMode::GalaxyDecides
+                            {
+                                output_items.add_child(render_review_status(
+                                    &action.id, review, props, app,
+                                ));
+                            }
                         }
                     }
                     match &output_message.message {
@@ -1331,12 +1337,19 @@ fn render_review_status(
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
     let state = props.review_pane_states.get(action_id);
-    let is_expanded = state.is_some_and(|state| {
-        matches!(
-            state.expansion_state,
-            CollapsibleExpansionState::Expanded { .. }
-        )
-    });
+    let is_resolved = matches!(
+        review.state,
+        ReviewDisplayState::Approved | ReviewDisplayState::Denied
+    );
+    let is_expanded = state
+        .map(|state| {
+            if is_resolved {
+                state.resolved_expanded
+            } else {
+                state.pending_expanded
+            }
+        })
+        .unwrap_or(!is_resolved);
     let needs_approval = matches!(review.state, ReviewDisplayState::AwaitingApproval);
     let icon = match review.state {
         ReviewDisplayState::Assessing => Icon::Loading.to_galaxyui_icon(
@@ -1346,19 +1359,24 @@ fn render_review_status(
         ReviewDisplayState::Approved => inline_action_icons::green_check_icon(appearance),
         ReviewDisplayState::Denied => inline_action_icons::red_x_icon(appearance),
     };
-    let title = match review.state {
+    let status = match review.state {
         ReviewDisplayState::Assessing => "Checking permission",
         ReviewDisplayState::AwaitingApproval => "Approval required · 60 seconds",
         ReviewDisplayState::Approved => "Approved",
-        ReviewDisplayState::Denied => "Denied",
+        ReviewDisplayState::Denied => "Rejected",
     };
+    let title = format!("{status} - {}", truncate_from_end(&review.summary, 72));
     let mut header = HeaderConfig::new(title, app)
         .with_icon(icon)
-        .with_corner_radius_override(CornerRadius::with_top(Radius::Pixels(8.)));
+        .with_corner_radius_override(if is_expanded || needs_approval {
+            CornerRadius::with_top(Radius::Pixels(8.))
+        } else {
+            CornerRadius::with_all(Radius::Pixels(8.))
+        });
     if let Some(state) = state {
         let action_id = action_id.clone();
         header = header.with_interaction_mode(InteractionMode::ManuallyExpandable(
-            ExpandedConfig::new(is_expanded, state.expansion_toggle_mouse_state.clone())
+            ExpandedConfig::new(is_expanded, state.header_mouse_state.clone())
                 .with_toggle_callback(move |ctx| {
                     ctx.dispatch_typed_action(AIBlockAction::ToggleReviewPaneExpanded(
                         action_id.clone(),
@@ -1447,6 +1465,11 @@ fn render_review_status(
                 .with_padding_top(8.)
                 .with_padding_bottom(12.)
                 .with_background(theme.background())
+                .with_corner_radius(if is_expanded {
+                    CornerRadius::default()
+                } else {
+                    CornerRadius::with_bottom(Radius::Pixels(8.))
+                })
                 .finish(),
             );
         }
@@ -1457,10 +1480,18 @@ fn render_review_status(
         theme.surface_2()
     };
     Container::new(content.finish())
-        .with_margin_left(CONTENT_HORIZONTAL_PADDING)
+        .with_margin_left(if is_expanded {
+            CONTENT_HORIZONTAL_PADDING
+        } else {
+            CONTENT_HORIZONTAL_PADDING + icon_size(app) + 16.
+        })
         .with_margin_right(CONTENT_HORIZONTAL_PADDING)
         .with_margin_bottom(CONTENT_ITEM_VERTICAL_MARGIN)
-        .with_corner_radius(CornerRadius::with_top(Radius::Pixels(8.)))
+        .with_corner_radius(if is_expanded {
+            CornerRadius::with_top(Radius::Pixels(8.))
+        } else {
+            CornerRadius::with_all(Radius::Pixels(8.))
+        })
         .with_border(Border::all(1.).with_border_fill(border_color))
         .finish()
 }

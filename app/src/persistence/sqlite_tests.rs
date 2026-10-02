@@ -1184,6 +1184,51 @@ fn sqlite_busy_writes_retry_but_permanent_failures_do_not() {
 }
 
 #[test]
+fn saved_profile_editors_do_not_mark_session_restore_incomplete() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = setup_database(&dir.path().join("galaxy.sqlite")).unwrap();
+    let mut window = test_terminal_window_snapshot(false);
+    for contents in [
+        LeafContents::ExecutionProfileEditor,
+        LeafContents::CustomRouterEditor,
+    ] {
+        let mut editor_tab = window.tabs[0].clone();
+        editor_tab.root = PaneNodeSnapshot::Leaf(LeafSnapshot {
+            is_focused: true,
+            custom_vertical_tabs_title: None,
+            contents,
+        });
+        window.tabs.push(editor_tab);
+    }
+    let snapshot = AppState {
+        windows: vec![window],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Vec::new(),
+    };
+    save_app_state(&mut conn, &snapshot).unwrap();
+    let (restored, errors) = super::read_sqlite_data_with_recovery(&mut conn, None);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(restored.app_state.windows[0].tabs.len(), 3);
+    assert!(matches!(
+        &restored.app_state.windows[0].tabs[0].root,
+        PaneNodeSnapshot::Leaf(LeafSnapshot {
+            contents: LeafContents::Terminal(_),
+            ..
+        })
+    ));
+    for tab in &restored.app_state.windows[0].tabs[1..] {
+        assert!(matches!(
+            &tab.root,
+            PaneNodeSnapshot::Leaf(LeafSnapshot {
+                contents: LeafContents::ExecutionProfileEditor,
+                ..
+            })
+        ));
+    }
+}
+
+#[test]
 fn incomplete_restore_keeps_independent_domains_and_reports_failure() {
     let dir = tempfile::tempdir().unwrap();
     let mut conn = setup_database(&dir.path().join("galaxy.sqlite")).unwrap();

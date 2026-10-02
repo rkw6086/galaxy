@@ -70,7 +70,7 @@ use crate::ai::execution_profiles::profiles::{
 };
 use crate::ai::execution_profiles::{
     long_context_pricing_warning_title, AIExecutionProfile, AIExecutionProfileAppExt,
-    ActionPermission, WriteToPtyPermission,
+    PermissionMode,
 };
 use crate::ai::llms::{
     is_using_api_key_for_provider, openai_model_context_size, LLMContextWindow, LLMId,
@@ -632,27 +632,12 @@ pub struct AISettingsPageView {
     agent_toolbar_inline_editor: ViewHandle<AgentToolbarInlineEditor>,
     cli_agent_toolbar_inline_editor: ViewHandle<AgentToolbarInlineEditor>,
 
-    apply_code_diffs_dropdown_menu: ViewHandle<Dropdown<AISettingsPageAction>>,
-    read_files_dropdown_menu: ViewHandle<Dropdown<AISettingsPageAction>>,
-    execute_commands_dropdown_menu: ViewHandle<Dropdown<AISettingsPageAction>>,
-    write_to_pty_autonomy_dropdown_menu: ViewHandle<Dropdown<AISettingsPageAction>>,
-    mcp_permissions_dropdown_menu: ViewHandle<Dropdown<AISettingsPageAction>>,
-
-    // Allowlisting directories (default profile)
-    directory_allowlist_mouse_state_handles: Vec<MouseStateHandle>,
-    directory_allowlist_editor: ViewHandle<SubmittableTextInput>,
-
-    // Allowlisting commands (default profile)
-    command_allowlist_mouse_state_handles: Vec<MouseStateHandle>,
-    command_allowlist_editor: ViewHandle<SubmittableTextInput>,
+    permission_mode_dropdown_menu: ViewHandle<Dropdown<AISettingsPageAction>>,
 
     // Denylisting commands (default profile)
     command_denylist_mouse_state_handles: Vec<MouseStateHandle>,
     command_denylist_tooltip_mouse_state_handles: Vec<MouseStateHandle>,
     command_denylist_editor: ViewHandle<SubmittableTextInput>,
-
-    mcp_allowlist_mouse_state_handles: Vec<MouseStateHandle>,
-    mcp_allowlist_dropdown: ViewHandle<FilterableDropdown<AISettingsPageAction>>,
 
     mcp_denylist_mouse_state_handles: Vec<MouseStateHandle>,
     mcp_denylist_dropdown: ViewHandle<FilterableDropdown<AISettingsPageAction>>,
@@ -805,31 +790,16 @@ impl AISettingsPageView {
 
         let workspace = UserWorkspaces::handle(ctx);
         let ai_autonomy_settings = workspace.as_ref(ctx).ai_autonomy_settings();
-        ctx.subscribe_to_model(&workspace, |me, workspace, event, ctx| {
+        ctx.subscribe_to_model(&workspace, |me, _, event, ctx| {
             if let UserWorkspacesEvent::TeamsChanged = event {
                 me.refresh_all_execution_profile_ui(ctx);
                 me.reset_execution_profile_mouse_state_handles(ctx);
 
                 let is_any_ai_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
-                let ai_autonomy_settings = workspace.as_ref(ctx).ai_autonomy_settings();
 
                 Self::update_editor_interaction_state(
                     me.command_denylist_editor.as_ref(ctx).editor().clone(),
                     is_any_ai_enabled,
-                    ctx,
-                );
-
-                Self::update_editor_interaction_state(
-                    me.command_allowlist_editor.as_ref(ctx).editor().clone(),
-                    is_any_ai_enabled
-                        && !ai_autonomy_settings.has_override_for_execute_commands_allowlist(),
-                    ctx,
-                );
-
-                Self::update_editor_interaction_state(
-                    me.directory_allowlist_editor.as_ref(ctx).editor().clone(),
-                    is_any_ai_enabled
-                        && !ai_autonomy_settings.has_override_for_read_files_allowlist(),
                     ctx,
                 );
 
@@ -1171,7 +1141,7 @@ impl AISettingsPageView {
             );
 
             if added_or_deleted_mcp_servers {
-                Self::refresh_mcp_allowlist_dropdown(&me.mcp_allowlist_dropdown, ctx);
+
                 Self::refresh_mcp_denylist_dropdown(&me.mcp_denylist_dropdown, ctx);
                 ctx.notify();
             }
@@ -1179,7 +1149,6 @@ impl AISettingsPageView {
 
         let templatable_manager = TemplatableMCPServerManager::handle(ctx);
         ctx.subscribe_to_model(&templatable_manager, |me, _, _event, ctx| {
-            Self::refresh_mcp_allowlist_dropdown(&me.mcp_allowlist_dropdown, ctx);
             Self::refresh_mcp_denylist_dropdown(&me.mcp_denylist_dropdown, ctx);
             ctx.notify();
         });
@@ -1223,7 +1192,6 @@ impl AISettingsPageView {
                 }
                 AISettingsChangedEvent::IsAnyAIEnabled { .. } => {
                     let is_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
-                    let ai_autonomy_settings = UserWorkspaces::as_ref(ctx).ai_autonomy_settings();
 
                     Self::update_editor_interaction_state(
                         me.autodetection_denylist_editor.clone(),
@@ -1253,21 +1221,8 @@ impl AISettingsPageView {
                     );
 
                     Self::update_editor_interaction_state(
-                        me.directory_allowlist_editor.as_ref(ctx).editor().clone(),
-                        is_enabled && !ai_autonomy_settings.has_override_for_read_files_allowlist(),
-                        ctx,
-                    );
-
-                    Self::update_editor_interaction_state(
                         me.command_denylist_editor.as_ref(ctx).editor().clone(),
                         is_enabled,
-                        ctx,
-                    );
-
-                    Self::update_editor_interaction_state(
-                        me.command_allowlist_editor.as_ref(ctx).editor().clone(),
-                        is_enabled
-                            && !ai_autonomy_settings.has_override_for_execute_commands_allowlist(),
                         ctx,
                     );
 
@@ -1282,7 +1237,7 @@ impl AISettingsPageView {
                     );
                     Self::refresh_base_model_menu(&me.base_model_dropdown, ctx);
                     Self::refresh_coding_model_menu(&me.coding_model_dropdown, ctx);
-                    Self::refresh_mcp_allowlist_dropdown(&me.mcp_allowlist_dropdown, ctx);
+
                     Self::refresh_mcp_denylist_dropdown(&me.mcp_denylist_dropdown, ctx);
                     me.sync_context_window_editor(ctx, true);
                 }
@@ -1408,175 +1363,29 @@ impl AISettingsPageView {
         let current_permission =
             BlocklistAIPermissions::as_ref(ctx).active_permissions_profile(ctx, None);
 
-        let apply_code_diffs_dropdown_menu = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = Dropdown::new(ctx);
-            dropdown.set_top_bar_max_width(AI_SETTINGS_DROPDOWN_WIDTH);
-            dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
-
-            dropdown.set_items(
-                vec![
-                    DropdownItem::new(
-                        "Always allow",
-                        AISettingsPageAction::SetApplyCodeDiffs(ActionPermission::AlwaysAllow),
-                    ),
-                    DropdownItem::new(
-                        "Always ask",
-                        AISettingsPageAction::SetApplyCodeDiffs(ActionPermission::AlwaysAsk),
-                    ),
-                    DropdownItem::new(
-                        "Galaxy Decides",
-                        AISettingsPageAction::SetApplyCodeDiffs(ActionPermission::GalaxyDecides),
-                    ),
-                ],
-                ctx,
-            );
-            dropdown
-        });
-        Self::refresh_execution_profile_dropdown_menu(
-            &apply_code_diffs_dropdown_menu,
-            current_permission.apply_code_diffs,
-            !AISettings::as_ref(ctx).is_code_diffs_permissions_editable(ctx),
-            ctx,
-        );
-
-        let read_files_dropdown_menu = ctx.add_typed_action_view(|ctx| {
+        let permission_mode_dropdown_menu = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = Dropdown::new(ctx);
             dropdown.set_top_bar_max_width(AI_SETTINGS_DROPDOWN_WIDTH);
             dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
             dropdown.set_items(
-                vec![
-                    DropdownItem::new(
-                        "Always allow",
-                        AISettingsPageAction::SetReadFiles(ActionPermission::AlwaysAllow),
-                    ),
-                    DropdownItem::new(
-                        "Always ask",
-                        AISettingsPageAction::SetReadFiles(ActionPermission::AlwaysAsk),
-                    ),
-                    DropdownItem::new(
-                        "Galaxy Decides",
-                        AISettingsPageAction::SetReadFiles(ActionPermission::GalaxyDecides),
-                    ),
-                ],
+                [
+                    PermissionMode::ReadOnly,
+                    PermissionMode::AskFirst,
+                    PermissionMode::GalaxyDecides,
+                ]
+                .into_iter()
+                .map(|mode| {
+                    DropdownItem::new(mode.label(), AISettingsPageAction::SetPermissionMode(mode))
+                })
+                .collect(),
+                ctx,
+            );
+            dropdown.set_selected_by_action(
+                AISettingsPageAction::SetPermissionMode(current_permission.permission_mode),
                 ctx,
             );
             dropdown
         });
-        Self::refresh_execution_profile_dropdown_menu(
-            &read_files_dropdown_menu,
-            current_permission.read_files,
-            !AISettings::as_ref(ctx).is_read_files_permissions_editable(ctx),
-            ctx,
-        );
-
-        let execute_commands_dropdown_menu = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = Dropdown::new(ctx);
-            dropdown.set_top_bar_max_width(AI_SETTINGS_DROPDOWN_WIDTH);
-            dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
-            dropdown.set_items(
-                vec![
-                    DropdownItem::new(
-                        "Always allow",
-                        AISettingsPageAction::SetExecuteCommands(ActionPermission::AlwaysAllow),
-                    ),
-                    DropdownItem::new(
-                        "Always ask",
-                        AISettingsPageAction::SetExecuteCommands(ActionPermission::AlwaysAsk),
-                    ),
-                    DropdownItem::new(
-                        "Galaxy Decides",
-                        AISettingsPageAction::SetExecuteCommands(ActionPermission::GalaxyDecides),
-                    ),
-                ],
-                ctx,
-            );
-            dropdown
-        });
-        Self::refresh_execution_profile_dropdown_menu(
-            &execute_commands_dropdown_menu,
-            current_permission.execute_commands,
-            !AISettings::as_ref(ctx).is_execute_commands_permissions_editable(ctx),
-            ctx,
-        );
-
-        let write_to_pty_autonomy_dropdown_menu = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = Dropdown::new(ctx);
-            dropdown.set_top_bar_max_width(AI_SETTINGS_DROPDOWN_WIDTH);
-            dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
-            dropdown.set_items(
-                vec![
-                    DropdownItem::new(
-                        "Always allow",
-                        AISettingsPageAction::SetWriteToPty(WriteToPtyPermission::AlwaysAllow),
-                    ),
-                    DropdownItem::new(
-                        "Always ask",
-                        AISettingsPageAction::SetWriteToPty(WriteToPtyPermission::AlwaysAsk),
-                    ),
-                    DropdownItem::new(
-                        "Ask on first write",
-                        AISettingsPageAction::SetWriteToPty(WriteToPtyPermission::AskOnFirstWrite),
-                    ),
-                    DropdownItem::new(
-                        "Galaxy Decides",
-                        AISettingsPageAction::SetWriteToPty(WriteToPtyPermission::GalaxyDecides),
-                    ),
-                ],
-                ctx,
-            );
-            dropdown
-        });
-        Self::refresh_write_to_pty_dropdown_menu(
-            &write_to_pty_autonomy_dropdown_menu,
-            current_permission.write_to_pty,
-            !AISettings::as_ref(ctx).is_write_to_pty_permissions_editable(ctx),
-            ctx,
-        );
-
-        let mcp_permissions_dropdown_menu = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = Dropdown::new(ctx);
-            dropdown.set_top_bar_max_width(AI_SETTINGS_DROPDOWN_WIDTH);
-            dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
-            dropdown.set_items(
-                vec![
-                    DropdownItem::new(
-                        "Always allow",
-                        AISettingsPageAction::SetMCPPermissions(ActionPermission::AlwaysAllow),
-                    ),
-                    DropdownItem::new(
-                        "Always ask",
-                        AISettingsPageAction::SetMCPPermissions(ActionPermission::AlwaysAsk),
-                    ),
-                    DropdownItem::new(
-                        "Galaxy Decides",
-                        AISettingsPageAction::SetMCPPermissions(ActionPermission::GalaxyDecides),
-                    ),
-                ],
-                ctx,
-            );
-            dropdown
-        });
-        Self::refresh_execution_profile_dropdown_menu(
-            &mcp_permissions_dropdown_menu,
-            current_permission.mcp_permissions,
-            !AISettings::as_ref(ctx).is_mcp_permission_editable(ctx),
-            ctx,
-        );
-
-        let mcp_allowlist_dropdown = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = FilterableDropdown::new(ctx);
-            dropdown.set_top_bar_max_width(AI_SETTINGS_DROPDOWN_WIDTH);
-            dropdown.set_menu_width(AI_SETTINGS_DROPDOWN_WIDTH, ctx);
-            dropdown.set_menu_header_to_static("Select MCP servers");
-            dropdown
-        });
-        Self::refresh_mcp_allowlist_dropdown(&mcp_allowlist_dropdown, ctx);
-        let mcp_allowlist_mouse_state_handles = BlocklistAIPermissions::as_ref(ctx)
-            .get_mcp_allowlist(ctx, None)
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
         let mcp_denylist_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = FilterableDropdown::new(ctx);
             dropdown.set_top_bar_max_width(AI_SETTINGS_DROPDOWN_WIDTH);
@@ -1618,40 +1427,6 @@ impl AISettingsPageView {
             .map(|_| Default::default())
             .collect();
 
-        let directory_allowlist_mouse_state_handles = current_permission
-            .directory_allowlist
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
-        let directory_allowlist_editor = ctx.add_typed_action_view(|ctx| {
-            let mut input = SubmittableTextInput::new(ctx).validate_on_submit(|s| {
-                let expanded = host_native_absolute_path(s, &None, &None);
-                Path::new(&expanded).is_dir()
-            });
-            input.set_placeholder_text("e.g. ~/code-repos/repo", ctx);
-            input
-        });
-
-        Self::update_editor_interaction_state(
-            directory_allowlist_editor.as_ref(ctx).editor().clone(),
-            is_any_ai_enabled,
-            ctx,
-        );
-
-        ctx.subscribe_to_view(&directory_allowlist_editor, |_, _, event, ctx| {
-            if let SubmittableTextInputEvent::Submit(s) = event {
-                let expanded = host_native_absolute_path(s, &None, &None);
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    let profile_id = profile.id();
-
-                    model.add_to_directory_allowlist(*profile_id, &PathBuf::from(expanded), ctx);
-                });
-                ctx.notify();
-            }
-        });
-
         let org_denylist = BlocklistAIPermissions::get_org_execute_commands_denylist(ctx);
         let command_denylist_mouse_state_handles = current_permission
             .command_denylist
@@ -1688,45 +1463,6 @@ impl AISettingsPageView {
                     let profile = model.default_profile(ctx);
                     let profile_id = profile.id();
                     model.add_to_command_denylist(*profile_id, &predicate, ctx);
-                });
-                ctx.notify();
-            }
-        });
-
-        let command_allowlist_mouse_state_handles = current_permission
-            .command_allowlist
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
-        let command_allowlist_editor = ctx.add_typed_action_view(|ctx| {
-            let mut input =
-                SubmittableTextInput::new(ctx).validate_on_edit(|s| Regex::new(s).is_ok());
-            input.set_placeholder_text("e.g. ls .*", ctx);
-            input
-        });
-        Self::update_editor_interaction_state(
-            command_allowlist_editor.as_ref(ctx).editor().clone(),
-            is_any_ai_enabled
-                && !ai_autonomy_settings.has_override_for_execute_commands_allowlist(),
-            ctx,
-        );
-
-        ctx.subscribe_to_view(&command_allowlist_editor, |_, _, event, ctx| {
-            if let SubmittableTextInputEvent::Submit(s) = event {
-                let predicate = match AgentModeCommandExecutionPredicate::new_regex(s) {
-                    Ok(regex) => regex,
-                    Err(e) => {
-                        log::warn!(
-                            "Failed to convert string to regex for cmd execution allowlist: {e}"
-                        );
-                        return;
-                    }
-                };
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    let profile_id = profile.id();
-                    model.add_to_command_allowlist(*profile_id, &predicate, ctx);
                 });
                 ctx.notify();
             }
@@ -1864,20 +1600,10 @@ impl AISettingsPageView {
             code_read_allowlist_editor,
             code_read_autonomy_dropdown_menu,
             code_read_allowlist_mouse_state_handles,
-            apply_code_diffs_dropdown_menu,
-            read_files_dropdown_menu,
-            execute_commands_dropdown_menu,
-            write_to_pty_autonomy_dropdown_menu,
-            mcp_permissions_dropdown_menu,
-            directory_allowlist_mouse_state_handles,
-            directory_allowlist_editor,
+            permission_mode_dropdown_menu,
             command_denylist_mouse_state_handles,
             command_denylist_tooltip_mouse_state_handles,
             command_denylist_editor,
-            command_allowlist_mouse_state_handles,
-            command_allowlist_editor,
-            mcp_allowlist_dropdown,
-            mcp_allowlist_mouse_state_handles,
             mcp_denylist_dropdown,
             mcp_denylist_mouse_state_handles,
             thinking_display_mode_dropdown,
@@ -2484,55 +2210,16 @@ impl AISettingsPageView {
     }
 
     fn refresh_all_execution_profile_ui(&self, ctx: &mut ViewContext<Self>) {
-        let permissions = BlocklistAIPermissions::handle(ctx);
-
-        let apply_code_diffs_setting = permissions
-            .as_ref(ctx)
-            .get_apply_code_diffs_setting(ctx, None);
-        Self::refresh_execution_profile_dropdown_menu(
-            &self.apply_code_diffs_dropdown_menu,
-            apply_code_diffs_setting,
-            !AISettings::as_ref(ctx).is_code_diffs_permissions_editable(ctx),
-            ctx,
-        );
-
-        let read_files_setting = permissions.as_ref(ctx).get_read_files_setting(ctx, None);
-        Self::refresh_execution_profile_dropdown_menu(
-            &self.read_files_dropdown_menu,
-            read_files_setting,
-            !AISettings::as_ref(ctx).is_read_files_permissions_editable(ctx),
-            ctx,
-        );
-
-        let execute_commands_setting: ActionPermission = permissions
-            .as_ref(ctx)
-            .get_execute_commands_setting(ctx, None);
-        Self::refresh_execution_profile_dropdown_menu(
-            &self.execute_commands_dropdown_menu,
-            execute_commands_setting,
-            !AISettings::as_ref(ctx).is_execute_commands_permissions_editable(ctx),
-            ctx,
-        );
-
-        let write_to_pty_setting: WriteToPtyPermission =
-            permissions.as_ref(ctx).get_write_to_pty_setting(ctx, None);
-        Self::refresh_write_to_pty_dropdown_menu(
-            &self.write_to_pty_autonomy_dropdown_menu,
-            write_to_pty_setting,
-            !AISettings::as_ref(ctx).is_write_to_pty_permissions_editable(ctx),
-            ctx,
-        );
-
-        let mcp_permissions_setting = permissions
-            .as_ref(ctx)
-            .get_mcp_permissions_setting(ctx, None);
-        Self::refresh_execution_profile_dropdown_menu(
-            &self.mcp_permissions_dropdown_menu,
-            mcp_permissions_setting,
-            !AISettings::as_ref(ctx).is_mcp_permission_editable(ctx),
-            ctx,
-        );
-        Self::refresh_mcp_allowlist_dropdown(&self.mcp_allowlist_dropdown, ctx);
+        self.permission_mode_dropdown_menu
+            .update(ctx, |dropdown, ctx| {
+                let mode = BlocklistAIPermissions::as_ref(ctx).get_permission_mode(ctx, None);
+                dropdown.set_selected_by_action(AISettingsPageAction::SetPermissionMode(mode), ctx);
+                if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
+                    dropdown.set_enabled(ctx);
+                } else {
+                    dropdown.set_disabled(ctx);
+                }
+            });
         Self::refresh_mcp_denylist_dropdown(&self.mcp_denylist_dropdown, ctx);
 
         let is_any_ai_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
@@ -2544,12 +2231,6 @@ impl AISettingsPageView {
     fn reset_execution_profile_mouse_state_handles(&mut self, ctx: &mut ViewContext<Self>) {
         let blocklist_permissions = BlocklistAIPermissions::as_ref(ctx);
 
-        self.directory_allowlist_mouse_state_handles = blocklist_permissions
-            .get_read_files_allowlist(ctx, None)
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
         self.command_denylist_mouse_state_handles = blocklist_permissions
             .get_execute_commands_denylist(ctx, None)
             .iter()
@@ -2560,74 +2241,11 @@ impl AISettingsPageView {
         self.command_denylist_tooltip_mouse_state_handles =
             org_denylist.iter().map(|_| Default::default()).collect();
 
-        self.command_allowlist_mouse_state_handles = blocklist_permissions
-            .get_execute_commands_allowlist(ctx, None)
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
-        self.mcp_allowlist_mouse_state_handles = blocklist_permissions
-            .get_mcp_allowlist(ctx, None)
-            .iter()
-            .map(|_| Default::default())
-            .collect();
-
         self.mcp_denylist_mouse_state_handles = blocklist_permissions
             .get_mcp_denylist(ctx, None)
             .iter()
             .map(|_| Default::default())
             .collect();
-    }
-
-    fn refresh_execution_profile_dropdown_menu(
-        menu: &ViewHandle<Dropdown<AISettingsPageAction>>,
-        current_permission: ActionPermission,
-        disabled: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        menu.update(ctx, |menu, ctx| {
-            if !disabled {
-                menu.set_enabled(ctx);
-            } else {
-                menu.set_disabled(ctx);
-            }
-
-            let active = match current_permission {
-                ActionPermission::AlwaysAllow => 0,
-                ActionPermission::AlwaysAsk | ActionPermission::Unknown => 1,
-                ActionPermission::GalaxyDecides => 2,
-            };
-
-            menu.set_selected_by_index(active, ctx);
-            ctx.notify();
-        });
-        ctx.notify();
-    }
-
-    fn refresh_write_to_pty_dropdown_menu(
-        menu: &ViewHandle<Dropdown<AISettingsPageAction>>,
-        current_permission: WriteToPtyPermission,
-        disabled: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        menu.update(ctx, |menu, ctx| {
-            if !disabled {
-                menu.set_enabled(ctx);
-            } else {
-                menu.set_disabled(ctx);
-            }
-
-            let active = match current_permission {
-                WriteToPtyPermission::AlwaysAllow => 0,
-                WriteToPtyPermission::AlwaysAsk | WriteToPtyPermission::Unknown => 1,
-                WriteToPtyPermission::AskOnFirstWrite => 2,
-                WriteToPtyPermission::GalaxyDecides => 3,
-            };
-
-            menu.set_selected_by_index(active, ctx);
-            ctx.notify();
-        });
-        ctx.notify();
     }
 
     /// Currently, the coding permissions only support "read" access.
@@ -2714,13 +2332,6 @@ impl AISettingsPageView {
             ctx.notify()
         });
         ctx.notify();
-    }
-
-    fn refresh_mcp_allowlist_dropdown(
-        menu: &ViewHandle<FilterableDropdown<AISettingsPageAction>>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        Self::refresh_menu_dropdown(menu, AISettingsPageAction::AddToMCPAllowlist, ctx);
     }
 
     #[cfg(feature = "local_fs")]
@@ -2950,17 +2561,11 @@ pub enum AISettingsPageAction {
     ToggleRules,
     ToggleRuleSuggestions,
     ToggleGalaxyDriveContext,
-    SetApplyCodeDiffs(ActionPermission),
-    SetReadFiles(ActionPermission),
-    SetExecuteCommands(ActionPermission),
-    SetWriteToPty(WriteToPtyPermission),
-    SetMCPPermissions(ActionPermission),
+    SetPermissionMode(PermissionMode),
     RemoveFromProfileDirectoryAllowlist(PathBuf),
     RemoveFromProfileCommandDenylist(AgentModeCommandExecutionPredicate),
     RemoveFromProfileCommandAllowlist(AgentModeCommandExecutionPredicate),
     ToggleShowBaseModelPickerInPrompt,
-    AddToMCPAllowlist(uuid::Uuid),
-    RemoveFromMCPAllowlist(uuid::Uuid),
     AddToMCPDenylist(uuid::Uuid),
     RemoveFromMCPDenylist(uuid::Uuid),
     CreateProfile,
@@ -3505,38 +3110,10 @@ impl TypedActionView for AISettingsPageView {
                     }
                 });
             }
-            AISettingsPageAction::SetApplyCodeDiffs(permission) => {
+            AISettingsPageAction::SetPermissionMode(mode) => {
                 AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    model.set_apply_code_diffs(*profile.id(), permission, ctx);
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::SetReadFiles(permission) => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    model.set_read_files(*profile.id(), permission, ctx);
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::SetExecuteCommands(permission) => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    model.set_execute_commands(*profile.id(), permission, ctx);
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::SetWriteToPty(permission) => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    model.set_write_to_pty(*profile.id(), permission, ctx);
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::SetMCPPermissions(permission) => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    model.set_mcp_permissions(*profile.id(), permission, ctx);
+                    let id = model.default_profile_id();
+                    model.set_permission_mode(id, *mode, ctx);
                 });
                 ctx.notify();
             }
@@ -3609,22 +3186,6 @@ impl TypedActionView for AISettingsPageView {
                             "Failed to set value for Show Base Model Picker in Prompt: {e:?}"
                         );
                     }
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::AddToMCPAllowlist(id) => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    let profile_id = profile.id();
-                    model.add_to_mcp_allowlist(*profile_id, id, ctx);
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::RemoveFromMCPAllowlist(id) => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |model, ctx| {
-                    let profile = model.default_profile(ctx);
-                    let profile_id = profile.id();
-                    model.remove_from_mcp_allowlist(*profile_id, id, ctx);
                 });
                 ctx.notify();
             }
@@ -4676,128 +4237,39 @@ impl AgentsWidget {
         .with_margin_bottom(4.0)
         .finish();
 
-        let code_diff_setting =
-            BlocklistAIPermissions::as_ref(app).get_apply_code_diffs_setting(app, None);
-        let code_diffs = self.render_execution_profile_dropdown(
-            "Apply code diffs",
-            Icon::Code2,
-            code_diff_setting.description(),
-            &view.apply_code_diffs_dropdown_menu,
-            ai_settings,
-            appearance,
-            app,
-        );
-
-        let read_files_setting =
-            BlocklistAIPermissions::as_ref(app).get_read_files_setting(app, None);
-        let mut read_files_flex = Flex::column().with_main_axis_size(MainAxisSize::Min);
-        read_files_flex.add_child(self.render_execution_profile_dropdown(
-            "Read files",
-            Icon::Notebook,
-            read_files_setting.description(),
-            &view.read_files_dropdown_menu,
-            ai_settings,
-            appearance,
-            app,
-        ));
-
-        if read_files_setting == ActionPermission::AlwaysAsk {
-            let directory_allowlist =
-                BlocklistAIPermissions::as_ref(app).get_read_files_allowlist(app, None);
-            read_files_flex.add_child(
-                Container::new(Self::render_directory_allowlist(
-                    directory_allowlist,
-                    view,
-                    ai_settings,
-                    appearance,
-                    app,
-                ))
-                .with_margin_bottom(HEADER_PADDING)
-                .finish(),
-            );
-        }
-        let read_files = read_files_flex.finish();
-
-        let execute_commands_setting =
-            BlocklistAIPermissions::as_ref(app).get_execute_commands_setting(app, None);
-        let mut execute_commands_flex = Flex::column().with_main_axis_size(MainAxisSize::Min);
-        execute_commands_flex.add_child(self.render_execution_profile_dropdown(
-            "Execute commands",
-            Icon::Terminal,
-            execute_commands_setting.description(),
-            &view.execute_commands_dropdown_menu,
-            ai_settings,
-            appearance,
-            app,
-        ));
-
-        if execute_commands_setting == ActionPermission::AlwaysAsk {
-            let command_allowlist =
-                BlocklistAIPermissions::as_ref(app).get_execute_commands_allowlist(app, None);
-            execute_commands_flex.add_child(
-                Container::new(Self::render_command_allowlist(
-                    command_allowlist,
-                    view,
-                    ai_settings,
-                    appearance,
-                    app,
-                ))
-                .with_margin_bottom(8.)
-                .finish(),
-            );
-        }
-
-        if execute_commands_setting != ActionPermission::AlwaysAsk {
-            let command_denylist = Container::new(Self::render_command_denylist(
+        let mode = BlocklistAIPermissions::as_ref(app).get_permission_mode(app, None);
+        let mut widget_children = vec![
+            permissions_subheader,
+            self.render_execution_profile_dropdown(
+                "Permission mode",
+                Icon::Terminal,
+                mode.description(),
+                &view.permission_mode_dropdown_menu,
+                ai_settings,
+                appearance,
+                app,
+            ),
+            Self::render_command_denylist(
                 BlocklistAIPermissions::as_ref(app).get_execute_commands_denylist(app, None),
                 view,
                 ai_settings,
                 appearance,
                 app,
-            ))
-            .with_margin_bottom(8.)
-            .finish();
-            execute_commands_flex.add_child(command_denylist);
+            ),
+        ];
+        if MCPServersWidget::should_show_mcp() {
+            widget_children.push(self.render_mcp_permissions(view, ai_settings, appearance, app));
         }
-        let execute_commands = execute_commands_flex.finish();
-
-        let mut widget_children = vec![permissions_subheader];
-
         if UserWorkspaces::as_ref(app)
             .ai_autonomy_settings()
             .has_any_overrides()
         {
-            widget_children.push(
-                Container::new(render_settings_info_banner(
-                    "Some of your permissions are managed by your workspace.",
-                    None,
-                    appearance,
-                ))
-                .with_margin_bottom(12.0)
-                .finish(),
-            );
+            widget_children.push(render_settings_info_banner(
+                "Workspace restrictions still apply to this permission mode.",
+                None,
+                appearance,
+            ));
         }
-
-        widget_children.extend([code_diffs, read_files, execute_commands]);
-
-        let write_to_pty_setting =
-            BlocklistAIPermissions::as_ref(app).get_write_to_pty_setting(app, None);
-        let write_to_pty = self.render_execution_profile_dropdown(
-            "Interact with running commands",
-            Icon::Workflow,
-            write_to_pty_setting.description(),
-            &view.write_to_pty_autonomy_dropdown_menu,
-            ai_settings,
-            appearance,
-            app,
-        );
-        widget_children.push(write_to_pty);
-
-        if MCPServersWidget::should_show_mcp() {
-            let mcp_permissions = self.render_mcp_permissions(view, ai_settings, appearance, app);
-            widget_children.push(mcp_permissions);
-        }
-
         if !FeatureFlag::FullSourceCodeEmbedding.is_enabled() {
             let codebase_context = Self::render_codebase_context_outline_generation_setting(
                 self.codebase_context_toggle.clone(),
@@ -4920,80 +4392,7 @@ impl AgentsWidget {
         );
         render_ai_list(
             "Command denylist",
-            "Regular expressions to match commands that the Galaxy Agent should always ask permission to execute.",
-            list,
-            view,
-            ai_settings,
-            app,
-        )
-    }
-
-    fn render_command_allowlist(
-        command_allowlist: Vec<AgentModeCommandExecutionPredicate>,
-        view: &AISettingsPageView,
-        ai_settings: &AISettings,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let disabled = !ai_settings.is_command_allowlist_editable(app);
-        let list = render_input_list(
-            None,
-            command_allowlist
-                .into_iter()
-                .zip(view.command_allowlist_mouse_state_handles.clone())
-                .rev()
-                .map(move |(cmd, mouse_state_handle)| InputListItem {
-                    item: cmd.to_string(),
-                    mouse_state_handle,
-                    on_remove_action: AISettingsPageAction::RemoveFromProfileCommandAllowlist(cmd),
-                    is_disabled: disabled,
-                    tooltip_mouse_state: None,
-                }),
-            Some(&view.command_allowlist_editor),
-            appearance,
-        );
-
-        render_ai_list(
-            "Command allowlist",
-            "Regular expressions to match commands that can be automatically executed by the Galaxy Agent.",
-            list,
-            view,
-            ai_settings,
-            app,
-        )
-    }
-
-    fn render_directory_allowlist(
-        directory_allowlist: Vec<PathBuf>,
-        view: &AISettingsPageView,
-        ai_settings: &AISettings,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let disabled = !ai_settings.is_directory_allowlist_editable(app);
-        let list = render_input_list(
-            None,
-            directory_allowlist
-                .clone()
-                .into_iter()
-                .zip(view.directory_allowlist_mouse_state_handles.clone())
-                .rev()
-                .map(move |(path, mouse_state_handle)| InputListItem {
-                    item: path.display().to_string(),
-                    mouse_state_handle,
-                    on_remove_action: AISettingsPageAction::RemoveFromProfileDirectoryAllowlist(
-                        path,
-                    ),
-                    is_disabled: disabled,
-                    tooltip_mouse_state: None,
-                }),
-            Some(&view.directory_allowlist_editor),
-            appearance,
-        );
-
-        render_ai_list(
-            "Directory allowlist",
-            "Give the agent file access to certain directories.",
+            "Regular expressions for restricted commands. Ask First requires confirmation; Galaxy Decides denies matching commands.",
             list,
             view,
             ai_settings,
@@ -5223,51 +4622,17 @@ impl AgentsWidget {
     ) -> Box<dyn Element> {
         let mut column = Flex::column();
 
-        let current_mcp_setting =
-            BlocklistAIPermissions::as_ref(app).get_mcp_permissions_setting(app, None);
-
-        let permission_setting = self.render_execution_profile_dropdown(
-            "Call MCP servers",
-            Icon::Dataflow,
-            current_mcp_setting.description(),
-            &view.mcp_permissions_dropdown_menu,
+        column.add_child(self.render_mcp_list(
+            "MCP denylist",
+            "MCP servers restricted by this profile.",
+            &view.mcp_denylist_dropdown,
+            BlocklistAIPermissions::as_ref(app).get_mcp_denylist(app, None),
+            view.mcp_denylist_mouse_state_handles.clone(),
+            AISettingsPageAction::RemoveFromMCPDenylist,
             ai_settings,
             appearance,
             app,
-        );
-        column.add_child(permission_setting);
-
-        if current_mcp_setting == ActionPermission::AlwaysAsk {
-            let allowlist = self.render_mcp_list(
-                "MCP allowlist",
-                "Allow the Galaxy Agent to call these MCP servers.",
-                &view.mcp_allowlist_dropdown,
-                BlocklistAIPermissions::as_ref(app).get_mcp_allowlist(app, None),
-                view.mcp_allowlist_mouse_state_handles.clone(),
-                AISettingsPageAction::RemoveFromMCPAllowlist,
-                ai_settings,
-                appearance,
-                app,
-            );
-            column.add_child(allowlist);
-        }
-
-        if current_mcp_setting == ActionPermission::AlwaysAllow
-            || current_mcp_setting == ActionPermission::GalaxyDecides
-        {
-            let denylist = self.render_mcp_list(
-                "MCP denylist",
-                "The Galaxy Agent will always ask for permission before calling any MCP servers on this list.",
-                &view.mcp_denylist_dropdown,
-                BlocklistAIPermissions::as_ref(app).get_mcp_denylist(app, None),
-                view.mcp_denylist_mouse_state_handles.clone(),
-                AISettingsPageAction::RemoveFromMCPDenylist,
-                ai_settings,
-                appearance,
-                app,
-            );
-            column.add_child(denylist);
-        }
+        ));
 
         column.finish()
     }

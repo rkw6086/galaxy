@@ -439,3 +439,52 @@ fn shell_diagnostics_report_snapshot_reason_without_output_contents() {
     assert_eq!(metadata["snapshot_bytes"], "private terminal output".len());
     assert!(!metadata.to_string().contains("private terminal output"));
 }
+
+#[test]
+fn command_authorization_covers_its_own_interactions_and_completed_output_only() {
+    App::test((), |mut app| async move {
+        let sessions = app.add_model(|_| Sessions::new_for_test());
+        let (_, events) = unbounded();
+        let dispatcher =
+            app.add_model(|ctx| ModelEventDispatcher::new(events, sessions.clone(), ctx));
+        let active_session =
+            app.add_model(|ctx| ActiveSession::new(sessions, dispatcher.clone(), ctx));
+        let terminal = Arc::new(FairMutex::new(TerminalModel::mock(None, None)));
+        terminal
+            .lock()
+            .simulate_long_running_block("sleep 120", "running");
+        let block_id = terminal.lock().active_block_id().clone();
+        let conversation_id = AIConversationId::new();
+        let executor = app.add_model(|ctx| {
+            ShellCommandExecutor::new(
+                active_session,
+                terminal.clone(),
+                &dispatcher,
+                EntityId::new(),
+                ctx,
+            )
+        });
+        executor.read(&app, |executor, _| {
+            assert!(!executor.can_continue_authorized_command(conversation_id, &block_id));
+        });
+        terminal
+            .lock()
+            .block_list_mut()
+            .active_block_mut()
+            .set_agent_interaction_mode_for_requested_command(
+                AIAgentActionId::from("approved-launch".to_owned()),
+                None,
+                conversation_id,
+            );
+        executor.read(&app, |executor, _| {
+            assert!(executor.can_continue_authorized_command(conversation_id, &block_id));
+            assert!(!executor.can_continue_authorized_command(AIConversationId::new(), &block_id));
+            assert!(!executor.can_continue_authorized_command(conversation_id, &BlockId::new()));
+        });
+        terminal.lock().finish_block();
+        executor.read(&app, |executor, _| {
+            assert!(executor.can_continue_authorized_command(conversation_id, &block_id));
+            assert!(!executor.can_continue_authorized_command(AIConversationId::new(), &block_id));
+        });
+    });
+}

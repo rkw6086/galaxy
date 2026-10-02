@@ -26,7 +26,7 @@ use super::cli_controller::{CLISubagentController, CLISubagentEvent, UserTakeOve
 use super::model::{AIBlockModel, AIBlockModelImpl, AIBlockOutputStatus};
 use super::view_impl::common::{
     render_switch_control_to_user_button, render_warping_indicator, render_warping_indicator_base,
-    AutoExecuteButtonProps, ButtonProps, ForceRefreshButtonProps, MaybeShimmeringText,
+    ButtonProps, ForceRefreshButtonProps, MaybeShimmeringText, PermissionModeButtonProps,
     WarpingIndicatorProps, WarpingProps, WAITING_FOR_USER_INPUT_MESSAGE,
 };
 use crate::ai::agent::conversation::AIConversationId;
@@ -90,6 +90,7 @@ struct StateHandles {
 }
 
 pub struct BlocklistAIStatusBar {
+    terminal_view_id: EntityId,
     active_exchange_model: Option<Box<dyn AIBlockModel<View = BlocklistAIStatusBar>>>,
     action_model: ModelHandle<BlocklistAIActionModel>,
     controller: ModelHandle<BlocklistAIController>,
@@ -332,7 +333,10 @@ impl BlocklistAIStatusBar {
         );
 
         ctx.subscribe_to_model(&action_model, |me, _, event, ctx| match event {
-            BlocklistAIActionEvent::ExecutingAction {
+            BlocklistAIActionEvent::PermissionReviewChanged {
+                conversation_id, ..
+            }
+            | BlocklistAIActionEvent::ExecutingAction {
                 conversation_id, ..
             }
             | BlocklistAIActionEvent::FinishedAction {
@@ -344,7 +348,8 @@ impl BlocklistAIStatusBar {
             {
                 ctx.notify();
             }
-            BlocklistAIActionEvent::QueuedAction { .. }
+            BlocklistAIActionEvent::PermissionReviewChanged { .. }
+            | BlocklistAIActionEvent::QueuedAction { .. }
             | BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. }
             | BlocklistAIActionEvent::ExecutingAction { .. }
             | BlocklistAIActionEvent::FinishedAction { .. }
@@ -410,7 +415,12 @@ impl BlocklistAIStatusBar {
             });
         }
 
+        ctx.subscribe_to_model(
+            &crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::handle(ctx),
+            |_, _, _, ctx| ctx.notify(),
+        );
         Self {
+            terminal_view_id,
             active_exchange_model: None,
             shimmering_text_handle: ShimmeringTextStateHandle::new(),
             action_model,
@@ -1018,13 +1028,11 @@ impl BlocklistAIStatusBar {
                 shimmering_text_handle: &self.shimmering_text_handle,
                 summarization_start_time: self.summarization_start_time,
                 auto_execute_button: (!model.request_type(app).is_passive_code_diff()).then_some(
-                    AutoExecuteButtonProps {
+                    PermissionModeButtonProps {
                         button_handle: &self.state_handles.autoexecute_button,
                         keystroke: self.autoexecute_keystroke.as_ref(),
-                        is_active: model
-                            .conversation(app)
-                            .map(|c| c.autoexecute_any_action())
-                            .unwrap_or(false),
+                        mode: crate::ai::blocklist::BlocklistAIPermissions::as_ref(app)
+                            .get_permission_mode(app, Some(self.terminal_view_id)),
                         is_locked: is_in_cloud_context(
                             terminal_model.block_list().agent_view_state(),
                             &terminal_model,
@@ -1341,8 +1349,29 @@ impl View for BlocklistAIStatusBar {
         {
             return cloud_mode_setup_terminal_message;
         }
+        let checking_permissions = self
+            .active_exchange_model
+            .as_ref()
+            .and_then(|model| model.conversation_id(app))
+            .is_some_and(|id| self.action_model.as_ref(app).has_permission_review(id));
         let status_element =
-            if let Some(cloud_mode_setup_status) = self.render_cloud_mode_setup_status(app) {
+            if checking_permissions {
+                render_warping_indicator_base(
+                    WarpingIndicatorProps {
+                        icon: None,
+                        warping_indicator_text: MaybeShimmeringText::Shimmering {
+                            text: "Checking permissions…".into(),
+                            shimmering_text_handle: self.shimmering_text_handle.clone(),
+                        },
+                        non_shimmering_text: None,
+                        non_shimmering_suffix: None,
+                        buttons: None,
+                        is_passive_code_diff: false,
+                        secondary_element: None,
+                    },
+                    app,
+                )
+            } else if let Some(cloud_mode_setup_status) = self.render_cloud_mode_setup_status(app) {
                 cloud_mode_setup_status
             } else if FeatureFlag::CloudModeSetupV2.is_enabled()
                 && self

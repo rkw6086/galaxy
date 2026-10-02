@@ -648,6 +648,51 @@ impl AIExecutionProfilesModel {
         );
     }
 
+    pub fn set_permission_mode(
+        &mut self,
+        profile_id: ClientProfileId,
+        mode: super::PermissionMode,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.edit_profile_internal(
+            profile_id,
+            |profile| {
+                if profile.permission_mode == mode {
+                    return false;
+                }
+                profile.permission_mode = mode;
+                profile.approved_command_hashes.clear();
+                profile.project_permission_mode();
+                true
+            },
+            ctx,
+        );
+    }
+
+    pub fn remember_approved_command(
+        &mut self,
+        profile_id: ClientProfileId,
+        fingerprint: String,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.edit_profile_internal(
+            profile_id,
+            |profile| {
+                if profile.permission_mode != super::PermissionMode::AskFirst
+                    || profile.approved_command_hashes.contains(&fingerprint)
+                {
+                    return false;
+                }
+                if profile.approved_command_hashes.len() >= 256 {
+                    profile.approved_command_hashes.remove(0);
+                }
+                profile.approved_command_hashes.push(fingerprint);
+                true
+            },
+            ctx,
+        );
+    }
+
     pub fn set_execute_commands(
         &mut self,
         profile_id: ClientProfileId,
@@ -885,6 +930,62 @@ impl AIExecutionProfilesModel {
             },
             ctx
         );
+    }
+
+    /// Select exactly one persisted default, retaining the former default as a
+    /// normal profile. Explicit per-terminal selections remain unchanged.
+    pub fn set_default_profile(
+        &mut self,
+        profile_id: ClientProfileId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if profile_id == self.default_profile_state.id()
+            || matches!(self.default_profile_state, DefaultProfileState::Cli { .. })
+        {
+            return;
+        }
+        let Some(target) = self.get_profile_by_id(profile_id, ctx) else {
+            return;
+        };
+        let Some(sync_id) = target.sync_id() else {
+            return;
+        };
+        if LocalObjectRepository::as_ref(ctx)
+            .execution_profile(&sync_id, ctx)
+            .is_none()
+        {
+            return;
+        }
+        let previous_id = self.default_profile_state.id();
+        // Materialize an unsaved default before replacing its in-memory slot.
+        self.edit_profile_internal(
+            previous_id,
+            |profile| {
+                if profile.name.trim().is_empty() {
+                    profile.name = "Default".to_owned();
+                }
+                profile.is_default_profile = false;
+                true
+            },
+            ctx,
+        );
+        for id in self.get_all_profile_ids() {
+            self.edit_profile_internal(
+                id,
+                |profile| {
+                    let is_default = id == profile_id;
+                    if profile.is_default_profile == is_default {
+                        return false;
+                    }
+                    profile.is_default_profile = is_default;
+                    true
+                },
+                ctx,
+            );
+        }
+        self.default_profile_state = DefaultProfileState::Synced { id: profile_id };
+        ctx.emit(AIExecutionProfilesModelEvent::ProfileUpdated(previous_id));
+        ctx.emit(AIExecutionProfilesModelEvent::ProfileUpdated(profile_id));
     }
 
     pub fn set_profile_name(

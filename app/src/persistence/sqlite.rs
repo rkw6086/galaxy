@@ -2296,6 +2296,10 @@ fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneN
                     })
                 }
                 AI_FACT_PANE_KIND => LeafContents::AIFact(AIFactPaneSnapshot::Personal),
+                // These transient editors have no pane-specific data. Recognize
+                // their saved marker so normal pane restoration can skip them
+                // without treating the entire database restore as incomplete.
+                EXECUTION_PROFILE_EDITOR_PANE_KIND => LeafContents::ExecutionProfileEditor,
                 MCP_SERVER_PANE_KIND => {
                     // Legacy MCP server panes are no longer supported.
                     bail!("Legacy MCP server panes are no longer supported")

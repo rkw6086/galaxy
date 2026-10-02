@@ -34,10 +34,27 @@ pub(crate) fn prepare_direct_provider_params(
         &mut supported_cli_agent_tools,
         params.orchestration_enabled,
     );
+    if params.permission_mode == crate::ai::execution_profiles::PermissionMode::ReadOnly {
+        supported_tools.retain(is_read_only_tool);
+        supported_cli_agent_tools.retain(is_read_only_tool);
+    }
     if params.should_redact_secrets {
         redaction::redact_inputs(&mut params.input);
     }
     (supported_tools, supported_cli_agent_tools)
+}
+
+fn is_read_only_tool(tool: &api::ToolType) -> bool {
+    matches!(
+        tool,
+        api::ToolType::ReadFiles
+            | api::ToolType::SearchCodebase
+            | api::ToolType::Grep
+            | api::ToolType::FileGlob
+            | api::ToolType::FileGlobV2
+            | api::ToolType::ReadSkill
+            | api::ToolType::ReadDocuments
+    )
 }
 
 fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {

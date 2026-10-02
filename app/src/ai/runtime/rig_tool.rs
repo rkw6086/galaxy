@@ -52,7 +52,7 @@ pub(crate) fn action_from_tool_call(
                 wait_until_completion: optional_boolean(input, "wait_until_complete")?
                     .unwrap_or(false),
                 uses_pager: Some(optional_boolean(input, "uses_pager")?.unwrap_or(false)),
-                rationale: None,
+                rationale: optional_string(input, "rationale")?,
                 citations: Vec::new(),
             },
             "read_files" => AIAgentActionType::ReadFiles(ReadFilesRequest {

@@ -1588,7 +1588,9 @@ pub fn extract_system_prompt(
         prompt.push_str(
             "- Use `run_shell_command` for builds, tests, package managers, git, and terminal work. \
              Set `is_read_only` accurately, set `uses_pager=false`, and set \
-             `wait_until_complete=false` for commands that may run longer than a few seconds so they \
+             `rationale` when permission review needs an explanation of scope or authorization. \
+             Keep `command` executable shell text only; never append justification as a # comment, echo, or no-op. \
+             Set `wait_until_complete=false` for commands that may run longer than a few seconds so they \
              can be monitored asynchronously.\n",
         );
     }
@@ -1736,7 +1738,8 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string", "description": "The shell command to execute" },
+                    "command": { "type": "string", "description": "The shell command to execute. Put explanations in rationale, never append permission justification as shell comments or extra commands." },
+                    "rationale": { "type": "string", "description": "Optional permission-review justification: explain scope, expected effects, and relevant user authorization. Passed to the reviewer separately; never executed in the shell." },
                     "is_read_only": { "type": "boolean", "description": "True if command only reads data and makes no changes" },
                     "is_risky": { "type": "boolean", "description": "True if command is destructive or irreversible (rm -rf, git push --force)" },
                     "uses_pager": { "type": "boolean", "default": false, "description": "True only when the command intentionally launches a pager. Prefer false." },

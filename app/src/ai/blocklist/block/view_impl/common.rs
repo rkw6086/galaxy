@@ -208,7 +208,7 @@ pub struct WarpingProps<'a, V> {
     pub summarization_start_time: Option<instant::Instant>,
     pub hide_responses_button: Option<(ButtonProps<'a>, bool)>,
     pub take_over_lrc_control_button: Option<ButtonProps<'a>>,
-    pub auto_execute_button: Option<AutoExecuteButtonProps<'a>>,
+    pub auto_execute_button: Option<PermissionModeButtonProps<'a>>,
     pub queue_next_prompt_button: Option<ButtonProps<'a>>,
     pub stop_button: Option<ButtonProps<'a>>,
     /// Inline `Check now` affordance displayed alongside `Last seen by agent ...`
@@ -232,15 +232,11 @@ pub struct ButtonProps<'a> {
     pub is_active: bool,
 }
 
-/// Props for the auto-approve / fast-forward button in the warping indicator.
-///
-/// When `is_locked` is set, the button is rendered in its always-on state and
-/// the click handler (plus the action dispatched by the keybinding) are no-ops.
-/// Used for ambient agent conversations where fast-forward is always conceptually on.
-pub struct AutoExecuteButtonProps<'a> {
+/// Switches the profile between Ask First and Galaxy Decides. Read Only remains locked.
+pub struct PermissionModeButtonProps<'a> {
     pub button_handle: &'a MouseStateHandle,
     pub keystroke: Option<&'a Keystroke>,
-    pub is_active: bool,
+    pub mode: crate::ai::execution_profiles::PermissionMode,
     pub is_locked: bool,
 }
 
@@ -512,7 +508,7 @@ pub fn render_warping_indicator<V: View>(
 
     if let Some(autoexecute_button_props) = props.auto_execute_button {
         has_buttons = true;
-        buttons_row.add_child(render_auto_approve_button(
+        buttons_row.add_child(render_permission_mode_button(
             autoexecute_button_props,
             appearance,
         ));
@@ -985,13 +981,13 @@ fn render_queue_next_prompt_button(
     )
 }
 
-fn render_auto_approve_button(
-    props: AutoExecuteButtonProps,
+fn render_permission_mode_button(
+    props: PermissionModeButtonProps,
     appearance: &Appearance,
 ) -> Box<dyn Element> {
-    // In locked mode (ambient/cloud agent conversations), the button is always
-    // rendered in its "on" state regardless of the underlying conversation state.
-    let is_active = props.is_active || props.is_locked;
+    use crate::ai::execution_profiles::PermissionMode;
+    let is_active = props.mode == PermissionMode::GalaxyDecides;
+    let is_locked = props.is_locked || props.mode == PermissionMode::ReadOnly;
     let icon = if is_active {
         Icon::FastForwardFilled
     } else {
@@ -1009,12 +1005,12 @@ fn render_auto_approve_button(
     )
     .finish();
 
-    let tooltip_text = if props.is_locked {
-        "Fast forward is always enabled for cloud agent conversations"
+    let tooltip_text = if is_locked {
+        "Permission mode is managed by the profile"
     } else if is_active {
-        "Turn off auto-approve all agent actions"
+        "Galaxy Decides · switch to Ask First"
     } else {
-        "Auto-approve all agent actions for this task"
+        "Ask First · switch to Galaxy Decides"
     };
 
     render_warping_indicator_button(
@@ -1024,9 +1020,9 @@ fn render_auto_approve_button(
         props.keystroke,
         tooltip_text.to_string(),
         is_active,
-        props.is_locked,
+        is_locked,
         move |ctx| {
-            if props.is_locked {
+            if is_locked {
                 return;
             }
             ctx.dispatch_typed_action(TerminalAction::ToggleAutoexecuteMode);

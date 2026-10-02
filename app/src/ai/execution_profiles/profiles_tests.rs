@@ -5,15 +5,16 @@ use galaxyui::{App, SingletonEntity};
 
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::execution_profiles::{
-    AIExecutionProfile, ActionPermission, CloudAIExecutionProfileModel, WriteToPtyPermission,
+    AIExecutionProfile, ActionPermission, CloudAIExecutionProfileModel, PermissionMode,
+    WriteToPtyPermission,
 };
 use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::auth::user::TEST_USER_UID;
 use crate::auth::{AuthStateProvider, UserUid};
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::{
-    Owner, Revision, ServerAIExecutionProfile, ServerGuestSubject, ServerMetadata,
-    ServerObjectGuest, ServerPermissions,
+    CloudObject as _, Owner, Revision, ServerAIExecutionProfile, ServerGuestSubject,
+    ServerMetadata, ServerObjectGuest, ServerPermissions,
 };
 use crate::network::NetworkStatus;
 use crate::server::cloud_objects::update_manager::UpdateManager;
@@ -107,27 +108,26 @@ fn edits_persist_default_profile_locally_when_logged_out() {
 
         let default_profile_id = profile_model.read(&app, |model, _ctx| model.default_profile_id());
 
-        // Sanity-check the precondition: the baseline `apply_code_diffs`
-        // on a fresh default profile is `GalaxyDecides`.
+        // Fresh profiles start in Ask First mode.
         profile_model.read(&app, |model, ctx| {
             assert!(
                 matches!(
-                    model.default_profile(ctx).data().apply_code_diffs,
-                    ActionPermission::GalaxyDecides
+                    model.default_profile(ctx).data().permission_mode,
+                    PermissionMode::AskFirst
                 ),
-                "unexpected baseline apply_code_diffs"
+                "unexpected baseline permission mode"
             );
         });
 
         profile_model.update(&mut app, |model, ctx| {
-            model.set_apply_code_diffs(default_profile_id, &ActionPermission::AlwaysAllow, ctx);
+            model.set_permission_mode(default_profile_id, PermissionMode::GalaxyDecides, ctx);
         });
 
         profile_model.read(&app, |model, ctx| {
             let default_profile = model.default_profile(ctx);
             assert_eq!(
-                default_profile.data().apply_code_diffs,
-                ActionPermission::AlwaysAllow,
+                default_profile.data().permission_mode,
+                PermissionMode::GalaxyDecides,
                 "the local default profile should retain the edit",
             );
             let persisted_id = default_profile
@@ -411,4 +411,66 @@ fn legacy_agent_decides_profiles_use_galaxy_decides() {
         serde_json::to_string(&permission).unwrap(),
         "\"GalaxyDecides\""
     );
+}
+
+#[test]
+fn default_can_be_renamed_and_transferred_without_losing_the_previous_profile() {
+    App::test((), |mut app| async move {
+        install_singletons(&mut app, AuthStateProvider::new_logged_out_for_test());
+        let profiles = app.add_singleton_model(|ctx| {
+            AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
+        });
+        profiles.update(&mut app, |profiles, ctx| {
+            let original = profiles.default_profile_id();
+            let replacement = profiles.create_profile(ctx).unwrap();
+            profiles.set_profile_name(original, "Personal", ctx);
+            profiles.set_profile_name(replacement, "Work", ctx);
+            profiles.set_default_profile(replacement, ctx);
+            assert_eq!(profiles.default_profile_id(), replacement);
+            assert_eq!(profiles.default_profile(ctx).data().name, "Work");
+            assert_eq!(
+                profiles
+                    .get_profile_by_id(original, ctx)
+                    .unwrap()
+                    .data()
+                    .name,
+                "Personal"
+            );
+            assert!(
+                !profiles
+                    .get_profile_by_id(original, ctx)
+                    .unwrap()
+                    .data()
+                    .is_default_profile
+            );
+            // Selecting the checked default must never leave zero defaults.
+            profiles.set_default_profile(replacement, ctx);
+            assert_eq!(
+                profiles
+                    .get_all_profile_ids()
+                    .iter()
+                    .filter(|id| {
+                        profiles
+                            .get_profile_by_id(**id, ctx)
+                            .unwrap()
+                            .data()
+                            .is_default_profile
+                    })
+                    .count(),
+                1
+            );
+            profiles.set_default_profile(original, ctx);
+            assert_eq!(profiles.default_profile_id(), original);
+            let stored = crate::local_object_repository::LocalObjectRepository::as_ref(ctx)
+                .execution_profiles(ctx);
+            assert_eq!(
+                stored
+                    .iter()
+                    .filter(|p| p.model().string_model.is_default_profile)
+                    .count(),
+                1
+            );
+            assert_eq!(stored.len(), 2);
+        });
+    });
 }

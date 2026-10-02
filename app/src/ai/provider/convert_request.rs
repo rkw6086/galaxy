@@ -713,7 +713,8 @@ fn tool_definition_for_name(name: &str) -> ToolDefinition {
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string", "description": "The shell command to execute" }
+                    "command": { "type": "string", "description": "The shell command to execute. Keep permission explanations out of shell comments and extra commands." },
+                    "rationale": { "type": "string", "description": "Optional permission-review explanation of scope, effects, and user authorization. Never executed in the shell." }
                 },
                 "required": ["command"]
             }),

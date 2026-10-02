@@ -54,6 +54,16 @@ impl AskUserQuestionExecutor {
             }
         };
 
+        if self.should_autoexecute(input, ctx) {
+            let question_ids = questions
+                .iter()
+                .map(|question| question.question_id.clone())
+                .collect();
+            return ActionExecution::Sync(AIAgentActionResultType::AskUserQuestion(
+                AskUserQuestionResult::SkippedByAutoApprove { question_ids },
+            ));
+        }
+
         // For child agent conversations, route the question to the parent
         // for silent auto-answer instead of presenting UI to the user.
         if let Some(parent_conversation_id) =
@@ -97,16 +107,6 @@ impl AskUserQuestionExecutor {
                     }
                 },
             );
-        }
-
-        if self.should_autoexecute(input, ctx) {
-            let question_ids = questions
-                .iter()
-                .map(|question| question.question_id.clone())
-                .collect();
-            return ActionExecution::Sync(AIAgentActionResultType::AskUserQuestion(
-                AskUserQuestionResult::SkippedByAutoApprove { question_ids },
-            ));
         }
 
         let receiver = self.result_rx.1.clone();

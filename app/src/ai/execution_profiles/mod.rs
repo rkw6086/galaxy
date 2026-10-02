@@ -1,7 +1,7 @@
 pub use cloud_object_models::{
     AIExecutionProfile, ActionPermission, AskUserQuestionPermission, CloudAIExecutionProfile,
-    CloudAIExecutionProfileModel, ComputerUsePermission, RunAgentsPermission, WriteToPtyPermission,
-    PROFILE_NAME_MAX_LENGTH,
+    CloudAIExecutionProfileModel, ComputerUsePermission, PermissionMode, RunAgentsPermission,
+    WriteToPtyPermission, PROFILE_NAME_MAX_LENGTH,
 };
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{AppContext, SingletonEntity};
@@ -262,11 +262,13 @@ impl StringModel for AIExecutionProfile {
     }
 
     fn display_name(&self) -> String {
-        // Handles case where default profile was previously created and named "Untitled"
-        if self.is_default_profile {
-            "Default".to_string()
-        } else if self.name.trim().is_empty() {
-            "Untitled".to_string()
+        if self.name.trim().is_empty() {
+            if self.is_default_profile {
+                "Default"
+            } else {
+                "Untitled"
+            }
+            .to_string()
         } else {
             self.name.clone()
         }

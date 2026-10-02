@@ -47,6 +47,28 @@ fn shell_calls_become_domain_actions_without_a_proto_round_trip() {
 }
 
 #[test]
+fn shell_permission_rationale_is_separate_from_executable_command() {
+    let action = action_from_tool_call(
+        "task-1",
+        &call(
+            "run_shell_command",
+            serde_json::json!({
+                "command": "git push origin master",
+                "rationale": "The user requested a normal push to origin/master."
+            }),
+        ),
+        &SkillPathOrigin::Local,
+        &HashMap::new(),
+    )
+    .unwrap();
+    assert!(matches!(action.action,
+        AIAgentActionType::RequestCommandOutput { command, rationale: Some(rationale), .. }
+        if command == "git push origin master"
+            && rationale == "The user requested a normal push to origin/master."
+    ));
+}
+
+#[test]
 fn transfer_control_calls_become_domain_actions() {
     let action = action_from_tool_call(
         "task-1",

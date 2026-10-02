@@ -15,7 +15,6 @@ use super::{ExecutionProfileEditorView, ExecutionProfileEditorViewAction};
 use crate::ai::blocklist::BlocklistAIPermissions;
 use crate::ai::execution_profiles::{
     long_context_pricing_warning_title, AIExecutionProfile, AIExecutionProfileAppExt as _,
-    ActionPermission,
 };
 use crate::editor::EditorView;
 use crate::settings::AISettings;
@@ -72,9 +71,8 @@ pub const WORKSPACE_OVERRIDE_TOOLTIP_MESSAGE: &str =
 pub fn render_header_section(
     appearance: &Appearance,
     profile_name_editor: &ViewHandle<EditorView>,
-    is_default_profile: bool,
 ) -> Box<dyn Element> {
-    let mut column = Flex::column()
+    let column = Flex::column()
         .with_child(render_header_title(appearance))
         .with_child(render_header_name_label(appearance))
         .with_child(
@@ -89,14 +87,6 @@ pub fn render_header_section(
             .with_margin_bottom(8.)
             .finish(),
         );
-
-    if is_default_profile {
-        column.add_child(render_info_section(
-            "Default profile name cannot be changed.",
-            None,
-            appearance,
-        ));
-    }
 
     Container::new(column.finish())
         .with_margin_bottom(24.)
@@ -446,166 +436,23 @@ pub fn render_permissions_section(
     profile_data: &AIExecutionProfile,
     app: &galaxyui::AppContext,
 ) -> Box<dyn Element> {
-    let ai_settings = AISettings::as_ref(app);
     let mut column = Flex::column().with_children([
         render_separator(appearance),
         render_section_label("PERMISSIONS", appearance),
         render_permission_row(
             appearance,
-            Icon::Code2,
-            "Apply code diffs",
-            &view.apply_code_diffs_dropdown,
-            profile_data.apply_code_diffs.description(),
-            !ai_settings.is_code_diffs_permissions_editable(app),
+            Icon::Terminal,
+            "Permission mode",
+            &view.permission_mode_dropdown,
+            profile_data.permission_mode.description(),
+            false,
             view.tooltip_mouse_state_handles
-                .apply_code_diffs_tooltip_mouse_state
+                .permission_mode_tooltip_mouse_state
                 .clone(),
         ),
-        render_permission_row(
-            appearance,
-            Icon::Notebook,
-            "Read files",
-            &view.read_files_dropdown,
-            profile_data.read_files.description(),
-            !ai_settings.is_read_files_permissions_editable(app),
-            view.tooltip_mouse_state_handles
-                .read_files_tooltip_mouse_state
-                .clone(),
-        ),
+        render_command_denylist_section(view, profile_data, appearance, app),
+        render_mcp_denylist_section(view, profile_data, app, appearance),
     ]);
-
-    if profile_data.read_files == ActionPermission::AlwaysAsk {
-        column.add_child(render_directory_allowlist_section(
-            view,
-            profile_data,
-            appearance,
-            app,
-        ));
-    }
-
-    column.add_child(render_permission_row(
-        appearance,
-        Icon::Terminal,
-        "Execute commands",
-        &view.execute_commands_dropdown,
-        profile_data.execute_commands.description(),
-        !ai_settings.is_execute_commands_permissions_editable(app),
-        view.tooltip_mouse_state_handles
-            .execute_commands_tooltip_mouse_state
-            .clone(),
-    ));
-
-    match profile_data.execute_commands {
-        ActionPermission::AlwaysAllow | ActionPermission::GalaxyDecides => {
-            column.add_child(render_command_denylist_section(
-                view,
-                profile_data,
-                appearance,
-                app,
-            ));
-        }
-        ActionPermission::AlwaysAsk => {
-            column.add_child(render_command_allowlist_section(
-                view,
-                profile_data,
-                appearance,
-                app,
-            ));
-        }
-        ActionPermission::Unknown => {
-            column.add_children([
-                render_command_allowlist_section(view, profile_data, appearance, app),
-                render_command_denylist_section(view, profile_data, appearance, app),
-            ]);
-        }
-    }
-
-    column.add_child(render_permission_row(
-        appearance,
-        Icon::Workflow,
-        "Interact with running commands",
-        &view.write_to_pty_dropdown,
-        profile_data.write_to_pty.description(),
-        !ai_settings.is_write_to_pty_permissions_editable(app),
-        view.tooltip_mouse_state_handles
-            .write_to_pty_tooltip_mouse_state
-            .clone(),
-    ));
-
-    if FeatureFlag::LocalComputerUse.is_enabled() {
-        column.add_child(render_permission_row(
-            appearance,
-            Icon::Laptop,
-            "Computer use",
-            &view.computer_use_dropdown,
-            profile_data.computer_use.description(),
-            !ai_settings.is_computer_use_permissions_editable(app),
-            view.tooltip_mouse_state_handles
-                .computer_use_tooltip_mouse_state
-                .clone(),
-        ));
-    }
-
-    column.add_child(render_permission_row(
-        appearance,
-        Icon::MessageText,
-        "Ask questions",
-        &view.ask_user_question_dropdown,
-        profile_data.ask_user_question.description(),
-        !ai_settings.is_ask_user_question_permissions_editable(app),
-        view.tooltip_mouse_state_handles
-            .ask_user_question_tooltip_mouse_state
-            .clone(),
-    ));
-    column.add_child(render_permission_row(
-        appearance,
-        Icon::Atom,
-        "Run orchestrated agents",
-        &view.run_agents_dropdown,
-        profile_data.run_agents.description(),
-        !ai_settings.is_run_agents_permissions_editable(app),
-        view.tooltip_mouse_state_handles
-            .run_agents_tooltip_mouse_state
-            .clone(),
-    ));
-
-    column.add_child(render_permission_row(
-        appearance,
-        Icon::Dataflow,
-        "Call MCP servers",
-        &view.call_mcp_servers_dropdown,
-        profile_data.mcp_permissions.description(),
-        !ai_settings.is_mcp_permission_editable(app), // Use MCP override for this permission
-        view.tooltip_mouse_state_handles
-            .call_mcp_servers_tooltip_mouse_state
-            .clone(),
-    ));
-
-    match profile_data.mcp_permissions {
-        ActionPermission::AlwaysAllow | ActionPermission::GalaxyDecides => {
-            column.add_child(render_mcp_denylist_section(
-                view,
-                profile_data,
-                app,
-                appearance,
-            ));
-        }
-        ActionPermission::AlwaysAsk => {
-            column.add_child(render_mcp_allowlist_section(
-                view,
-                profile_data,
-                app,
-                appearance,
-            ));
-        }
-        ActionPermission::Unknown => {
-            column.add_children([
-                render_mcp_allowlist_section(view, profile_data, app, appearance),
-                render_mcp_denylist_section(view, profile_data, app, appearance),
-            ]);
-        }
-    }
-
     if FeatureFlag::WebSearchUI.is_enabled() {
         column.add_child(
             Container::new(render_web_search_toggle(appearance, view, profile_data))
@@ -709,57 +556,6 @@ where
         .finish()
 }
 
-fn render_directory_allowlist_section(
-    view: &ExecutionProfileEditorView,
-    profile_data: &AIExecutionProfile,
-    appearance: &Appearance,
-    app: &galaxyui::AppContext,
-) -> Box<dyn Element> {
-    let ai_settings = AISettings::as_ref(app);
-    let is_editable = ai_settings.is_directory_allowlist_editable(app);
-
-    render_list_section(
-        "Directory allowlist",
-        "Give the agent file access to certain directories.",
-        &profile_data.directory_allowlist,
-        &view.directory_allowlist_mouse_state_handles,
-        Some(&view.directory_allowlist_editor),
-        None,
-        |path| ExecutionProfileEditorViewAction::RemoveFromDirectoryAllowlist { path },
-        |path| path.display().to_string(),
-        appearance,
-        is_editable,
-        view.tooltip_mouse_state_handles
-            .directory_allowlist_editor_tooltip_mouse_state
-            .clone(),
-    )
-}
-fn render_command_allowlist_section(
-    view: &ExecutionProfileEditorView,
-    profile_data: &AIExecutionProfile,
-    appearance: &Appearance,
-    app: &galaxyui::AppContext,
-) -> Box<dyn Element> {
-    let ai_settings = AISettings::as_ref(app);
-    let is_editable = ai_settings.is_command_allowlist_editable(app);
-
-    render_list_section(
-        "Command allowlist",
-        "Regular expressions to match commands that can be automatically executed by Oz.",
-        &profile_data.command_allowlist,
-        &view.command_allowlist_mouse_state_handles,
-        Some(&view.command_allowlist_editor),
-        None,
-        |predicate| ExecutionProfileEditorViewAction::RemoveFromCommandAllowlist { predicate },
-        |item| item.to_string(),
-        appearance,
-        is_editable,
-        view.tooltip_mouse_state_handles
-            .command_allowlist_editor_tooltip_mouse_state
-            .clone(),
-    )
-}
-
 fn render_command_denylist_section(
     view: &ExecutionProfileEditorView,
     profile_data: &AIExecutionProfile,
@@ -809,7 +605,7 @@ fn render_command_denylist_section(
 
     let mut column = Flex::column().with_child(create_section_header(
         "Command denylist",
-        "Regular expressions to match commands that Oz should always ask permission to execute.",
+        "Regular expressions for restricted commands. Ask First requires confirmation; Galaxy Decides denies matching commands.",
         appearance,
     ));
     column = column.with_child(list);
@@ -826,32 +622,6 @@ fn display_mcp_name(uuid: &Uuid, app: &AppContext) -> String {
     })
 }
 
-fn render_mcp_allowlist_section(
-    view: &ExecutionProfileEditorView,
-    profile_data: &AIExecutionProfile,
-    app: &galaxyui::AppContext,
-    appearance: &Appearance,
-) -> Box<dyn Element> {
-    let ai_settings = AISettings::as_ref(app);
-    let is_editable = ai_settings.is_mcp_permission_editable(app);
-
-    render_list_section(
-        "MCP allowlist",
-        "MCP servers that are allowed to be called by Oz.",
-        &profile_data.mcp_allowlist,
-        &view.mcp_allowlist_mouse_state_handles,
-        None,
-        Some(&view.mcp_allowlist_dropdown),
-        |id| ExecutionProfileEditorViewAction::RemoveFromMCPAllowlist { id },
-        |uuid| display_mcp_name(uuid, app),
-        appearance,
-        is_editable,
-        view.tooltip_mouse_state_handles
-            .mcp_allowlist_editor_tooltip_mouse_state
-            .clone(),
-    )
-}
-
 fn render_mcp_denylist_section(
     view: &ExecutionProfileEditorView,
     profile_data: &AIExecutionProfile,
@@ -863,7 +633,7 @@ fn render_mcp_denylist_section(
 
     render_list_section(
         "MCP denylist",
-        "MCP servers that are not allowed to be called by Oz.",
+        "MCP servers restricted by this profile.",
         &profile_data.mcp_denylist,
         &view.mcp_denylist_mouse_state_handles,
         None,

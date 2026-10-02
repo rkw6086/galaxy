@@ -7429,7 +7429,8 @@ impl TerminalView {
                     );
                 }
             }
-            BlocklistAIActionEvent::QueuedAction { .. }
+            BlocklistAIActionEvent::PermissionReviewChanged { .. }
+            | BlocklistAIActionEvent::QueuedAction { .. }
             | BlocklistAIActionEvent::ToolLifecycle { .. } => {}
         }
     }
@@ -27434,31 +27435,22 @@ impl TypedActionView for TerminalView {
                 self.write_codebase_index(ctx);
             }
             ToggleAutoexecuteMode => {
-                // Cloud (ambient) agent conversations run with fast-forward conceptually
-                // always on, so toggling it from the chip or keybinding is a no-op there.
-                let is_locked = {
-                    let terminal_model = self.model.lock();
-                    is_in_cloud_context(
-                        terminal_model.block_list().agent_view_state(),
-                        &terminal_model,
-                    )
-                };
-                if is_locked {
-                    return;
-                }
-
-                // If there's a pending (blocked) requested code diff, accept it first.
-                if let Some(ai_block) = self.last_ai_block() {
-                    ai_block.update(ctx, |ai_block, ctx| {
-                        ai_block.accept_pending_action(ctx);
-                    });
-                }
-
-                self.ai_context_model.update(ctx, |context_model, ctx| {
-                    context_model.toggle_pending_query_autoexecute(ctx);
+                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
+                    let profile = profiles.active_profile(Some(self.view_id), ctx);
+                    let next = match profile.data().permission_mode {
+                        crate::ai::execution_profiles::PermissionMode::ReadOnly => return,
+                        crate::ai::execution_profiles::PermissionMode::AskFirst => {
+                            crate::ai::execution_profiles::PermissionMode::GalaxyDecides
+                        }
+                        crate::ai::execution_profiles::PermissionMode::GalaxyDecides => {
+                            crate::ai::execution_profiles::PermissionMode::AskFirst
+                        }
+                    };
+                    profiles.set_permission_mode(*profile.id(), next, ctx);
                 });
                 ctx.notify();
             }
+
             ToggleQueueNextPrompt => {
                 let Some(conversation_id) =
                     BlocklistAIHistoryModel::as_ref(ctx).active_conversation_id(self.view_id)

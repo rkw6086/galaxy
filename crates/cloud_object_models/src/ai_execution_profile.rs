@@ -15,6 +15,48 @@ use crate::{JsonModel, JsonSerializer};
 
 pub const PROFILE_NAME_MAX_LENGTH: usize = 50;
 
+/// One permission policy for every Galaxy-owned tool in a profile.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PermissionMode {
+    #[default]
+    AskFirst,
+    GalaxyDecides,
+    #[serde(other)]
+    ReadOnly,
+}
+
+impl PermissionMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ReadOnly => "Read Only",
+            Self::AskFirst => "Ask First",
+            Self::GalaxyDecides => "Galaxy Decides",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::ReadOnly => {
+                "Only file reads, code searches, grep, and file discovery are available. Commands, edits, MCP, computer use, and agents are disabled."
+            }
+            Self::AskFirst => {
+                "Ask before taking action. Approved commands are remembered for this profile and working directory; changed commands require approval again."
+            }
+            Self::GalaxyDecides => {
+                "Your terminal-use model reviews actions. Safe actions run automatically; risky or unassessable actions are denied without asking you. The agent can revise its request or choose a safer approach."
+            }
+        }
+    }
+
+    pub fn action_permission(self) -> ActionPermission {
+        match self {
+            Self::ReadOnly => ActionPermission::Unknown,
+            Self::AskFirst => ActionPermission::AlwaysAsk,
+            Self::GalaxyDecides => ActionPermission::GalaxyDecides,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ActionPermission {
     AlwaysAllow,
@@ -33,7 +75,7 @@ impl ActionPermission {
     pub fn description(&self) -> &'static str {
         match self {
             ActionPermission::GalaxyDecides => {
-                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 asks you, and is rejected after 60 seconds without a response."
+                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 is denied without asking you."
             }
             ActionPermission::Unknown => "Unknown setting.",
             ActionPermission::AlwaysAllow => {
@@ -73,7 +115,7 @@ impl WriteToPtyPermission {
     pub fn description(&self) -> &'static str {
         match self {
             WriteToPtyPermission::GalaxyDecides => {
-                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 asks you, and is rejected after 60 seconds without a response."
+                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 is denied without asking you."
             }
             WriteToPtyPermission::AlwaysAllow => ActionPermission::AlwaysAllow.description(),
             WriteToPtyPermission::AskOnFirstWrite => {
@@ -108,7 +150,7 @@ impl ComputerUsePermission {
     pub fn description(&self) -> &'static str {
         match self {
             ComputerUsePermission::GalaxyDecides => {
-                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 asks you, and is rejected after 60 seconds without a response."
+                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 is denied without asking you."
             }
             ComputerUsePermission::Never => {
                 "Computer use tools are disabled and will not be available to the Agent."
@@ -150,7 +192,7 @@ impl RunAgentsPermission {
     pub fn description(&self) -> &'static str {
         match self {
             RunAgentsPermission::GalaxyDecides => {
-                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 asks you, and is rejected after 60 seconds without a response."
+                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 is denied without asking you."
             }
             RunAgentsPermission::NeverAllow => {
                 "The Agent cannot run child agents and the run_agents tool will not be available."
@@ -370,32 +412,56 @@ cfg_if::cfg_if! {
 /// NOTE: `planning_model` was removed after planning via subagent was deprecated; serialized legacy
 /// profiles may include a `planning_model` field and this field name should remain reserved
 /// indefinitely.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AIExecutionProfile {
     pub name: String,
+    pub permission_mode: PermissionMode,
+    /// Digests of exact approved commands and their execution environment.
+    pub approved_command_hashes: Vec<String>,
     pub is_default_profile: bool,
+    // Legacy transport projection; permission_mode is authoritative.
+    #[serde(skip_serializing)]
     pub apply_code_diffs: ActionPermission,
+    // Legacy transport projection; permission_mode is authoritative.
+    #[serde(skip_serializing)]
     pub read_files: ActionPermission,
 
+    // Legacy transport projection; permission_mode is authoritative.
+    #[serde(skip_serializing)]
     pub execute_commands: ActionPermission,
+    // Legacy transport projection; permission_mode is authoritative.
+    #[serde(skip_serializing)]
     pub write_to_pty: WriteToPtyPermission,
+    // Legacy transport projection; permission_mode is authoritative.
+    #[serde(skip_serializing)]
     pub mcp_permissions: ActionPermission,
+    // Legacy transport projection; permission_mode is authoritative.
+    #[serde(skip_serializing)]
     pub ask_user_question: AskUserQuestionPermission,
+    // Legacy transport projection; permission_mode is authoritative.
+    #[serde(skip_serializing)]
     pub run_agents: RunAgentsPermission,
 
     /// Always ask for permission for these commands
     pub command_denylist: Vec<AgentModeCommandExecutionPredicate>,
 
     /// When the execute_commands is set to AlwaysAsk, autoexecute these commands
+    // Legacy transport projection; permission_mode is authoritative.
+    #[serde(skip_serializing)]
     pub command_allowlist: Vec<AgentModeCommandExecutionPredicate>,
 
     /// When the read_files is set to AlwaysAsk, autoread from these directories
+    // Legacy transport projection; permission_mode is authoritative.
+    #[serde(skip_serializing)]
     pub directory_allowlist: Vec<PathBuf>,
 
+    // Legacy transport projection; permission_mode is authoritative.
+    #[serde(skip_serializing)]
     pub mcp_allowlist: Vec<uuid::Uuid>,
     pub mcp_denylist: Vec<uuid::Uuid>,
 
+    // Legacy transport projection; permission_mode is authoritative.
+    #[serde(skip_serializing)]
     pub computer_use: ComputerUsePermission,
 
     pub base_model: Option<LLMId>,
@@ -412,24 +478,137 @@ pub struct AIExecutionProfile {
     pub web_search_enabled: bool,
 }
 
+/// Reads old profiles once; legacy per-tool permissions are never serialized again.
+#[derive(Deserialize)]
+#[serde(default)]
+struct PersistedExecutionProfile {
+    permission_mode: Option<PermissionMode>,
+    approved_command_hashes: Vec<String>,
+    name: String,
+    is_default_profile: bool,
+    apply_code_diffs: ActionPermission,
+    read_files: ActionPermission,
+    execute_commands: ActionPermission,
+    write_to_pty: WriteToPtyPermission,
+    mcp_permissions: ActionPermission,
+    ask_user_question: AskUserQuestionPermission,
+    run_agents: RunAgentsPermission,
+    command_denylist: Vec<AgentModeCommandExecutionPredicate>,
+    command_allowlist: Vec<AgentModeCommandExecutionPredicate>,
+    directory_allowlist: Vec<PathBuf>,
+    mcp_allowlist: Vec<uuid::Uuid>,
+    mcp_denylist: Vec<uuid::Uuid>,
+    computer_use: ComputerUsePermission,
+    base_model: Option<LLMId>,
+    coding_model: Option<LLMId>,
+    cli_agent_model: Option<LLMId>,
+    computer_use_model: Option<LLMId>,
+    context_window_limit: Option<u32>,
+    autosync_plans_to_warp_drive: bool,
+    web_search_enabled: bool,
+}
+
+impl Default for PersistedExecutionProfile {
+    fn default() -> Self {
+        let profile = AIExecutionProfile::default();
+        Self {
+            permission_mode: None,
+            approved_command_hashes: Vec::new(),
+            name: profile.name,
+            is_default_profile: profile.is_default_profile,
+            apply_code_diffs: profile.apply_code_diffs,
+            read_files: profile.read_files,
+            execute_commands: profile.execute_commands,
+            write_to_pty: profile.write_to_pty,
+            mcp_permissions: profile.mcp_permissions,
+            ask_user_question: profile.ask_user_question,
+            run_agents: profile.run_agents,
+            command_denylist: profile.command_denylist,
+            command_allowlist: profile.command_allowlist,
+            directory_allowlist: profile.directory_allowlist,
+            mcp_allowlist: profile.mcp_allowlist,
+            mcp_denylist: profile.mcp_denylist,
+            computer_use: profile.computer_use,
+            base_model: profile.base_model,
+            coding_model: profile.coding_model,
+            cli_agent_model: profile.cli_agent_model,
+            computer_use_model: profile.computer_use_model,
+            context_window_limit: profile.context_window_limit,
+            autosync_plans_to_warp_drive: profile.autosync_plans_to_warp_drive,
+            web_search_enabled: profile.web_search_enabled,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AIExecutionProfile {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let saved = PersistedExecutionProfile::deserialize(deserializer)?;
+        let permission_mode = saved
+            .permission_mode
+            .unwrap_or(match saved.execute_commands {
+                ActionPermission::AlwaysAllow | ActionPermission::GalaxyDecides => {
+                    PermissionMode::GalaxyDecides
+                }
+                ActionPermission::AlwaysAsk => PermissionMode::AskFirst,
+                ActionPermission::Unknown => PermissionMode::ReadOnly,
+            });
+        let mut profile = Self {
+            permission_mode,
+            approved_command_hashes: saved.approved_command_hashes,
+            name: saved.name,
+            is_default_profile: saved.is_default_profile,
+            apply_code_diffs: saved.apply_code_diffs,
+            read_files: saved.read_files,
+            execute_commands: saved.execute_commands,
+            write_to_pty: saved.write_to_pty,
+            mcp_permissions: saved.mcp_permissions,
+            ask_user_question: saved.ask_user_question,
+            run_agents: saved.run_agents,
+            command_denylist: saved.command_denylist,
+            command_allowlist: saved.command_allowlist,
+            directory_allowlist: saved.directory_allowlist,
+            mcp_allowlist: saved.mcp_allowlist,
+            mcp_denylist: saved.mcp_denylist,
+            computer_use: saved.computer_use,
+            base_model: saved.base_model,
+            coding_model: saved.coding_model,
+            cli_agent_model: saved.cli_agent_model,
+            computer_use_model: saved.computer_use_model,
+            context_window_limit: saved.context_window_limit,
+            autosync_plans_to_warp_drive: saved.autosync_plans_to_warp_drive,
+            web_search_enabled: saved.web_search_enabled,
+        };
+        profile.project_permission_mode();
+        // Bound restored approvals as well as newly granted ones.
+        if profile.approved_command_hashes.len() > 256 {
+            profile
+                .approved_command_hashes
+                .drain(..profile.approved_command_hashes.len() - 256);
+        }
+        Ok(profile)
+    }
+}
+
 impl Default for AIExecutionProfile {
     fn default() -> Self {
         Self {
             name: Default::default(),
             is_default_profile: false,
-            apply_code_diffs: ActionPermission::GalaxyDecides,
-            read_files: ActionPermission::GalaxyDecides,
+            permission_mode: PermissionMode::AskFirst,
+            approved_command_hashes: Vec::new(),
+            apply_code_diffs: ActionPermission::AlwaysAsk,
+            read_files: ActionPermission::AlwaysAllow,
             execute_commands: ActionPermission::AlwaysAsk,
             write_to_pty: WriteToPtyPermission::AlwaysAsk,
-            mcp_permissions: ActionPermission::GalaxyDecides,
+            mcp_permissions: ActionPermission::AlwaysAsk,
             ask_user_question: AskUserQuestionPermission::AlwaysAsk,
             run_agents: RunAgentsPermission::AlwaysAsk,
-            command_denylist: DEFAULT_COMMAND_EXECUTION_DENYLIST.clone(),
+            command_denylist: Vec::new(),
             command_allowlist: Vec::new(),
             directory_allowlist: Vec::new(),
             mcp_allowlist: Vec::new(),
             mcp_denylist: Vec::new(),
-            computer_use: ComputerUsePermission::Never,
+            computer_use: ComputerUsePermission::AlwaysAsk,
             base_model: None,
             coding_model: None,
             cli_agent_model: None,
@@ -442,11 +621,48 @@ impl Default for AIExecutionProfile {
 }
 
 impl AIExecutionProfile {
+    /// Adapter for legacy providers that still consume per-tool permission fields.
+    pub fn project_permission_mode(&mut self) {
+        let permission = self.permission_mode.action_permission();
+        self.apply_code_diffs = permission;
+        self.execute_commands = permission;
+        self.mcp_permissions = permission;
+        self.read_files = if self.permission_mode == PermissionMode::GalaxyDecides {
+            ActionPermission::GalaxyDecides
+        } else {
+            ActionPermission::AlwaysAllow
+        };
+        self.write_to_pty = match self.permission_mode {
+            PermissionMode::GalaxyDecides => WriteToPtyPermission::GalaxyDecides,
+            PermissionMode::ReadOnly | PermissionMode::AskFirst => WriteToPtyPermission::AlwaysAsk,
+        };
+        self.computer_use = match self.permission_mode {
+            PermissionMode::ReadOnly => ComputerUsePermission::Never,
+            PermissionMode::AskFirst => ComputerUsePermission::AlwaysAsk,
+            PermissionMode::GalaxyDecides => ComputerUsePermission::GalaxyDecides,
+        };
+        self.run_agents = match self.permission_mode {
+            PermissionMode::ReadOnly => RunAgentsPermission::NeverAllow,
+            PermissionMode::AskFirst => RunAgentsPermission::AlwaysAsk,
+            PermissionMode::GalaxyDecides => RunAgentsPermission::GalaxyDecides,
+        };
+        self.ask_user_question = if self.permission_mode == PermissionMode::AskFirst {
+            AskUserQuestionPermission::AlwaysAsk
+        } else {
+            AskUserQuestionPermission::Never
+        };
+        self.command_allowlist.clear();
+        self.directory_allowlist.clear();
+        self.mcp_allowlist.clear();
+    }
+
     #[cfg(feature = "agent_mode_evals")]
     pub fn create_agent_mode_eval_profile() -> Self {
         Self {
             name: "Agent Mode Eval".to_string(),
             is_default_profile: false,
+            permission_mode: PermissionMode::GalaxyDecides,
+            approved_command_hashes: Vec::new(),
             apply_code_diffs: ActionPermission::AlwaysAllow,
             read_files: ActionPermission::AlwaysAllow,
             execute_commands: ActionPermission::AlwaysAllow,
@@ -503,6 +719,8 @@ impl AIExecutionProfile {
         Self {
             name: "Default (CLI)".to_owned(),
             is_default_profile: true,
+            permission_mode: PermissionMode::GalaxyDecides,
+            approved_command_hashes: Vec::new(),
             apply_code_diffs: ActionPermission::AlwaysAllow,
             read_files: ActionPermission::AlwaysAllow,
             execute_commands: ActionPermission::AlwaysAllow,
@@ -538,3 +756,7 @@ pub type CloudAIExecutionProfile =
 pub type CloudAIExecutionProfileModel = GenericStringModel<AIExecutionProfile, JsonSerializer>;
 pub type ServerAIExecutionProfile =
     GenericServerObject<GenericStringObjectId, CloudAIExecutionProfileModel>;
+
+#[cfg(test)]
+#[path = "ai_execution_profile_tests.rs"]
+mod tests;

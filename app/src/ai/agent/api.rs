@@ -143,6 +143,7 @@ pub struct RequestParams {
     /// `custom_model_providers`: the selected model's `config_key` indexes into this
     /// registry. `None` when no custom router is selected.
     pub custom_model_routers: Option<warp_multi_agent_api::request::settings::CustomModelRouters>,
+    pub permission_mode: crate::ai::execution_profiles::PermissionMode,
     pub autonomy_level: warp_multi_agent_api::AutonomyLevel,
     pub isolation_level: warp_multi_agent_api::IsolationLevel,
     pub web_search_enabled: bool,
@@ -237,6 +238,7 @@ impl RequestParams {
             api_keys: None,
             custom_model_providers: None,
             custom_model_routers: None,
+            permission_mode: Default::default(),
             autonomy_level: Default::default(),
             isolation_level: Default::default(),
             web_search_enabled: false,
@@ -446,6 +448,8 @@ impl RequestParams {
             api_keys,
             custom_model_providers,
             custom_model_routers,
+            permission_mode: BlocklistAIPermissions::as_ref(app)
+                .get_permission_mode(app, terminal_view_id),
             autonomy_level,
             isolation_level,
             web_search_enabled,

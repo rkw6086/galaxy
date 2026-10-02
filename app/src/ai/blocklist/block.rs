@@ -74,7 +74,8 @@ use warpui::{
 use self::code_diff_view::FileDiff;
 use self::model::{AIBlockModel, AIBlockModelHelper};
 use super::action_model::{
-    AIActionStatus, BlocklistAIActionEvent, RequestFileEditsFormatKind, StartAgentExecutorEvent,
+    AIActionStatus, BlocklistAIActionEvent, RequestFileEditsFormatKind, ReviewDisplayState,
+    StartAgentExecutorEvent,
 };
 use super::code_block::CodeSnippetButtonHandles;
 use super::controller::ClientIdentifiers;
@@ -746,6 +747,25 @@ pub struct CollapsibleElementState {
     user_toggled_while_streaming: bool,
 }
 
+/// A permission review starts open, but each resolved review starts closed.
+/// Keep the two expansion choices separate so a missed lifecycle notification
+/// cannot leave a completed approval expanded.
+struct ReviewPaneState {
+    header_mouse_state: MouseStateHandle,
+    pending_expanded: bool,
+    resolved_expanded: bool,
+}
+
+impl Default for ReviewPaneState {
+    fn default() -> Self {
+        Self {
+            header_mouse_state: MouseStateHandle::new(Default::default()),
+            pending_expanded: true,
+            resolved_expanded: false,
+        }
+    }
+}
+
 impl Default for CollapsibleElementState {
     fn default() -> Self {
         Self {
@@ -1089,7 +1109,7 @@ pub struct AIBlock {
     collapsible_block_states: HashMap<MessageId, CollapsibleElementState>,
 
     /// Expansion state for Galaxy's per-action permission review panes.
-    review_pane_states: HashMap<AIAgentActionId, CollapsibleElementState>,
+    review_pane_states: HashMap<AIAgentActionId, ReviewPaneState>,
 
     /// Map from suggested prompt action ID to its view handle and status.
     unit_tests_suggestions: HashMap<AIAgentActionId, ViewHandle<SuggestedUnitTestsView>>,
@@ -4855,9 +4875,6 @@ impl AIBlock {
 
             match event {
                 BlocklistAIActionEvent::ExecutingAction { .. } => {
-                    if let Some(state) = me.review_pane_states.get_mut(action_id) {
-                        state.finish_summarization();
-                    }
                     match &me.autonomy_setting_speedbump {
                         AutonomySettingSpeedbump::ShouldShowForAutoexecutingReadonlyCommands {
                             action_id: speedbump_action_id,
@@ -4929,10 +4946,7 @@ impl AIBlock {
                 }
                 BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. } => {
                     if let Some(state) = me.review_pane_states.get_mut(action_id) {
-                        state.sync_finished_state(false);
-                        if !state.user_toggled_while_streaming {
-                            state.expand();
-                        }
+                        state.pending_expanded = true;
                     }
                     if let Some(buttons) = me.action_buttons.get_mut(action_id) {
                         buttons.run_button.set_label("Approve".to_string(), ctx);
@@ -4942,9 +4956,6 @@ impl AIBlock {
                     ctx.notify();
                 }
                 BlocklistAIActionEvent::FinishedAction { action_id, .. } => {
-                    if let Some(state) = me.review_pane_states.get_mut(action_id) {
-                        state.finish_summarization();
-                    }
                     me.abort_auto_expand_requested_command_timer();
 
                     // Handle auto-collapsing of requested commands that were marked for auto-collapse
@@ -5138,7 +5149,8 @@ impl AIBlock {
                     }
                 }
 
-                BlocklistAIActionEvent::ToolLifecycle { .. }
+                BlocklistAIActionEvent::PermissionReviewChanged { .. }
+                | BlocklistAIActionEvent::ToolLifecycle { .. }
                 | BlocklistAIActionEvent::InitProject(_)
                 | BlocklistAIActionEvent::ToggleCodeReview(_) => {}
             }
@@ -6868,7 +6880,21 @@ impl TypedActionView for AIBlock {
             }
             AIBlockAction::ToggleReviewPaneExpanded(action_id) => {
                 if let Some(state) = self.review_pane_states.get_mut(action_id) {
-                    state.toggle_expansion();
+                    let is_resolved = self
+                        .action_model
+                        .as_ref(ctx)
+                        .review_display(self.client_ids.conversation_id, action_id)
+                        .is_some_and(|review| {
+                            matches!(
+                                review.state,
+                                ReviewDisplayState::Approved | ReviewDisplayState::Denied
+                            )
+                        });
+                    if is_resolved {
+                        state.resolved_expanded = !state.resolved_expanded;
+                    } else {
+                        state.pending_expanded = !state.pending_expanded;
+                    }
                     ctx.notify();
                 }
             }
