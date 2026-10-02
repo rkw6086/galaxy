@@ -131,7 +131,7 @@ ACP: controller.rs → ResponseStream → acp_output_stream (session-owned lifec
 - `convert.rs` — Bedrock request construction and prompt-caching behavior
 - `client.rs` — AWS SDK client construction, runtime creation, and independent background streaming calls
 - `models.rs` — Model registry and cross-region inference prefix logic
-- `discovery.rs` — AWS profile listing and model discovery (STS identity check + ListFoundationModels)
+- `discovery.rs` — Checks bundled `galaxy_bedrock_model_catalog` candidates with AWS `GetFoundationModelAvailability`; agreement, authorization, entitlement, and regional availability must all pass. Cached access is never restored as authorization; per-model enablement survives successful refreshes. Sweeps run once at startup when enabled and once per explicit connection Test; settings saves, reloads, and model toggles must never trigger another sweep. Live verification belongs to `LLMPreferences` and is scoped to the exact connection configuration.
 - `diagnostic.rs` — Debug logging (enabled via `GALAXY_BEDROCK_DIAGNOSTICS=1`)
 - `external_config.rs` — Fallback config from Claude Code/OpenCode settings
 

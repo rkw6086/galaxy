@@ -605,6 +605,11 @@ pub struct LLMPreferences {
     catalog_refresh_generations: HashMap<Option<usize>, u64>,
     #[cfg(not(target_family = "wasm"))]
     chatgpt_subscription_models_refresh_in_flight: bool,
+    bedrock_models_refresh_in_flight: bool,
+    #[cfg(not(target_family = "wasm"))]
+    bedrock_verified_config: Option<super::provider::client::BedrockClientConfig>,
+    #[cfg(not(target_family = "wasm"))]
+    bedrock_verified_model_ids: HashSet<String>,
     #[cfg(not(target_family = "wasm"))]
     acp_selections: HashMap<LLMId, AcpModelSelection>,
 }
@@ -708,8 +713,23 @@ impl LLMPreferences {
                     | AISettingsChangedEvent::AcpAgents { .. }
                     | AISettingsChangedEvent::AcpAgentId { .. }
                     | AISettingsChangedEvent::BedrockModels { .. }
+                    | AISettingsChangedEvent::BedrockAuthMethod { .. }
+                    | AISettingsChangedEvent::BedrockProfile { .. }
+                    | AISettingsChangedEvent::BedrockRegion { .. }
+                    | AISettingsChangedEvent::BedrockAccessKeyId { .. }
+                    | AISettingsChangedEvent::BedrockSecretAccessKey { .. }
+                    | AISettingsChangedEvent::BedrockCrossRegionInference { .. }
             ) {
-                let previous_ids: Vec<_> = me.openai_provider_routing.keys().cloned().collect();
+                let previous_ids: Vec<_> = me
+                    .models_by_feature
+                    .agent_mode
+                    .choices
+                    .iter()
+                    .filter(|model| {
+                        matches!(model.provider, LLMProvider::LiteLLM | LLMProvider::Bedrock)
+                    })
+                    .map(|model| model.id.as_str().to_owned())
+                    .collect();
                 me.inject_bedrock_models(ctx);
                 me.inject_openai_models(ctx);
                 if matches!(
@@ -719,11 +739,6 @@ impl LLMPreferences {
                         | AISettingsChangedEvent::OpenAIApiKey { .. }
                 ) {
                     me.fetch_openai_models_from_endpoint(ctx);
-                }
-                if matches!(event, AISettingsChangedEvent::BedrockEnabled { .. })
-                    && *AISettings::as_ref(ctx).bedrock_enabled.value()
-                {
-                    me.refresh_bedrock_models(ctx);
                 }
                 me.refresh_changed_litellm_connections(ctx);
                 // Safety: ensure the default model is still present in choices.
@@ -770,6 +785,11 @@ impl LLMPreferences {
             catalog_refresh_generations: HashMap::new(),
             #[cfg(not(target_family = "wasm"))]
             chatgpt_subscription_models_refresh_in_flight: false,
+            bedrock_models_refresh_in_flight: false,
+            #[cfg(not(target_family = "wasm"))]
+            bedrock_verified_config: None,
+            #[cfg(not(target_family = "wasm"))]
+            bedrock_verified_model_ids: HashSet::new(),
             #[cfg(not(target_family = "wasm"))]
             acp_selections: HashMap::new(),
         };
@@ -789,9 +809,8 @@ impl LLMPreferences {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            // Make the persisted Bedrock catalog available immediately. Agreement
-            // revalidation stays in the background and replaces this cache when it
-            // completes, so startup never waits on the per-model AWS checks.
+            // Saved toggle preferences survive startup, but access must be
+            // verified against AWS before a Bedrock model becomes selectable.
             me.inject_bedrock_models(ctx);
             me.refresh_bedrock_models(ctx);
             me.inject_openai_models(ctx);
@@ -807,38 +826,85 @@ impl LLMPreferences {
 
     #[cfg(not(target_family = "wasm"))]
     fn refresh_bedrock_models(&mut self, ctx: &mut ModelContext<Self>) {
+        if self.bedrock_models_refresh_in_flight {
+            return;
+        }
         let settings = AISettings::as_ref(ctx);
         if !*settings.bedrock_enabled.value() {
             return;
         }
-        let config = crate::ai::provider::client::BedrockClientConfig {
-            auth_method: *settings.bedrock_auth_method.value(),
-            profile: settings.bedrock_profile.value().clone(),
-            region: settings.bedrock_region.value().clone(),
-            access_key_id: settings.bedrock_access_key_id.value().clone(),
-            secret_access_key: settings.bedrock_secret_access_key.value().clone(),
-            session_token: None,
-            cross_region_inference: *settings.bedrock_cross_region_inference.value(),
-        };
+        self.bedrock_models_refresh_in_flight = true;
+        let config = bedrock_discovery_config(settings);
+        let requested_config = config.clone();
+        self.bedrock_verified_config = None;
+        self.bedrock_verified_model_ids.clear();
+        self.inject_bedrock_models(ctx);
 
         let _ = ctx.spawn(
             async move { crate::ai::provider::discovery::discover_available_models(config).await },
-            |me, result, ctx| match result {
-                Ok(models) => {
-                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                        if let Err(error) = settings.bedrock_models.set_value(models, ctx) {
-                            log::warn!("[bedrock] Failed to persist discovered models: {error}");
-                        }
-                    });
-                    me.inject_bedrock_models(ctx);
-                    me.ensure_default_model_present();
-                    ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+            move |me, result, ctx| {
+                let result = result.map(|discovery| {
+                    for record in discovery.records {
+                        crate::ai::remote_logging::log_model_event(ctx, record);
+                    }
+                    discovery.models
+                });
+                me.bedrock_models_refresh_in_flight = false;
+                if !*AISettings::as_ref(ctx).bedrock_enabled.value() {
+                    return;
                 }
-                Err(error) => {
-                    log::debug!("[bedrock] Startup model discovery unavailable: {error}");
+                if bedrock_discovery_config(AISettings::as_ref(ctx)) != requested_config {
+                    return;
+                }
+                match result {
+                    Ok(models) => {
+                        // Verification belongs to this live connection, not serialized settings.
+                        me.bedrock_verified_model_ids =
+                            models.iter().map(|model| model.model_id.clone()).collect();
+                        me.bedrock_verified_config = Some(requested_config);
+                        AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                            let models = super::provider::discovery::preserve_model_toggles(
+                                settings.bedrock_models.value(),
+                                models,
+                            );
+                            if let Err(error) = settings.bedrock_models.set_value(models, ctx) {
+                                log::warn!(
+                                    "[bedrock] Failed to persist discovered models: {error}"
+                                );
+                            }
+                        });
+                        me.inject_bedrock_models(ctx);
+                        me.ensure_default_model_present();
+                        ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+                    }
+                    Err(error) => {
+                        log::debug!("[bedrock] Startup model discovery unavailable: {error}");
+                    }
                 }
             },
         );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn record_bedrock_verification(
+        &mut self,
+        config: super::provider::client::BedrockClientConfig,
+        models: &[BedrockModelConfig],
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.bedrock_verified_model_ids =
+            models.iter().map(|model| model.model_id.clone()).collect();
+        self.bedrock_verified_config = Some(config);
+        self.inject_bedrock_models(ctx);
+        self.ensure_default_model_present();
+        ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn bedrock_model_is_verified(&self, model_id: &str, ctx: &AppContext) -> bool {
+        self.bedrock_verified_config.as_ref()
+            == Some(&bedrock_discovery_config(AISettings::as_ref(ctx)))
+            && self.bedrock_verified_model_ids.contains(model_id)
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -906,6 +972,9 @@ impl LLMPreferences {
 
         let effective = effective;
         for model in effective {
+            if !model.enabled || !self.bedrock_model_is_verified(&model.model_id, ctx) {
+                continue;
+            }
             let metadata = model_metadata(&model.model_id);
             if metadata.is_some_and(|metadata| metadata.supports_agent_runtime() == Some(false)) {
                 log::debug!(
@@ -1078,9 +1147,11 @@ impl LLMPreferences {
             configured_models
         };
 
-        // The registry replaces legacy settings. Otherwise stale legacy credentials
-        // win duplicate model IDs before the configured provider is considered.
-        if settings.openai_providers.value().is_empty() && !single_provider_models.is_empty() {
+        // Only a registry entry for the same endpoint replaces the legacy
+        // connection. Adding an unrelated subscription must not hide LiteLLM.
+        let include_legacy =
+            settings.legacy_openai_provider_enabled() && !single_provider_models.is_empty();
+        if include_legacy {
             let base_url = settings.openai_base_url.value().clone();
             let api_key = {
                 let key = settings.openai_api_key.value().clone();
@@ -1132,7 +1203,7 @@ impl LLMPreferences {
                             .is_none_or(|project| project.trim().is_empty()),
                         OpenAIProviderKind::ChatGPTSubscription => false,
                     };
-                    if !provider.enabled || missing_credentials || provider.models.is_empty() {
+                    if missing_credentials || provider.models.is_empty() {
                         return None;
                     }
                     Some((
@@ -1147,6 +1218,12 @@ impl LLMPreferences {
                     ))
                 }),
         );
+        // Keep existing raw-model selections routed to registry connections.
+        // The legacy connection remains selectable under a qualified key when
+        // it serves the same model as a registered provider.
+        if include_legacy && provider_entries.len() > 1 {
+            provider_entries.rotate_left(1);
+        }
 
         if provider_entries.is_empty() {
             return;
@@ -1154,6 +1231,7 @@ impl LLMPreferences {
 
         let mut total_injected = 0;
         let mut seen_model_ids: HashSet<String> = HashSet::new();
+        let mut seen_connections = HashSet::new();
         for (
             provider_name,
             provider_kind,
@@ -1165,14 +1243,13 @@ impl LLMPreferences {
             models,
         ) in provider_entries
         {
-            if !provider_enabled {
+            let connection_identity = format!("{provider_kind:?}|{provider_name}|{base_url}|{provider_project_id:?}|{provider_location:?}");
+            if !seen_connections.insert(connection_identity.clone()) {
                 continue;
             }
+            let mut connection_model_ids = HashSet::new();
             for model in &models {
-                if !model.enabled {
-                    continue;
-                }
-                if !seen_model_ids.insert(model.model_id.clone()) {
+                if !connection_model_ids.insert(model.model_id.clone()) {
                     continue;
                 }
 
@@ -1189,10 +1266,25 @@ impl LLMPreferences {
 
                 for reasoning_effort in reasoning_efforts {
                     let reasoning_effort = reasoning_effort.cloned();
-                    let model_key = reasoning_effort.as_deref().map_or_else(
+                    let mut model_key = reasoning_effort.as_deref().map_or_else(
                         || model.model_id.clone(),
                         |effort| openai_model_variant_id(&model.model_id, effort),
                     );
+                    if !seen_model_ids.insert(model_key.clone()) {
+                        use sha2::{Digest, Sha256};
+                        let connection_hash =
+                            format!("{:x}", Sha256::digest(connection_identity.as_bytes()));
+                        model_key = format!("{model_key}::connection::{connection_hash}");
+                        if !seen_model_ids.insert(model_key.clone()) {
+                            continue;
+                        }
+                    }
+                    // Disabled entries still reserve their selection keys so
+                    // toggling a connection cannot silently reroute another
+                    // connection's saved model selection.
+                    if !provider_enabled || !model.enabled {
+                        continue;
+                    }
 
                     // Register the routing entry. Reasoning variants keep the provider's
                     // actual model ID while using their synthetic key only for selection.
@@ -3355,3 +3447,18 @@ fn get_cached_models(_app: &mut AppContext) -> Option<ModelsByFeature> {
 #[cfg(test)]
 #[path = "llms_tests.rs"]
 mod tests;
+
+#[cfg(not(target_family = "wasm"))]
+fn bedrock_discovery_config(
+    settings: &AISettings,
+) -> crate::ai::provider::client::BedrockClientConfig {
+    crate::ai::provider::client::BedrockClientConfig {
+        auth_method: *settings.bedrock_auth_method.value(),
+        profile: settings.bedrock_profile.value().clone(),
+        region: settings.bedrock_region.value().clone(),
+        access_key_id: settings.bedrock_access_key_id.value().clone(),
+        secret_access_key: settings.bedrock_secret_access_key.value().clone(),
+        session_token: None,
+        cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+    }
+}

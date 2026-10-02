@@ -161,6 +161,8 @@ fn openai_model(model_id: &str) -> OpenAIModelConfig {
 
 fn bedrock_model(model_id: &str) -> BedrockModelConfig {
     BedrockModelConfig {
+        enabled: true,
+        access_verified: true,
         model_id: model_id.to_string(),
         display_name: model_id.to_string(),
         vision_supported: false,
@@ -232,6 +234,9 @@ fn empty_preferences() -> LLMPreferences {
         litellm_connections: Vec::new(),
         catalog_refresh_generations: HashMap::new(),
         chatgpt_subscription_models_refresh_in_flight: false,
+        bedrock_models_refresh_in_flight: false,
+        bedrock_verified_config: None,
+        bedrock_verified_model_ids: HashSet::new(),
         acp_selections: HashMap::new(),
     }
 }
@@ -304,6 +309,14 @@ fn bedrock_and_openai_provider_models_coexist_in_picker() {
         let mut preferences = empty_preferences();
         app.read(|ctx| {
             preferences.inject_openai_models(ctx);
+            preferences.bedrock_verified_config =
+                Some(super::bedrock_discovery_config(AISettings::as_ref(ctx)));
+            preferences.bedrock_verified_model_ids = AISettings::as_ref(ctx)
+                .bedrock_models
+                .value()
+                .iter()
+                .map(|model| model.model_id.clone())
+                .collect();
             preferences.inject_bedrock_models(ctx);
         });
 
@@ -323,6 +336,14 @@ fn bedrock_and_openai_provider_models_coexist_in_picker() {
 
         let mut preferences = empty_preferences();
         app.read(|ctx| {
+            preferences.bedrock_verified_config =
+                Some(super::bedrock_discovery_config(AISettings::as_ref(ctx)));
+            preferences.bedrock_verified_model_ids = AISettings::as_ref(ctx)
+                .bedrock_models
+                .value()
+                .iter()
+                .map(|model| model.model_id.clone())
+                .collect();
             preferences.inject_bedrock_models(ctx);
             preferences.inject_openai_models(ctx);
         });
@@ -429,6 +450,9 @@ fn acp_models_are_injected_only_while_acp_is_enabled() {
             litellm_connections: Vec::new(),
             catalog_refresh_generations: HashMap::new(),
             chatgpt_subscription_models_refresh_in_flight: false,
+            bedrock_models_refresh_in_flight: false,
+            bedrock_verified_config: None,
+            bedrock_verified_model_ids: HashSet::new(),
             acp_selections: HashMap::new(),
         };
         app.read(|ctx| preferences.inject_acp_models(ctx));
@@ -489,6 +513,14 @@ fn acp_is_selectable_before_protocol_model_discovery_completes() {
 
         let mut preferences = empty_preferences();
         app.read(|ctx| {
+            preferences.bedrock_verified_config =
+                Some(super::bedrock_discovery_config(AISettings::as_ref(ctx)));
+            preferences.bedrock_verified_model_ids = AISettings::as_ref(ctx)
+                .bedrock_models
+                .value()
+                .iter()
+                .map(|model| model.model_id.clone())
+                .collect();
             preferences.inject_bedrock_models(ctx);
             preferences.inject_acp_models(ctx);
         });
@@ -571,6 +603,14 @@ fn acp_models_expand_reasoning_levels_for_only_the_configured_agent() {
 
         let mut preferences = empty_preferences();
         app.read(|ctx| {
+            preferences.bedrock_verified_config =
+                Some(super::bedrock_discovery_config(AISettings::as_ref(ctx)));
+            preferences.bedrock_verified_model_ids = AISettings::as_ref(ctx)
+                .bedrock_models
+                .value()
+                .iter()
+                .map(|model| model.model_id.clone())
+                .collect();
             preferences.inject_bedrock_models(ctx);
             preferences.inject_acp_models(ctx);
         });
@@ -710,6 +750,14 @@ fn acp_bedrock_models_are_hidden_while_bedrock_is_disabled() {
 
         let mut preferences = empty_preferences();
         app.read(|ctx| {
+            preferences.bedrock_verified_config =
+                Some(super::bedrock_discovery_config(AISettings::as_ref(ctx)));
+            preferences.bedrock_verified_model_ids = AISettings::as_ref(ctx)
+                .bedrock_models
+                .value()
+                .iter()
+                .map(|model| model.model_id.clone())
+                .collect();
             preferences.inject_bedrock_models(ctx);
             preferences.inject_acp_models(ctx);
         });
@@ -751,6 +799,14 @@ fn disabled_providers_do_not_leave_models_in_the_runtime_inventory() {
 
         let mut preferences = empty_preferences();
         app.read(|ctx| {
+            preferences.bedrock_verified_config =
+                Some(super::bedrock_discovery_config(AISettings::as_ref(ctx)));
+            preferences.bedrock_verified_model_ids = AISettings::as_ref(ctx)
+                .bedrock_models
+                .value()
+                .iter()
+                .map(|model| model.model_id.clone())
+                .collect();
             preferences.inject_bedrock_models(ctx);
             preferences.inject_openai_models(ctx);
         });
@@ -941,6 +997,94 @@ fn legacy_chatgpt_default_limits_routing() {
 }
 
 #[test]
+fn subscription_and_litellm_connections_keep_overlapping_models_and_independent_toggles() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings.openai_enabled.set_value(true, ctx).unwrap();
+            settings
+                .openai_base_url
+                .set_value("https://legacy.test/v1".to_owned(), ctx)
+                .unwrap();
+            settings
+                .openai_models
+                .set_value(vec![openai_model("legacy-only")], ctx)
+                .unwrap();
+            settings
+                .openai_providers
+                .set_value(
+                    vec![
+                        OpenAIProviderConfig {
+                            kind: OpenAIProviderKind::ChatGPTSubscription,
+                            enabled: true,
+                            name: "Subscription".to_owned(),
+                            base_url: String::new(),
+                            api_key: None,
+                            project_id: None,
+                            location: None,
+                            models: vec![openai_model("shared-model")],
+                        },
+                        OpenAIProviderConfig {
+                            kind: OpenAIProviderKind::LiteLLM,
+                            enabled: true,
+                            name: "LiteLLM".to_owned(),
+                            base_url: "https://proxy.test/v1".to_owned(),
+                            api_key: None,
+                            project_id: None,
+                            location: None,
+                            models: vec![openai_model("shared-model")],
+                        },
+                    ],
+                    ctx,
+                )
+                .unwrap();
+        });
+        let mut preferences = empty_preferences();
+        app.read(|ctx| preferences.inject_openai_models(ctx));
+        let models = &preferences.models_by_feature.agent_mode.choices;
+        assert_eq!(models.len(), 3);
+        for (label, kind) in [
+            ("Subscription", OpenAIProviderKind::ChatGPTSubscription),
+            ("LiteLLM", OpenAIProviderKind::LiteLLM),
+        ] {
+            let model = models
+                .iter()
+                .find(|model| model.description.as_deref() == Some(label))
+                .unwrap();
+            let route = preferences
+                .openai_client_config_for_model(model.id.as_str())
+                .unwrap();
+            assert_eq!(route.kind, kind);
+            assert_eq!(route.model.as_deref(), Some("shared-model"));
+        }
+        assert!(models
+            .iter()
+            .any(|model| model.id.as_str() == "legacy-only"));
+        let litellm_id = models
+            .iter()
+            .find(|model| model.description.as_deref() == Some("LiteLLM"))
+            .unwrap()
+            .id
+            .clone();
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            let mut providers = settings.openai_providers.value().clone();
+            providers[0].models[0].enabled = false;
+            settings.openai_providers.set_value(providers, ctx).unwrap();
+        });
+        app.read(|ctx| preferences.inject_openai_models(ctx));
+        let models = &preferences.models_by_feature.agent_mode.choices;
+        assert_eq!(models.len(), 2);
+        assert!(models
+            .iter()
+            .all(|model| model.description.as_deref() != Some("Subscription")));
+        assert!(models
+            .iter()
+            .any(|model| model.description.as_deref() == Some("LiteLLM")));
+        assert!(models.iter().any(|model| model.id == litellm_id));
+    });
+}
+
+#[test]
 fn provider_registry_overrides_legacy_endpoint_for_duplicate_models() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
@@ -1070,4 +1214,45 @@ async fn model_refresh_distinguishes_empty_catalog_from_failure() {
         response.assert_async().await;
         response.remove_async().await;
     }
+}
+
+#[test]
+fn bedrock_verification_survives_settings_reload_but_not_connection_changes() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let model = bedrock_model("anthropic.claude-test");
+        let reloaded: BedrockModelConfig =
+            serde_json::from_value(serde_json::to_value(&model).unwrap()).unwrap();
+        assert!(!reloaded.access_verified);
+        let mut preferences = empty_preferences();
+        app.read(|ctx| {
+            preferences.bedrock_verified_config =
+                Some(super::bedrock_discovery_config(AISettings::as_ref(ctx)));
+            preferences
+                .bedrock_verified_model_ids
+                .insert(model.model_id.clone());
+        });
+        app.update(|ctx| {
+            AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                settings
+                    .bedrock_models
+                    .set_value(vec![reloaded], ctx)
+                    .unwrap();
+            })
+        });
+        app.read(|ctx| assert!(preferences.bedrock_model_is_verified(&model.model_id, ctx)));
+        // Another process/startup cannot inherit an in-memory approval.
+        app.read(|ctx| {
+            assert!(!empty_preferences().bedrock_model_is_verified(&model.model_id, ctx))
+        });
+        app.update(|ctx| {
+            AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                settings
+                    .bedrock_region
+                    .set_value("different-region".to_owned(), ctx)
+                    .unwrap();
+            })
+        });
+        app.read(|ctx| assert!(!preferences.bedrock_model_is_verified(&model.model_id, ctx)));
+    });
 }

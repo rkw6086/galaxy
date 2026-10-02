@@ -3,7 +3,8 @@ use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
     Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
     CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement, Hoverable, MainAxisAlignment,
-    MainAxisSize, MouseStateHandle, Padding, ParentElement, Radius, ScrollbarWidth, Text,
+    MainAxisSize, MouseStateHandle, Padding, ParentElement, Radius, RowBackground, ScrollbarWidth,
+    Table, TableColumnWidth, TableConfig, TableHeader, TableStateHandle, TableVerticalSizing, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::platform::Cursor;
@@ -15,6 +16,50 @@ use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 use pathfinder_color::ColorU;
+
+pub(super) fn model_catalog_table(
+    state: TableStateHandle,
+    row_count: usize,
+    render_row: impl Fn(usize, &AppContext) -> Vec<Box<dyn Element>> + 'static,
+    appearance: &Appearance,
+) -> Box<dyn Element> {
+    let headers = ["Use", "Model", "Context", "Capabilities"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, label)| {
+            TableHeader::new(
+                Text::new(label.to_owned(), appearance.ui_font_family(), 11.)
+                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                    .with_style(Properties::default().weight(Weight::Semibold))
+                    .finish(),
+            )
+            .with_width(if index == 3 {
+                TableColumnWidth::Flex(1.)
+            } else {
+                TableColumnWidth::Intrinsic
+            })
+        })
+        .collect();
+    state.invalidate_all_intrinsic_widths();
+    Table::new(state, 0., 0.)
+        .with_headers(headers)
+        .with_row_count(row_count)
+        .with_row_render_fn(render_row)
+        .with_config(TableConfig {
+            border_width: 1.,
+            border_color: appearance.theme().outline().into(),
+            outer_border: true,
+            column_dividers: false,
+            row_dividers: true,
+            cell_padding: 12.,
+            header_background: appearance.theme().surface_2().into(),
+            row_background: RowBackground::uniform(appearance.theme().surface_1().into()),
+            fixed_header: false,
+            vertical_sizing: TableVerticalSizing::ExpandToContent,
+            measure_body_cells_for_intrinsic_widths: true,
+        })
+        .finish()
+}
 
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::chatgpt_auth::{ChatGPTAuthModel, ChatGPTAuthModelEvent, ChatGPTAuthState};
@@ -32,8 +77,8 @@ use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{
     ActionButton, ButtonSize, NakedTheme, PrimaryTheme, SecondaryTheme,
 };
+use crate::view_components::{Dropdown, DropdownItem};
 
-const SETUP_WIDTH: f32 = 900.;
 const INPUT_FONT_SIZE: f32 = 12.;
 const MODEL_LOGO_SIZE: f32 = 20.;
 
@@ -171,6 +216,7 @@ pub enum ProviderSetupViewAction {
     CycleModelCapability(usize, CapabilityKey),
     ConnectChatGPT,
     SelectBedrockAuth(BedrockAuthMethod),
+    SelectBedrockProfile(String),
     ToggleBedrockCrossRegion,
     ToggleBedrockAutoLogin,
     SelectAcpAgent(String),
@@ -197,7 +243,8 @@ pub struct ProviderSetupView {
     api_key_editor: ViewHandle<EditorView>,
     project_id_editor: ViewHandle<EditorView>,
     location_editor: ViewHandle<EditorView>,
-    bedrock_profile_editor: ViewHandle<EditorView>,
+    bedrock_profile_dropdown: ViewHandle<Dropdown<ProviderSetupViewAction>>,
+    bedrock_region_request: usize,
     bedrock_region_editor: ViewHandle<EditorView>,
     bedrock_refresh_command_editor: ViewHandle<EditorView>,
     bedrock_access_key_editor: ViewHandle<EditorView>,
@@ -210,11 +257,13 @@ pub struct ProviderSetupView {
     bedrock_cross_region_toggle: SwitchStateHandle,
     bedrock_auto_login_toggle: SwitchStateHandle,
     model_switches: Vec<SwitchStateHandle>,
+    bedrock_model_switches: Vec<SwitchStateHandle>,
     model_capability_switches: Vec<[SwitchStateHandle; 2]>,
     model_capability_buttons: Vec<Vec<ViewHandle<ActionButton>>>,
     model_context_editors: Vec<ViewHandle<EditorView>>,
     provider_type_scroll_state: ClippedScrollStateHandle,
     models_scroll_state: ClippedScrollStateHandle,
+    model_table_state: TableStateHandle,
     step_tab_mouse_states: Vec<MouseStateHandle>,
     back_button: ViewHandle<ActionButton>,
     cancel_button: ViewHandle<ActionButton>,
@@ -245,8 +294,9 @@ impl ProviderSetupView {
         let api_key_editor = Self::create_editor("sk-... (optional)", true, ctx);
         let project_id_editor = Self::create_editor("my-google-cloud-project", false, ctx);
         let location_editor = Self::create_editor("global", false, ctx);
-        let bedrock_profile_editor = Self::create_editor("default", false, ctx);
-        let bedrock_region_editor = Self::create_editor("us-east-1", false, ctx);
+        let bedrock_profile_dropdown = ctx.add_typed_action_view(Dropdown::new);
+        let bedrock_region_editor =
+            Self::create_editor("Region from AWS profile (or enter an override)", false, ctx);
         let bedrock_refresh_command_editor = Self::create_editor("aws sso login", false, ctx);
         let bedrock_access_key_editor = Self::create_editor("AKIA...", false, ctx);
         let bedrock_secret_key_editor = Self::create_editor("Secret access key", true, ctx);
@@ -332,7 +382,6 @@ impl ProviderSetupView {
             }
         });
         for (editor, update) in [
-            (bedrock_profile_editor.clone(), 0),
             (bedrock_region_editor.clone(), 1),
             (bedrock_refresh_command_editor.clone(), 2),
             (bedrock_access_key_editor.clone(), 3),
@@ -345,7 +394,6 @@ impl ProviderSetupView {
                 if matches!(event, EditorEvent::Edited(_)) {
                     let value = editor.as_ref(ctx).buffer_text(ctx);
                     match update {
-                        0 => me.draft_bedrock.profile = value,
                         1 => me.draft_bedrock.region = value,
                         2 => me.draft_bedrock.auth_refresh_command = value,
                         3 => me.draft_bedrock.access_key_id = value,
@@ -430,7 +478,8 @@ impl ProviderSetupView {
             api_key_editor,
             project_id_editor,
             location_editor,
-            bedrock_profile_editor,
+            bedrock_profile_dropdown,
+            bedrock_region_request: 0,
             bedrock_region_editor,
             bedrock_refresh_command_editor,
             bedrock_access_key_editor,
@@ -443,11 +492,13 @@ impl ProviderSetupView {
             bedrock_cross_region_toggle: SwitchStateHandle::default(),
             bedrock_auto_login_toggle: SwitchStateHandle::default(),
             model_switches: Vec::new(),
+            bedrock_model_switches: Vec::new(),
             model_capability_switches: Vec::new(),
             model_capability_buttons: Vec::new(),
             model_context_editors: Vec::new(),
             provider_type_scroll_state: ClippedScrollStateHandle::default(),
             models_scroll_state: ClippedScrollStateHandle::default(),
+            model_table_state: TableStateHandle::new(0, |_, _| Vec::new()),
             step_tab_mouse_states: (0..4).map(|_| MouseStateHandle::default()).collect(),
             back_button,
             cancel_button,
@@ -544,6 +595,9 @@ impl ProviderSetupView {
         };
         self.discovery_state = DiscoveryState::Idle;
         self.sync_editors(ctx);
+        if self.provider_type == ProviderSetupProviderType::Bedrock {
+            self.load_bedrock_profile_region(ctx);
+        }
         self.sync_provider_type_buttons(ctx);
         self.sync_acp_agent_buttons(ctx);
         self.sync_bedrock_auth_buttons(ctx);
@@ -601,6 +655,9 @@ impl ProviderSetupView {
         self.draft_models.clear();
         self.discovery_state = DiscoveryState::Idle;
         self.sync_editors(ctx);
+        if self.draft_bedrock.region.is_empty() {
+            self.load_bedrock_profile_region(ctx);
+        }
         self.sync_provider_type_buttons(ctx);
         self.sync_bedrock_auth_buttons(ctx);
         self.sync_model_switches(ctx);
@@ -652,6 +709,43 @@ impl ProviderSetupView {
         ctx.notify();
     }
 
+    fn load_bedrock_profile_region(&mut self, ctx: &mut ViewContext<Self>) {
+        self.bedrock_region_request += 1;
+        #[cfg(not(target_family = "wasm"))]
+        {
+            use aws_config::meta::region::ProvideRegion;
+            let request = self.bedrock_region_request;
+            let profile = self.draft_bedrock.profile.clone();
+            let requested_profile = profile.clone();
+            let previous_region = self.draft_bedrock.region.clone();
+            ctx.spawn(
+                async move {
+                    let provider = aws_config::profile::ProfileFileRegionProvider::builder()
+                        .profile_name(profile)
+                        .build();
+                    ProvideRegion::region(&provider)
+                        .await
+                        .map(|region| region.as_ref().to_owned())
+                },
+                move |me, region, ctx| {
+                    if request != me.bedrock_region_request
+                        || me.provider_type != ProviderSetupProviderType::Bedrock
+                        || me.draft_bedrock.profile != requested_profile
+                        || me.draft_bedrock.region != previous_region
+                    {
+                        return;
+                    }
+                    me.draft_bedrock.region = region.unwrap_or_default();
+                    me.bedrock_region_editor.update(ctx, |editor, ctx| {
+                        editor.system_reset_buffer_text(&me.draft_bedrock.region, ctx);
+                    });
+                    me.update_next_button(ctx);
+                    ctx.notify();
+                },
+            );
+        }
+    }
+
     fn sync_editors(&self, ctx: &mut ViewContext<Self>) {
         self.name_editor.update(ctx, |editor, ctx| {
             editor.system_reset_buffer_text(&self.draft_name, ctx);
@@ -668,8 +762,30 @@ impl ProviderSetupView {
         self.location_editor.update(ctx, |editor, ctx| {
             editor.system_reset_buffer_text(&self.draft_location, ctx);
         });
-        self.bedrock_profile_editor.update(ctx, |editor, ctx| {
-            editor.system_reset_buffer_text(&self.draft_bedrock.profile, ctx);
+        let mut profiles = vec!["default".to_owned()];
+        #[cfg(not(target_family = "wasm"))]
+        profiles.extend(crate::ai::provider::external_config::list_aws_profiles());
+        profiles.push(self.draft_bedrock.profile.clone());
+        profiles.retain(|profile| !profile.is_empty());
+        profiles.sort();
+        profiles.dedup();
+        self.bedrock_profile_dropdown.update(ctx, |dropdown, ctx| {
+            dropdown.set_items(
+                profiles
+                    .into_iter()
+                    .map(|profile| {
+                        DropdownItem::new(
+                            profile.clone(),
+                            ProviderSetupViewAction::SelectBedrockProfile(profile),
+                        )
+                    })
+                    .collect(),
+                ctx,
+            );
+            dropdown.set_selected_by_action(
+                ProviderSetupViewAction::SelectBedrockProfile(self.draft_bedrock.profile.clone()),
+                ctx,
+            );
         });
         self.bedrock_region_editor.update(ctx, |editor, ctx| {
             editor.system_reset_buffer_text(&self.draft_bedrock.region, ctx);
@@ -740,6 +856,8 @@ impl ProviderSetupView {
     }
 
     fn sync_model_switches(&mut self, ctx: &mut ViewContext<Self>) {
+        self.bedrock_model_switches
+            .resize_with(self.draft_bedrock.models.len(), SwitchStateHandle::default);
         while self.model_switches.len() < self.draft_models.len() {
             self.model_switches.push(SwitchStateHandle::default());
         }
@@ -959,13 +1077,30 @@ impl ProviderSetupView {
                     session_token: None,
                     cross_region_inference: self.draft_bedrock.cross_region_inference,
                 };
+                let requested_config = config.clone();
                 ctx.spawn(
                     async move {
                         crate::ai::provider::discovery::discover_available_models(config).await
                     },
                     move |me, result, ctx| match result {
-                        Ok(models) => {
-                            me.draft_bedrock.models = models;
+                        Ok(discovery) => {
+                            for record in discovery.records {
+                                crate::ai::remote_logging::log_view_event(ctx, record);
+                            }
+                            let models = discovery.models;
+                            LLMPreferences::handle(ctx).update(ctx, |preferences, ctx| {
+                                preferences.record_bedrock_verification(
+                                    requested_config,
+                                    &models,
+                                    ctx,
+                                );
+                            });
+                            me.draft_bedrock.models =
+                                crate::ai::provider::discovery::preserve_model_toggles(
+                                    &me.draft_bedrock.models,
+                                    models,
+                                );
+                            me.sync_model_switches(ctx);
                             me.discovery_state = DiscoveryState::Idle;
                             me.step = ProviderSetupStep::Models;
                             me.update_next_button(ctx);
@@ -1152,6 +1287,7 @@ impl ProviderSetupView {
             .collect::<Vec<_>>();
 
         let list = Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_spacing(10.)
             .with_children(cards)
             .finish();
@@ -1359,11 +1495,8 @@ impl ProviderSetupView {
                 );
                 match self.draft_bedrock.auth_method {
                     BedrockAuthMethod::Profile | BedrockAuthMethod::Sso => {
-                        children.push(self.render_input(
-                            appearance,
-                            "AWS profile",
-                            &self.bedrock_profile_editor,
-                        ));
+                        children.push(Self::render_label(appearance, "AWS profile"));
+                        children.push(ChildView::new(&self.bedrock_profile_dropdown).finish());
                         if self.draft_bedrock.auth_method == BedrockAuthMethod::Sso {
                             children.push(self.render_input(
                                 appearance,
@@ -1518,6 +1651,7 @@ impl ProviderSetupView {
     ) -> Box<dyn galaxyui::Element> {
         let list = Flex::column()
             .with_spacing(spacing)
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_children(rows)
             .finish();
         let scrollable = ClippedScrollable::vertical(
@@ -1539,7 +1673,6 @@ impl ProviderSetupView {
                 .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
                 .finish(),
         )
-        .with_width(SETUP_WIDTH - 56.)
         .with_max_height(430.)
         .finish()
     }
@@ -1588,47 +1721,9 @@ impl ProviderSetupView {
             .finish()
     }
 
-    fn render_model_table_header(&self, appearance: &Appearance) -> Box<dyn galaxyui::Element> {
-        let header = |label: &str| {
-            Text::new(label.to_owned(), appearance.ui_font_family(), 11.)
-                .with_color(appearance.theme().nonactive_ui_text_color().into())
-                .with_style(Properties::default().weight(Weight::Semibold))
-                .finish()
-        };
-        Container::new(
-            Flex::row()
-                .with_spacing(12.)
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(ConstrainedBox::new(header("Use")).with_width(52.).finish())
-                .with_child(
-                    ConstrainedBox::new(header("Model"))
-                        .with_width(250.)
-                        .finish(),
-                )
-                .with_child(
-                    ConstrainedBox::new(header("Context"))
-                        .with_width(140.)
-                        .finish(),
-                )
-                .with_child(
-                    ConstrainedBox::new(header("Capabilities"))
-                        .with_width(330.)
-                        .finish(),
-                )
-                .finish(),
-        )
-        .with_padding(Padding::uniform(10.).with_vertical(9.))
-        .with_background(appearance.theme().surface_2())
-        .with_border(Border::bottom(1.).with_border_fill(appearance.theme().outline()))
-        .finish()
-    }
-
     fn render_model_capabilities(
-        &self,
-        appearance: &Appearance,
-        index: usize,
+        buttons: &[ViewHandle<ActionButton>],
     ) -> Box<dyn galaxyui::Element> {
-        let buttons = &self.model_capability_buttons[index];
         let first_row = buttons[..3]
             .iter()
             .map(|button| ChildView::new(button).finish())
@@ -1654,12 +1749,14 @@ impl ProviderSetupView {
             .finish()
     }
 
-    fn render_openai_model_row(
-        &self,
+    fn render_openai_model_cells(
         appearance: &Appearance,
         index: usize,
         model: &OpenAIModelConfig,
-    ) -> Box<dyn galaxyui::Element> {
+        switch: SwitchStateHandle,
+        context_editor: ViewHandle<EditorView>,
+        buttons: &[ViewHandle<ActionButton>],
+    ) -> Vec<Box<dyn Element>> {
         let model_info = Flex::column()
             .with_spacing(4.)
             .with_child(
@@ -1679,16 +1776,9 @@ impl ProviderSetupView {
                 .finish(),
             )
             .finish();
-        let model_info = Flex::row()
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_spacing(10.)
-            .with_child(self.render_model_logo())
-            .with_child(model_info)
-            .finish();
-
         let context_input = appearance
             .ui_builder()
-            .text_input(self.model_context_editors[index].clone())
+            .text_input(context_editor)
             .with_style(UiComponentStyles {
                 padding: Some(Coords {
                     top: 8.,
@@ -1702,94 +1792,77 @@ impl ProviderSetupView {
             .build()
             .finish();
 
-        Container::new(
-            Flex::row()
-                .with_spacing(12.)
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(
-                    ConstrainedBox::new(
-                        appearance
-                            .ui_builder()
-                            .switch(self.model_switches[index].clone())
-                            .check(model.enabled)
-                            .build()
-                            .on_click(move |ctx, _, _| {
-                                ctx.dispatch_typed_action(ProviderSetupViewAction::ToggleModel(
-                                    index,
-                                ));
-                            })
-                            .finish(),
-                    )
-                    .with_width(52.)
-                    .finish(),
-                )
-                .with_child(ConstrainedBox::new(model_info).with_width(250.).finish())
-                .with_child(ConstrainedBox::new(context_input).with_width(140.).finish())
-                .with_child(
-                    ConstrainedBox::new(self.render_model_capabilities(appearance, index))
-                        .with_width(330.)
-                        .finish(),
-                )
-                .finish(),
-        )
-        .with_padding(Padding::uniform(12.).with_vertical(10.))
-        .with_border(Border::bottom(1.).with_border_fill(appearance.theme().outline()))
-        .finish()
+        let toggle = appearance
+            .ui_builder()
+            .switch(switch)
+            .check(model.enabled)
+            .build()
+            .on_click(move |ctx, _, _| {
+                ctx.dispatch_typed_action(ProviderSetupViewAction::ToggleModel(index))
+            })
+            .finish();
+        vec![
+            Flex::row().with_child(toggle).finish(),
+            model_info,
+            ConstrainedBox::new(context_input).with_width(100.).finish(),
+            Self::render_model_capabilities(buttons),
+        ]
     }
 
     fn render_models(&self, appearance: &Appearance) -> Box<dyn galaxyui::Element> {
         if self.provider_type == ProviderSetupProviderType::Bedrock {
-            let rows = self
-                .draft_bedrock
-                .models
-                .iter()
-                .map(|model| {
-                    Flex::row()
-                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                        .with_spacing(10.)
-                        .with_child(self.render_model_logo())
-                        .with_child(
-                            Flex::column()
-                                .with_spacing(2.)
-                                .with_child(
-                                    Text::new(
-                                        model.display_name.clone(),
-                                        appearance.ui_font_family(),
-                                        INPUT_FONT_SIZE,
-                                    )
-                                    .with_color(appearance.theme().active_ui_text_color().into())
-                                    .finish(),
-                                )
-                                .with_child(
-                                    Text::new(
-                                        model.model_id.clone(),
-                                        appearance.monospace_font_family(),
-                                        10.,
-                                    )
-                                    .with_color(appearance.theme().nonactive_ui_text_color().into())
-                                    .soft_wrap(true)
-                                    .finish(),
-                                )
-                                .finish(),
-                        )
-                        .finish()
-                })
-                .collect::<Vec<_>>();
-            return Flex::column()
-                .with_spacing(12.)
+            let models = self.draft_bedrock.models.clone();
+            let switches = self.bedrock_model_switches.clone();
+            let table = model_catalog_table(
+                self.model_table_state.clone(),
+                models.len(),
+                move |index, app| {
+                    let appearance = Appearance::as_ref(app);
+                    let model = &models[index];
+                    let text = |value: String| {
+                        Text::new(value, appearance.ui_font_family(), 11.)
+                            .with_color(appearance.theme().nonactive_ui_text_color().into())
+                            .finish()
+                    };
+                    let toggle = appearance
+                        .ui_builder()
+                        .switch(switches[index].clone())
+                        .check(model.enabled)
+                        .build()
+                        .on_click(move |ctx, _, _| {
+                            ctx.dispatch_typed_action(ProviderSetupViewAction::ToggleModel(index))
+                        })
+                        .finish();
+                    let name = Flex::column()
+                        .with_spacing(3.)
+                        .with_child(text(model.display_name.clone()))
+                        .with_child(text(model.model_id.clone()))
+                        .finish();
+                    let context = galaxy_bedrock_model_catalog::model_metadata(&model.model_id)
+                        .and_then(|metadata| metadata.context_window_tokens)
+                        .map(|tokens| tokens.to_string())
+                        .unwrap_or_else(|| "Unknown".to_owned());
+                    vec![
+                        Flex::row().with_child(toggle).finish(),
+                        name,
+                        text(context),
+                        text(
+                            if model.vision_supported {
+                                "Images"
+                            } else {
+                                "Text"
+                            }
+                            .to_owned(),
+                        ),
+                    ]
+                },
+                appearance,
+            );
+            return Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch).with_spacing(12.)
                 .with_child(self.render_input(appearance, "Connection name", &self.name_editor))
-                .with_child(
-                    Text::new(
-                        "These models passed AWS Bedrock availability checks. Model selection is managed by discovery and cannot be edited manually.",
-                        appearance.ui_font_family(),
-                        INPUT_FONT_SIZE,
-                    )
-                    .with_color(appearance.theme().nonactive_ui_text_color().into())
-                    .soft_wrap(true)
-                    .finish(),
-                )
-                .with_child(self.render_model_table(appearance, rows, 10.))
-                .finish();
+                .with_child(Text::new("Only models passing AWS agreement, authorization, entitlement, and region checks are offered. Choose which models Galaxy should enable.", appearance.ui_font_family(), INPUT_FONT_SIZE)
+                    .with_color(appearance.theme().nonactive_ui_text_color().into()).soft_wrap(true).finish())
+                .with_child(self.render_model_table(appearance, vec![table], 0.)).finish();
         }
         if self.provider_type == ProviderSetupProviderType::Acp {
             let option_rows = self
@@ -1873,17 +1946,29 @@ impl ProviderSetupView {
                 .with_child(catalog)
                 .finish();
         }
-        let mut rows = vec![self.render_model_table_header(appearance)];
-        rows.extend(
-            self.draft_models
-                .iter()
-                .enumerate()
-                .map(|(index, model)| self.render_openai_model_row(appearance, index, model)),
+        let models = self.draft_models.clone();
+        let switches = self.model_switches.clone();
+        let editors = self.model_context_editors.clone();
+        let buttons = self.model_capability_buttons.clone();
+        let table = model_catalog_table(
+            self.model_table_state.clone(),
+            models.len(),
+            move |index, app| {
+                Self::render_openai_model_cells(
+                    Appearance::as_ref(app),
+                    index,
+                    &models[index],
+                    switches[index].clone(),
+                    editors[index].clone(),
+                    &buttons[index],
+                )
+            },
+            appearance,
         );
-
-        let table = self.render_model_table(appearance, rows, 0.);
+        let table = self.render_model_table(appearance, vec![table], 0.);
 
         Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_spacing(12.)
             .with_child(self.render_input(appearance, "Connection name", &self.name_editor))
             .with_child(
@@ -2101,6 +2186,7 @@ impl View for ProviderSetupView {
             ProviderSetupStep::Models => self.render_models(appearance),
         };
         Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_spacing(20.)
             .with_child(self.render_step_indicator(appearance))
             .with_child(content)
@@ -2126,6 +2212,11 @@ impl TypedActionView for ProviderSetupView {
                     self.draft_api_key = None;
                 }
                 self.sync_editors(ctx);
+                if self.provider_type == ProviderSetupProviderType::Bedrock
+                    && self.draft_bedrock.region.is_empty()
+                {
+                    self.load_bedrock_profile_region(ctx);
+                }
                 self.sync_provider_type_buttons(ctx);
                 self.sync_bedrock_auth_buttons(ctx);
                 self.update_next_button(ctx);
@@ -2217,7 +2308,17 @@ impl TypedActionView for ProviderSetupView {
                 ctx.notify();
             }
             ProviderSetupViewAction::ToggleModel(index) => {
-                if let Some(model) = self.draft_models.get_mut(*index) {
+                let models = if self.provider_type == ProviderSetupProviderType::Bedrock {
+                    &mut self.draft_bedrock.models
+                } else {
+                    if let Some(model) = self.draft_models.get_mut(*index) {
+                        model.enabled = !model.enabled;
+                        self.update_next_button(ctx);
+                        ctx.notify();
+                    }
+                    return;
+                };
+                if let Some(model) = models.get_mut(*index) {
                     model.enabled = !model.enabled;
                     self.update_next_button(ctx);
                     ctx.notify();
@@ -2236,6 +2337,34 @@ impl TypedActionView for ProviderSetupView {
             ProviderSetupViewAction::ConnectChatGPT => {
                 #[cfg(not(target_family = "wasm"))]
                 ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.connect(ctx));
+            }
+            ProviderSetupViewAction::SelectBedrockProfile(profile) => {
+                if self.draft_bedrock.profile != *profile {
+                    self.draft_bedrock.profile = profile.clone();
+                    self.draft_bedrock.region.clear();
+                    self.draft_bedrock.models.clear();
+                    self.discovery_state = DiscoveryState::Idle;
+                    self.bedrock_region_editor.update(ctx, |editor, ctx| {
+                        editor.system_reset_buffer_text("", ctx);
+                    });
+                    // The dropdown dispatches this action while it is borrowed.
+                    // Update its selected label only after that handler returns.
+                    let selected_profile = profile.clone();
+                    ctx.spawn(async {}, move |me, _, ctx| {
+                        if me.draft_bedrock.profile != selected_profile {
+                            return;
+                        }
+                        me.bedrock_profile_dropdown.update(ctx, |dropdown, ctx| {
+                            dropdown.set_selected_by_action(
+                                ProviderSetupViewAction::SelectBedrockProfile(selected_profile),
+                                ctx,
+                            );
+                        });
+                    });
+                    self.load_bedrock_profile_region(ctx);
+                    self.update_next_button(ctx);
+                    ctx.notify();
+                }
             }
             ProviderSetupViewAction::SelectBedrockAuth(method) => {
                 self.draft_bedrock.auth_method = *method;

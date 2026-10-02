@@ -21,6 +21,7 @@ const MAX_FILES_IN_CLI_ROTATION: usize = 10;
 const CLI_LOG_SUBDIRECTORY: &str = "oz";
 const SESSION_LOG_SUBDIRECTORY: &str = "session-logs";
 const TEMP_LOG_FILE_SUFFIX: &str = "old.temp";
+const BEDROCK_DISCOVERY_LOG_TARGET: &str = "galaxy::ai::provider::discovery";
 const INPUT_CLASSIFIER_LOG_TARGET: &str = "input_classifier";
 const FILE_WATCHER_LOG_TARGET: &str = "notify";
 const FILE_WATCHER_DEBOUNCER_LOG_TARGET: &str = "notify_debouncer_full";
@@ -589,6 +590,9 @@ fn init_internal(
     base_logger
         .filter(Some("naga"), LevelFilter::Warn)
         .filter(Some("wgpu_core"), LevelFilter::Warn)
+        // Bedrock access checks contain model IDs and approval statuses only.
+        // Retain the complete audit even when full-session logging is disabled.
+        .filter(Some(BEDROCK_DISCOVERY_LOG_TARGET), LevelFilter::Info)
         // ANSI rendering emits trace records for every character and terminal control sequence.
         // Preserve meaningful info/warnings/errors without filling full-session logs with typing,
         // carriage-return, linefeed, cursor-motion, and scrolling noise.

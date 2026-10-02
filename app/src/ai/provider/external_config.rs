@@ -141,6 +141,8 @@ fn parse_claude_code_model_map(
         .map(|(source_id, arn)| {
             let display_name = derive_display_name(&source_id);
             BedrockModelConfig {
+                enabled: true,
+                access_verified: false,
                 model_id: arn,
                 display_name,
                 vision_supported: true,
@@ -276,8 +278,14 @@ pub fn list_aws_profiles() -> Vec<String> {
     let mut profiles = BTreeSet::new();
 
     if let Some(home) = dirs::home_dir() {
-        parse_aws_config_file(home.join(".aws").join("config"), &mut profiles);
-        parse_aws_credentials_file(home.join(".aws").join("credentials"), &mut profiles);
+        let config_path = std::env::var_os("AWS_CONFIG_FILE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".aws").join("config"));
+        let credentials_path = std::env::var_os("AWS_SHARED_CREDENTIALS_FILE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".aws").join("credentials"));
+        parse_aws_config_file(config_path, &mut profiles);
+        parse_aws_credentials_file(credentials_path, &mut profiles);
     }
 
     profiles.into_iter().collect()

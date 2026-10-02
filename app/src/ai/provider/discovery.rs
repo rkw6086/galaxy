@@ -8,34 +8,46 @@ use aws_config::BehaviorVersion;
 use aws_sdk_bedrock::Client;
 use aws_sdk_bedrockruntime::config::Region;
 use futures::{stream, StreamExt};
-use galaxy_bedrock_model_catalog::model_metadata;
+use galaxy_bedrock_model_catalog::models as catalog_models;
+use serde_json::json;
 
 use super::client::{BedrockClientConfig, BedrockError};
+use crate::ai::remote_logging::{RemoteLogLevel, RemoteLogRecord};
 use crate::settings::ai::BedrockModelConfig;
+
+pub(crate) struct BedrockDiscovery {
+    pub models: Vec<BedrockModelConfig>,
+    pub records: Vec<RemoteLogRecord>,
+}
 
 const AVAILABILITY_CHECK_CONCURRENCY: usize = 8;
 
-pub async fn discover_available_models(
+pub(crate) async fn discover_available_models(
     config: BedrockClientConfig,
-) -> Result<Vec<BedrockModelConfig>, String> {
+) -> Result<BedrockDiscovery, String> {
     let aws_config = load_aws_config(&config)
         .await
         .map_err(|error| error.to_string())?;
     let client = Client::new(&aws_config);
-    let catalog = client
-        .list_foundation_models()
-        .send()
-        .await
-        .map_err(|error| format!("Could not list AWS Bedrock foundation models: {error}"))?;
-
-    // AWS exposes agreement/authorization state only through an individual
-    // GetFoundationModelAvailability call. Keep using that control-plane API,
-    // but bound the independent checks so a large catalog does not serialize
-    // startup discovery one model at a time.
-    let checks = catalog.model_summaries().iter().cloned().map(|summary| {
+    // The bundled catalog defines candidates; AWS defines account access.
+    // Never add arbitrary entries from ListFoundationModels to this catalog.
+    let candidates = catalog_models().to_vec();
+    let sweep_id = uuid::Uuid::new_v4().to_string();
+    let region = aws_config
+        .region()
+        .map(|region| region.as_ref())
+        .unwrap_or("UNKNOWN")
+        .to_owned();
+    log::info!(
+        "[bedrock] Starting availability sweep {sweep_id}: {} catalog models, region={region}",
+        candidates.len()
+    );
+    let checks = candidates.into_iter().map(|metadata| {
         let client = client.clone();
+        let sweep_id = sweep_id.clone();
+        let region = region.clone();
         async move {
-            let model_id = summary.model_id();
+            let model_id = metadata.model_id.as_str();
             let availability = match client
                 .get_foundation_model_availability()
                 .model_id(model_id)
@@ -44,67 +56,59 @@ pub async fn discover_available_models(
             {
                 Ok(availability) => availability,
                 Err(error) => {
-                    log::debug!(
-                        "[bedrock] Availability check failed for {model_id}; excluding model: {error}"
-                    );
-                    return None;
+                    let error = crate::ai::remote_logging::sanitize_error(format!("{error:?}"));
+                    log::warn!("[bedrock] Availability sweep {sweep_id}: model={model_id}, region={region}, decision=excluded, error={error}");
+                    return (None, RemoteLogRecord {
+                        level: RemoteLogLevel::Warn,
+                        message: "Bedrock model availability check failed".to_owned(),
+                        context: json!({"event": "bedrock_model_availability", "sweep_id": sweep_id, "model_id": model_id, "aws_region": region, "decision": "excluded", "error": error}),
+                    });
                 }
             };
+            let agreement = availability.agreement_availability().map(|value| value.status().as_str());
+            let authorization = availability.authorization_status().as_str();
+            let entitlement = availability.entitlement_availability().as_str();
+            let region_status = availability.region_availability().as_str();
+            let access_allowed = model_availability_is_usable(agreement, authorization, entitlement, region_status);
+            let runtime_supported = metadata.supports_agent_runtime() != Some(false);
+            let allowed = access_allowed && runtime_supported;
+            let decision = if allowed { "allowed" } else { "excluded" };
+            log::info!("[bedrock] Availability sweep {sweep_id}: model={model_id}, agreement={}, authorization={authorization}, entitlement={entitlement}, region_status={region_status}, runtime_supported={runtime_supported}, decision={decision}", agreement.unwrap_or("MISSING"));
+            let record = RemoteLogRecord {
+                level: RemoteLogLevel::Info,
+                message: "Bedrock model availability checked".to_owned(),
+                context: json!({"event": "bedrock_model_availability", "sweep_id": sweep_id, "model_id": model_id, "aws_region": region, "agreement": agreement, "authorization": authorization, "entitlement": entitlement, "region_availability": region_status, "agreement_error": availability.agreement_availability().and_then(|value| value.error_message()).map(crate::ai::remote_logging::sanitize_error), "access_allowed": access_allowed, "runtime_supported": runtime_supported, "decision": decision}),
+            };
+            if !allowed { return (None, record); }
 
-            if !model_availability_is_usable(
-                availability
-                    .agreement_availability()
-                    .map(|agreement| agreement.status().as_str()),
-                availability.authorization_status().as_str(),
-                availability.entitlement_availability().as_str(),
-                availability.region_availability().as_str(),
-            ) {
-                log::debug!(
-                    "[bedrock] Excluding {model_id}: agreement={}, authorization={}, entitlement={}, region={}",
-                    availability
-                        .agreement_availability()
-                        .map(|agreement| agreement.status().as_str())
-                        .unwrap_or("MISSING"),
-                    availability.authorization_status().as_str(),
-                    availability.entitlement_availability().as_str(),
-                    availability.region_availability().as_str(),
-                );
-                return None;
-            }
-
-            let metadata = model_metadata(model_id);
-            let display_name = summary.model_name().map(str::to_owned).unwrap_or_else(|| {
-                metadata
-                    .map(|metadata| metadata.model_name.clone())
-                    .unwrap_or_else(|| prettify_model_id(model_id))
-            });
-            let vision_supported = summary
-                .input_modalities()
-                .iter()
-                .any(|modality| modality.as_str() == "IMAGE")
-                || metadata.is_some_and(|metadata| metadata.supports_vision_input());
-
-            Some(BedrockModelConfig {
+            (Some(BedrockModelConfig {
                 model_id: model_id.to_owned(),
-                display_name,
-                vision_supported,
-            })
+                display_name: metadata.model_name.clone(),
+                vision_supported: metadata.supports_vision_input(),
+                enabled: true,
+                access_verified: true,
+            }), record)
         }
     });
-    let mut models = stream::iter(checks)
+    let results = stream::iter(checks)
         .buffer_unordered(AVAILABILITY_CHECK_CONCURRENCY)
-        .filter_map(futures::future::ready)
         .collect::<Vec<_>>()
         .await;
 
+    let (models, mut records): (Vec<_>, Vec<_>) = results.into_iter().unzip();
+    let mut models = models.into_iter().flatten().collect::<Vec<_>>();
     models.sort_by(|left, right| left.display_name.cmp(&right.display_name));
-    if models.is_empty() {
-        return Err(
-            "AWS returned no Bedrock models that are authorized and available in this region."
-                .to_string(),
-        );
-    }
-    Ok(models)
+    log::info!(
+        "[bedrock] Availability sweep {sweep_id} complete: checked={}, allowed={}",
+        records.len(),
+        models.len()
+    );
+    records.push(RemoteLogRecord {
+        level: RemoteLogLevel::Info,
+        message: "Bedrock availability sweep completed".to_owned(),
+        context: json!({"event": "bedrock_availability_sweep_completed", "sweep_id": sweep_id, "aws_region": region, "catalog_count": catalog_models().len(), "checked_count": records.len(), "allowed_count": models.len()}),
+    });
+    Ok(BedrockDiscovery { models, records })
 }
 
 fn model_availability_is_usable(
@@ -119,6 +123,21 @@ fn model_availability_is_usable(
         && region_status == "AVAILABLE"
 }
 
+pub(crate) fn preserve_model_toggles(
+    existing: &[BedrockModelConfig],
+    mut discovered: Vec<BedrockModelConfig>,
+) -> Vec<BedrockModelConfig> {
+    for model in &mut discovered {
+        if let Some(previous) = existing
+            .iter()
+            .find(|previous| previous.model_id == model.model_id)
+        {
+            model.enabled = previous.enabled;
+        }
+    }
+    discovered
+}
+
 async fn load_aws_config(
     config: &BedrockClientConfig,
 ) -> Result<aws_config::SdkConfig, BedrockError> {
@@ -126,7 +145,7 @@ async fn load_aws_config(
         crate::settings::ai::BedrockAuthMethod::Profile
         | crate::settings::ai::BedrockAuthMethod::Sso => {
             let mut loader = aws_config::defaults(BehaviorVersion::latest());
-            if !config.profile.is_empty() && config.profile != "default" {
+            if !config.profile.is_empty() {
                 loader = loader.profile_name(&config.profile);
             }
             if !config.region.is_empty() {
@@ -160,14 +179,6 @@ async fn load_aws_config(
         return Err(BedrockError::RegionNotConfigured);
     }
     Ok(sdk_config)
-}
-
-fn prettify_model_id(model_id: &str) -> String {
-    model_id
-        .rsplit('.')
-        .next()
-        .unwrap_or(model_id)
-        .replace(['-', ':'], " ")
 }
 
 #[cfg(test)]

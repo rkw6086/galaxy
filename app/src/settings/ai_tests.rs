@@ -441,6 +441,8 @@ fn orchestration_is_enabled_when_ai_is_enabled() {
                 .bedrock_models
                 .set_value(
                     vec![BedrockModelConfig {
+                        enabled: true,
+                        access_verified: true,
                         model_id: "test-model".to_string(),
                         display_name: "Test model".to_string(),
                         vision_supported: false,

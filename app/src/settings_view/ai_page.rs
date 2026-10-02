@@ -21,7 +21,7 @@ use galaxyui::elements::{
     Dismiss, Empty, Expanded, Fill, Flex, FormattedTextElement, HighlightedHyperlink, Hoverable,
     HyperlinkLens, HyperlinkUrl, MainAxisAlignment, MainAxisSize, MouseStateHandle,
     OffsetPositioning, Padding, ParentAnchor, ParentElement, ParentOffsetBounds, Radius,
-    Shrinkable, Stack, Text,
+    Shrinkable, Stack, TableStateHandle, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::keymap::{ContextPredicate, FixedBinding, Keystroke};
@@ -42,8 +42,8 @@ use strum::IntoEnumIterator;
 
 use super::execution_profile_view::{ExecutionProfileView, ExecutionProfileViewEvent};
 use super::provider_setup_view::{
-    AcpProviderDraft, BedrockProviderDraft, ProviderSetupProviderType, ProviderSetupView,
-    ProviderSetupViewEvent,
+    model_catalog_table, AcpProviderDraft, BedrockProviderDraft, ProviderSetupProviderType,
+    ProviderSetupView, ProviderSetupViewEvent,
 };
 use super::settings_page::{
     build_sub_header, build_toggle_element, render_body_item_label,
@@ -2570,12 +2570,17 @@ pub enum AISettingsPageAction {
     RemoveFromMCPDenylist(uuid::Uuid),
     CreateProfile,
     ToggleBedrockEnabled,
+    ToggleBedrockModel(String),
     ToggleOpenAIEnabled,
     ToggleAcpEnabled,
     FetchOpenAIProviderModels(usize),
     AddOpenAIProvider(ProviderSetupProviderType),
     EditOpenAIProvider(usize),
     ToggleOpenAIProviderEnabled(usize),
+    ToggleOpenAIProviderModel {
+        provider_index: usize,
+        model_id: String,
+    },
     RemoveOpenAIProvider(usize),
     EditBedrockProvider,
     RemoveBedrockProvider,
@@ -3223,11 +3228,18 @@ impl TypedActionView for AISettingsPageView {
                 });
                 ctx.notify();
             }
+            AISettingsPageAction::ToggleBedrockModel(model_id) => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let mut models = settings.bedrock_models.value().clone();
+                    if let Some(model) = models.iter_mut().find(|model| model.model_id == *model_id)
+                    {
+                        model.enabled = !model.enabled;
+                        report_if_error!(settings.bedrock_models.set_value(models, ctx));
+                    }
+                });
+            }
             AISettingsPageAction::ToggleBedrockEnabled => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    if !*settings.bedrock_enabled.value() {
-                        report_if_error!(settings.bedrock_models.set_value(Vec::new(), ctx));
-                    }
                     report_if_error!(settings.bedrock_enabled.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
@@ -3262,6 +3274,23 @@ impl TypedActionView for AISettingsPageView {
                         provider.enabled = !provider.enabled;
                     }
                     report_if_error!(settings.openai_providers.set_value(providers, ctx));
+                });
+            }
+            AISettingsPageAction::ToggleOpenAIProviderModel {
+                provider_index,
+                model_id,
+            } => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let mut providers = settings.openai_providers.value().clone();
+                    if let Some(model) = providers.get_mut(*provider_index).and_then(|provider| {
+                        provider
+                            .models
+                            .iter_mut()
+                            .find(|model| model.model_id == *model_id)
+                    }) {
+                        model.enabled = !model.enabled;
+                        report_if_error!(settings.openai_providers.set_value(providers, ctx));
+                    }
                 });
             }
             AISettingsPageAction::RemoveOpenAIProvider(provider_index) => {
@@ -6428,6 +6457,8 @@ impl ModelProviderSection {
 
 struct OpenAIProviderCardState {
     enabled_switch: SwitchStateHandle,
+    model_switches: RefCell<HashMap<String, SwitchStateHandle>>,
+    model_table_state: TableStateHandle,
     edit_button: ViewHandle<ActionButton>,
     remove_button: ViewHandle<ActionButton>,
 }
@@ -6439,6 +6470,8 @@ struct AcpProviderCardState {
 struct ProviderSettingsWidget {
     provider_type: ProviderSetupProviderType,
     bedrock_enabled_toggle: SwitchStateHandle,
+    bedrock_model_switches: RefCell<HashMap<String, SwitchStateHandle>>,
+    bedrock_model_table_state: TableStateHandle,
     add_openai_provider_button: ViewHandle<ActionButton>,
     add_litellm_provider_button: ViewHandle<ActionButton>,
     add_chatgpt_provider_button: ViewHandle<ActionButton>,
@@ -6461,6 +6494,8 @@ impl ProviderSettingsWidget {
             .enumerate()
             .map(|(index, _)| OpenAIProviderCardState {
                 enabled_switch: SwitchStateHandle::default(),
+                model_switches: RefCell::new(HashMap::new()),
+                model_table_state: TableStateHandle::new(0, |_, _| Vec::new()),
                 edit_button: ctx.add_typed_action_view(move |_| {
                     ActionButton::new("Edit", SecondaryTheme).on_click(move |ctx| {
                         ctx.dispatch_typed_action(AISettingsPageAction::EditOpenAIProvider(index));
@@ -6550,6 +6585,8 @@ impl ProviderSettingsWidget {
         Self {
             provider_type,
             bedrock_enabled_toggle: SwitchStateHandle::default(),
+            bedrock_model_switches: RefCell::new(HashMap::new()),
+            bedrock_model_table_state: TableStateHandle::new(0, |_, _| Vec::new()),
             add_openai_provider_button,
             add_litellm_provider_button,
             add_chatgpt_provider_button,
@@ -6593,17 +6630,7 @@ impl ProviderSettingsWidget {
         model: &OpenAIModelConfig,
         provider: &OpenAIProviderConfig,
     ) -> String {
-        let context_size = if provider.kind == OpenAIProviderKind::ChatGPTSubscription {
-            // Use the same limit as requests, including for older saved catalogs
-            // that still contain the optional long-context maximum.
-            openai_model_context_size(model, provider.kind)
-        } else {
-            model.context_size
-        };
-        let mut details = vec![
-            if model.enabled { "Enabled" } else { "Disabled" }.to_string(),
-            format!("Context: {context_size}"),
-        ];
+        let mut details = Vec::new();
 
         if let Some(default_context_size) = model
             .default_context_size
@@ -6686,60 +6713,193 @@ impl ProviderSettingsWidget {
             .finish();
         }
 
-        Container::new(Flex::column().with_children(rows).finish())
-            .with_background(appearance.theme().surface_2())
-            .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
-            .finish()
+        Container::new(
+            Flex::column()
+                .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .with_children(rows)
+                .finish(),
+        )
+        .with_background(appearance.theme().surface_2())
+        .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
+        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
+        .finish()
     }
 
     fn render_openai_model_catalog(
+        &self,
+        provider_index: usize,
         provider: &OpenAIProviderConfig,
         appearance: &Appearance,
     ) -> Box<dyn Element> {
-        let rows = provider
+        if provider.models.is_empty() {
+            return Self::render_model_catalog(
+                Vec::new(),
+                "No models configured for this connection.",
+                appearance,
+            );
+        }
+        let card = &self.provider_cards[provider_index];
+        let switches = provider
             .models
             .iter()
             .map(|model| {
-                Self::render_model_row(
-                    model.display_name.clone(),
-                    model.model_id.clone(),
-                    Self::format_openai_model_details(model, provider),
-                    appearance,
-                )
+                card.model_switches
+                    .borrow_mut()
+                    .entry(model.model_id.clone())
+                    .or_default()
+                    .clone()
             })
             .collect::<Vec<_>>();
-        Self::render_model_catalog(
-            rows,
-            "No models configured for this connection.",
+        let provider = provider.clone();
+        model_catalog_table(
+            card.model_table_state.clone(),
+            provider.models.len(),
+            move |index, app| {
+                let appearance = Appearance::as_ref(app);
+                let model = &provider.models[index];
+                let model_id = model.model_id.clone();
+                let toggle = appearance
+                    .ui_builder()
+                    .switch(switches[index].clone())
+                    .check(model.enabled)
+                    .build()
+                    .on_click(move |ctx, _, _| {
+                        ctx.dispatch_typed_action(AISettingsPageAction::ToggleOpenAIProviderModel {
+                            provider_index,
+                            model_id: model_id.clone(),
+                        })
+                    })
+                    .finish();
+                let text = |value: String| {
+                    Text::new(value, appearance.ui_font_family(), 11.)
+                        .with_color(appearance.theme().nonactive_ui_text_color().into())
+                        .soft_wrap(true)
+                        .finish()
+                };
+                let model_info = Flex::column()
+                    .with_spacing(3.)
+                    .with_child(
+                        Text::new(
+                            model.display_name.clone(),
+                            appearance.ui_font_family(),
+                            CONTENT_FONT_SIZE,
+                        )
+                        .with_color(appearance.theme().active_ui_text_color().into())
+                        .with_style(Properties::default().weight(Weight::Semibold))
+                        .finish(),
+                    )
+                    .with_child(
+                        Text::new(
+                            model.model_id.clone(),
+                            appearance.monospace_font_family(),
+                            10.,
+                        )
+                        .with_color(appearance.theme().nonactive_ui_text_color().into())
+                        .finish(),
+                    )
+                    .finish();
+                vec![
+                    Flex::row().with_child(toggle).finish(),
+                    model_info,
+                    text(openai_model_context_size(model, provider.kind).to_string()),
+                    text(Self::format_openai_model_details(model, &provider)),
+                ]
+            },
             appearance,
         )
     }
 
     fn render_bedrock_model_catalog(
+        &self,
         models: &[BedrockModelConfig],
         appearance: &Appearance,
     ) -> Box<dyn Element> {
-        let rows = models
+        if models.is_empty() {
+            return Self::render_model_catalog(
+                Vec::new(),
+                "No Bedrock models passed AWS access checks.",
+                appearance,
+            );
+        }
+        let switches = models
             .iter()
             .map(|model| {
-                let mut details = Vec::new();
-                if model.vision_supported {
-                    details.push("Images".to_string());
-                }
-                Self::render_model_row(
-                    model.display_name.clone(),
-                    model.model_id.clone(),
-                    if details.is_empty() {
-                        "Available".to_string()
-                    } else {
-                        details.join(" · ")
-                    },
-                    appearance,
-                )
+                self.bedrock_model_switches
+                    .borrow_mut()
+                    .entry(model.model_id.clone())
+                    .or_default()
+                    .clone()
             })
             .collect::<Vec<_>>();
-        Self::render_model_catalog(rows, "No Bedrock models discovered yet.", appearance)
+        let models = models.to_vec();
+        model_catalog_table(
+            self.bedrock_model_table_state.clone(),
+            models.len(),
+            move |index, app| {
+                let appearance = Appearance::as_ref(app);
+                let model = &models[index];
+                let id = model.model_id.clone();
+                let toggle = appearance
+                    .ui_builder()
+                    .switch(switches[index].clone())
+                    .check(model.enabled)
+                    .build()
+                    .on_click(move |ctx, _, _| {
+                        ctx.dispatch_typed_action(AISettingsPageAction::ToggleBedrockModel(
+                            id.clone(),
+                        ))
+                    })
+                    .finish();
+                let text = |value: String| {
+                    Text::new(value, appearance.ui_font_family(), 11.)
+                        .with_color(appearance.theme().nonactive_ui_text_color().into())
+                        .soft_wrap(true)
+                        .finish()
+                };
+                let name = Flex::column()
+                    .with_spacing(3.)
+                    .with_child(
+                        Text::new(
+                            model.display_name.clone(),
+                            appearance.ui_font_family(),
+                            CONTENT_FONT_SIZE,
+                        )
+                        .with_color(appearance.theme().active_ui_text_color().into())
+                        .with_style(Properties::default().weight(Weight::Semibold))
+                        .finish(),
+                    )
+                    .with_child(
+                        Text::new(
+                            model.model_id.clone(),
+                            appearance.monospace_font_family(),
+                            10.,
+                        )
+                        .with_color(appearance.theme().nonactive_ui_text_color().into())
+                        .finish(),
+                    )
+                    .finish();
+                let context = galaxy_bedrock_model_catalog::model_metadata(&model.model_id)
+                    .and_then(|metadata| metadata.context_window_tokens)
+                    .map(|tokens| tokens.to_string())
+                    .unwrap_or_else(|| "Unknown".to_owned());
+                let details = if !LLMPreferences::as_ref(app)
+                    .bedrock_model_is_verified(&model.model_id, app)
+                {
+                    "Awaiting AWS access verification"
+                } else if model.vision_supported {
+                    "Images"
+                } else {
+                    "Text"
+                };
+                vec![
+                    Flex::row().with_child(toggle).finish(),
+                    name,
+                    text(context),
+                    text(details.to_owned()),
+                ]
+            },
+            appearance,
+        )
     }
 
     fn render_acp_model_catalog(
@@ -6876,7 +7036,8 @@ impl ProviderSettingsWidget {
                 .with_child(header)
                 .with_child(summary)
                 .with_child(enablement)
-                .with_child(Self::render_openai_model_catalog(provider, appearance))
+                .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .with_child(self.render_openai_model_catalog(provider_index, provider, appearance))
                 .finish(),
         )
         .with_padding(Padding::uniform(16.))
@@ -6956,7 +7117,7 @@ impl ProviderSettingsWidget {
                         )
                         .finish(),
                 )
-                .with_child(Self::render_bedrock_model_catalog(
+                .with_child(self.render_bedrock_model_catalog(
                     AISettings::as_ref(app).bedrock_models.value(),
                     appearance,
                 ))
@@ -7146,6 +7307,7 @@ impl ProviderSettingsWidget {
         }
 
         let mut section = Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_spacing(10.)
             .with_child(header.finish())
             .with_child(
@@ -7196,7 +7358,9 @@ impl SettingsWidget for ProviderSettingsWidget {
         let settings = AISettings::as_ref(app);
         let providers = settings.openai_providers.value();
 
-        let mut column = Flex::column().with_spacing(18.);
+        let mut column = Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .with_spacing(18.);
 
         let is_setup_visible = view
             .inline_provider_setup

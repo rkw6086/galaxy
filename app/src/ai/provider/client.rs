@@ -29,7 +29,7 @@ pub struct BedrockClient {
     region: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BedrockClientConfig {
     pub auth_method: BedrockAuthMethod,
     pub profile: String,
@@ -101,7 +101,7 @@ impl BedrockClient {
             BedrockAuthMethod::Profile | BedrockAuthMethod::Sso => {
                 let mut loader = aws_config::defaults(BehaviorVersion::latest());
 
-                if !config.profile.is_empty() && config.profile != "default" {
+                if !config.profile.is_empty() {
                     loader = loader.profile_name(&config.profile);
                 }
 

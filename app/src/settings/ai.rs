@@ -819,6 +819,12 @@ impl BedrockAuthMethod {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 #[schemars(description = "Configuration for a single AWS Bedrock model.")]
 pub struct BedrockModelConfig {
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    /// Live AWS verification is never restored from disk.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub access_verified: bool,
     #[schemars(
         description = "The Bedrock model ID (e.g. anthropic.claude-sonnet-4-20250514-v1:0)."
     )]
@@ -2347,27 +2353,33 @@ impl AISettings {
     /// consulted only for the legacy single-endpoint configuration, which has no per-provider
     /// enablement field.
     pub fn is_openai_provider_enabled(&self) -> bool {
-        if !self.openai_providers.value().is_empty() {
-            return self
+        self.legacy_openai_provider_enabled()
+            || self
                 .openai_providers
                 .value()
                 .iter()
-                .any(|provider| provider.enabled);
-        }
+                .any(|provider| provider.enabled)
+    }
 
+    pub(crate) fn legacy_openai_provider_enabled(&self) -> bool {
         *self.openai_enabled.value()
+            && !self.openai_providers.value().iter().any(|provider| {
+                matches!(
+                    provider.kind,
+                    OpenAIProviderKind::OpenAI | OpenAIProviderKind::LiteLLM
+                ) && provider.base_url.trim_end_matches('/')
+                    == self.openai_base_url.value().trim_end_matches('/')
+            })
     }
 
     /// Returns whether an OpenAI-compatible provider is enabled and has at least one enabled model.
     pub fn has_enabled_openai_provider(&self) -> bool {
-        if !self.openai_providers.value().is_empty() {
-            return self.openai_providers.value().iter().any(|provider| {
-                provider.enabled && provider.models.iter().any(|model| model.enabled)
-            });
-        }
-
-        self.is_openai_provider_enabled()
-            && self.openai_models.value().iter().any(|model| model.enabled)
+        self.openai_providers
+            .value()
+            .iter()
+            .any(|provider| provider.enabled && provider.models.iter().any(|model| model.enabled))
+            || (self.legacy_openai_provider_enabled()
+                && self.openai_models.value().iter().any(|model| model.enabled))
     }
 
     pub(crate) fn configured_acp_providers(&self) -> Vec<AcpProviderConfig> {
@@ -2434,7 +2446,12 @@ impl AISettings {
 
     /// Returns whether Galaxy has a local model provider or agent runtime enabled.
     pub fn has_enabled_ai_runtime(&self) -> bool {
-        (*self.bedrock_enabled.value() && !self.bedrock_models.value().is_empty())
+        (*self.bedrock_enabled.value()
+            && self
+                .bedrock_models
+                .value()
+                .iter()
+                .any(|model| model.enabled))
             || self.has_enabled_openai_provider()
             || (cfg!(unix)
                 && FeatureFlag::AgentClientProtocol.is_enabled()

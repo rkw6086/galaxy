@@ -16,7 +16,7 @@ use std::{
 
 use chrono::Utc;
 use galaxy_core::channel::ChannelState;
-use galaxyui::{Entity, ModelContext, SingletonEntity};
+use galaxyui::{Entity, ModelContext, SingletonEntity, View, ViewContext};
 use serde::Serialize;
 use serde_json::{json, Value};
 use settings::Setting;
@@ -113,6 +113,30 @@ where
     #[cfg(all(feature = "remote_logs_local_file", not(target_family = "wasm")))]
     write_local_log(&payload);
 
+    let _ = ctx.spawn(
+        async move { send_remote_log(config, payload).await },
+        |_, result, _| {
+            if let Err(error) = result {
+                log::warn!("[remote-logging] Failed to send remote AI log: {error}");
+            }
+        },
+    );
+}
+
+/// Views must log without updating AISettings: its singleton cannot be read
+/// while it is temporarily borrowed by a model update.
+pub(crate) fn log_view_event<V: View>(ctx: &mut ViewContext<V>, record: RemoteLogRecord) {
+    let Some(config) = RemoteLogConfig::from_settings(AISettings::as_ref(ctx)) else {
+        return;
+    };
+    let payload = RemoteLogPayload {
+        level: record.level.as_str(),
+        message: record.message,
+        service: REMOTE_LOG_SERVICE,
+        context: enrich_context(record.context),
+    };
+    #[cfg(all(feature = "remote_logs_local_file", not(target_family = "wasm")))]
+    write_local_log(&payload);
     let _ = ctx.spawn(
         async move { send_remote_log(config, payload).await },
         |_, result, _| {
