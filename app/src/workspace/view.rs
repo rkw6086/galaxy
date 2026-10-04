@@ -21420,7 +21420,7 @@ impl Workspace {
         Align::new(
             self.render_tab_bar_icon_button(
                 appearance,
-                icons::Icon::Stars,
+                icons::Icon::Gear,
                 &self.mouse_states.settings_icon,
                 WorkspaceAction::ShowSettings,
                 "Settings".to_string(),

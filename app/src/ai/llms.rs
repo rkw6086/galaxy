@@ -1828,9 +1828,10 @@ impl LLMPreferences {
                     .as_deref()
                     .filter(|key| !key.trim().is_empty())
                     .ok_or_else(|| {
-                        "Enter an Anthropic API key before testing the connection.".to_string()
+                        "Enter an Anthropic API key or Claude subscription token before testing the connection.".to_string()
                     })?;
-                Some(discover_anthropic_models(api_key).await?)
+                let api_key = crate::ai::claude_oauth::load_credential(api_key.to_string()).await?;
+                Some(discover_anthropic_models(&api_key).await?)
             }
             OpenAIProviderKind::Gemini => {
                 let api_key = provider

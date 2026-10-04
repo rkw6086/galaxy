@@ -41,6 +41,7 @@ fn provider_subpages_are_classified_and_map_to_ai_backing_page() {
             SettingsSection::ProviderOpenAI,
             SettingsSection::ProviderLiteLLM,
             SettingsSection::ProviderChatGPTSubscription,
+            SettingsSection::ProviderAnthropic,
             SettingsSection::ProviderBedrock,
             SettingsSection::ProviderACP,
         ]
@@ -115,6 +116,10 @@ fn current_settings_display_names_round_trip() {
         (
             SettingsSection::ProviderChatGPTSubscription,
             "ChatGPT Subscription",
+        ),
+        (
+            SettingsSection::ProviderAnthropic,
+            "Anthropic / Claude subscription",
         ),
         (SettingsSection::ProviderBedrock, "Bedrock"),
         (SettingsSection::ProviderACP, "ACP"),

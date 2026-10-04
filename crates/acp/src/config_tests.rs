@@ -4,6 +4,14 @@ use std::time::Duration;
 use super::*;
 
 #[test]
+fn setup_catalog_offers_only_claude_code() {
+    let agents = known_acp_agents();
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].id, "claude-acp");
+    assert_eq!(agents[0].name, "Claude Code");
+}
+
+#[test]
 fn codex_preset_uses_the_adapter_with_npx() {
     let launch = AcpAgentPreset::Codex.launch_config();
 

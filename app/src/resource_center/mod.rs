@@ -144,19 +144,13 @@ impl FeatureItem {
         feature: Tip,
         ctx: &mut AppContext,
     ) -> Self {
-        let editable_binding_name;
-        let shortcut;
-
-        match feature {
-            Tip::Hint(_) => {
-                editable_binding_name = None;
-                shortcut = None;
-            }
-            Tip::Action(tip) => {
-                editable_binding_name = Some(tip.editable_binding_name());
-                shortcut = tip.keyboard_shortcut(ctx);
-            }
-        }
+        let (editable_binding_name, shortcut) = match feature {
+            Tip::Hint(_) => (None, None),
+            Tip::Action(tip) => (
+                Some(tip.editable_binding_name()),
+                tip.keyboard_shortcut(ctx),
+            ),
+        };
 
         Self {
             title,

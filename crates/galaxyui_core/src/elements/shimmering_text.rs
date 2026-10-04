@@ -14,7 +14,7 @@ use string_offset::CharOffset;
 use crate::color::ColorU;
 pub use crate::elements::shimmering_text::config::ShimmerConfig;
 use crate::elements::shimmering_text::glyph_index::GlyphIndex;
-use crate::elements::{Axis, Point, DEFAULT_UI_LINE_HEIGHT_RATIO};
+use crate::elements::{Axis, Icon, Point, DEFAULT_UI_LINE_HEIGHT_RATIO};
 use crate::fonts::{FamilyId, Properties};
 use crate::geometry::rect::RectF;
 use crate::geometry::vector::{vec2f, Vector2F};
@@ -90,6 +90,7 @@ pub struct ShimmeringTextElement {
     origin: Option<Point>,
 
     handle: ShimmeringTextStateHandle,
+    leading_icon: Option<(Icon, f32, f32)>,
 }
 
 impl ShimmeringTextElement {
@@ -112,7 +113,14 @@ impl ShimmeringTextElement {
             size: None,
             origin: None,
             handle: state_handle,
+            leading_icon: None,
         }
+    }
+
+    /// Includes a leading icon in the same shimmer track as the text.
+    pub fn with_leading_icon(mut self, path: &'static str, size: f32, gap: f32) -> Self {
+        self.leading_icon = Some((Icon::new(path, self.base_color), size, gap));
+        self
     }
 
     /// Returns the center of the shimmer as a fractional glyph index along the "track".
@@ -165,11 +173,12 @@ impl ShimmeringTextElement {
             return PaintStyleOverride::default();
         }
 
-        let center = self.shimmer_center(n, &state);
+        let icon_offset = usize::from(self.leading_icon.is_some());
+        let center = self.shimmer_center(n + icon_offset, &state);
 
         let mut overrides = RangeMap::new();
         for (glyph_index, char_index) in glyph_indices_in_order.iter() {
-            let intensity = self.intensity_at(*glyph_index, center);
+            let intensity = self.intensity_at(GlyphIndex(glyph_index.0 + icon_offset), center);
             let color = self
                 .base_color
                 .to_f32()
@@ -189,6 +198,20 @@ impl Element for ShimmeringTextElement {
         ctx: &mut crate::LayoutContext,
         app: &AppContext,
     ) -> Vector2F {
+        let icon_width = self
+            .leading_icon
+            .as_ref()
+            .map_or(0., |(_, size, gap)| size + gap);
+        if let Some((icon, size, _)) = &mut self.leading_icon {
+            icon.layout(
+                SizeConstraint {
+                    min: vec2f(*size, *size),
+                    max: vec2f(*size, *size),
+                },
+                ctx,
+                app,
+            );
+        }
         let mut state = self.handle.get();
 
         let text_len = self.text.chars().count();
@@ -197,7 +220,7 @@ impl Element for ShimmeringTextElement {
             StyleAndFont::new(self.font_family, Properties::default(), TextStyle::new()),
         )];
 
-        let max_width = constraint.max_along(Axis::Horizontal);
+        let max_width = (constraint.max_along(Axis::Horizontal) - icon_width).max(0.);
 
         let layout_key = LayoutKey {
             text: self.text.clone(),
@@ -247,15 +270,22 @@ impl Element for ShimmeringTextElement {
         };
 
         let size = vec2f(
-            line.width.max(constraint.min.x()).min(constraint.max.x()),
-            line.height(),
+            (line.width + icon_width)
+                .max(constraint.min.x())
+                .min(constraint.max.x()),
+            line.height()
+                .max(self.leading_icon.as_ref().map_or(0., |(_, size, _)| *size)),
         );
 
         self.size = Some(size);
         size
     }
 
-    fn after_layout(&mut self, _: &mut crate::AfterLayoutContext, _: &AppContext) {}
+    fn after_layout(&mut self, ctx: &mut crate::AfterLayoutContext, app: &AppContext) {
+        if let Some((icon, _, _)) = &mut self.leading_icon {
+            icon.after_layout(ctx, app);
+        }
+    }
 
     fn paint(&mut self, origin: Vector2F, ctx: &mut PaintContext, app: &AppContext) {
         /// Duration, in ms, for which to repaint. Approximately 30fps.
@@ -273,7 +303,31 @@ impl Element for ShimmeringTextElement {
 
         ctx.repaint_after(Duration::from_millis(REPAINT_DURATION));
 
-        let bounds = RectF::from_points(origin, origin + size);
+        let mut text_origin = origin;
+        let icon_color = {
+            let state = self.handle.get();
+            let center = self.shimmer_center(state.glyph_indices_in_order.len() + 1, &state);
+            self.base_color
+                .to_f32()
+                .lerp(
+                    self.shimmer_color.to_f32(),
+                    self.intensity_at(GlyphIndex(0), center),
+                )
+                .to_u8()
+        };
+        if let Some((icon, icon_size, gap)) = &mut self.leading_icon {
+            *icon = icon.with_color(icon_color);
+            icon.paint(origin + vec2f(0., (size.y() - *icon_size) / 2.), ctx, app);
+            text_origin += vec2f(*icon_size + *gap, 0.);
+        }
+        text_origin += vec2f(0., (size.y() - line.height()) / 2.);
+        let bounds = RectF::new(
+            text_origin,
+            vec2f(
+                (origin.x() + size.x() - text_origin.x()).max(0.),
+                line.height(),
+            ),
+        );
         let style_overrides = self.build_color_overrides();
 
         line.paint(

@@ -7231,8 +7231,7 @@ impl Input {
             .active_block_mut()
             .set_nld_overridden(nld_overridden);
 
-        let did_execute: bool;
-        if self
+        let did_execute = if self
             .model
             .lock()
             .block_list()
@@ -7311,14 +7310,14 @@ impl Input {
             }
 
             self.start_block_and_write_command_to_pty(command, source, ctx);
-            did_execute = true;
+            true
         } else {
             // We don't want to submit the command if precmd has not
             // been received. Instead, we want the user to be aware
             // that the prompt might not be up to date.
             send_telemetry_from_ctx!(TelemetryEvent::TriedToExecuteBeforePrecmd, ctx);
-            did_execute = false;
-        }
+            false
+        };
 
         // Close the workflows info box if it was open.
         self.clear_selected_workflow(ctx);

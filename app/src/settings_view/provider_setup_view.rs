@@ -67,7 +67,7 @@ use crate::ai::harness_display;
 use crate::ai::llms::{merge_discovered_provider_models, replace_litellm_catalog, LLMPreferences};
 use crate::appearance::Appearance;
 use crate::editor::{
-    EditorView, Event as EditorEvent, SingleLineEditorOptions, TextColors, TextOptions,
+    EditOrigin, EditorView, Event as EditorEvent, SingleLineEditorOptions, TextColors, TextOptions,
 };
 use crate::settings::ai::{
     AcpConfigOptionSettings, BedrockAuthMethod, BedrockModelConfig, ModelCapabilityOverride,
@@ -117,6 +117,11 @@ const PROVIDER_TYPE_OPTIONS: &[(ProviderSetupProviderType, &str, &str)] = &[
         ProviderSetupProviderType::ChatGPTSubscription,
         "ChatGPT subscription",
         "Use your ChatGPT Plus or Pro subscription with native OAuth.",
+    ),
+    (
+        ProviderSetupProviderType::Anthropic,
+        "Anthropic / Claude subscription",
+        "Use an Anthropic API key or a Claude Code authorization token with Galaxy’s own tools.",
     ),
     (
         ProviderSetupProviderType::Bedrock,
@@ -215,6 +220,9 @@ pub enum ProviderSetupViewAction {
     ToggleModel(usize),
     CycleModelCapability(usize, CapabilityKey),
     ConnectChatGPT,
+    ConnectClaude,
+    SignOutClaude,
+    CancelClaudeSignIn,
     SelectBedrockAuth(BedrockAuthMethod),
     SelectBedrockProfile(String),
     ToggleBedrockCrossRegion,
@@ -236,6 +244,9 @@ pub struct ProviderSetupView {
     draft_bedrock: BedrockProviderDraft,
     draft_acp: AcpProviderDraft,
     discovery_state: DiscoveryState,
+    acp_setup_status: String,
+    acp_discovery_generation: u64,
+    acp_setup_abort: Option<futures::future::AbortHandle>,
     provider_type_buttons: Vec<ViewHandle<ActionButton>>,
     acp_agent_buttons: Vec<ViewHandle<ActionButton>>,
     name_editor: ViewHandle<EditorView>,
@@ -253,6 +264,11 @@ pub struct ProviderSetupView {
     acp_command_editor: ViewHandle<EditorView>,
     acp_args_editor: ViewHandle<EditorView>,
     chatgpt_connect_mouse_state: MouseStateHandle,
+    claude_connect_mouse_state: MouseStateHandle,
+    claude_signin_abort: Option<futures::future::AbortHandle>,
+    claude_signin_generation: u64,
+    claude_signin_status: String,
+    claude_credentials_available: bool,
     bedrock_auth_buttons: Vec<ViewHandle<ActionButton>>,
     bedrock_cross_region_toggle: SwitchStateHandle,
     bedrock_auto_login_toggle: SwitchStateHandle,
@@ -300,11 +316,11 @@ impl ProviderSetupView {
         let bedrock_refresh_command_editor = Self::create_editor("aws sso login", false, ctx);
         let bedrock_access_key_editor = Self::create_editor("AKIA...", false, ctx);
         let bedrock_secret_key_editor = Self::create_editor("Secret access key", true, ctx);
-        let acp_agent_id_editor = Self::create_editor("codex", false, ctx);
+        let acp_agent_id_editor = Self::create_editor("claude-acp", false, ctx);
         let acp_command_editor = Self::create_editor("Optional executable", false, ctx);
         let acp_args_editor = Self::create_editor(r#"["arg1", "arg2"]"#, false, ctx);
 
-        let mut acp_agent_buttons = galaxy_acp::known_acp_agents()
+        let acp_agent_buttons = galaxy_acp::known_acp_agents()
             .iter()
             .map(|agent| {
                 let id = agent.id.to_owned();
@@ -322,15 +338,6 @@ impl ProviderSetupView {
                 })
             })
             .collect::<Vec<_>>();
-        acp_agent_buttons.push(ctx.add_typed_action_view(|_| {
-            ActionButton::new("Custom", NakedTheme)
-                .with_full_width(true)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(ProviderSetupViewAction::SelectAcpAgent(
-                        "custom".to_owned(),
-                    ));
-                })
-        }));
 
         let bedrock_auth_buttons = [
             BedrockAuthMethod::Profile,
@@ -362,9 +369,15 @@ impl ProviderSetupView {
             }
         });
         ctx.subscribe_to_view(&api_key_editor, |me, editor, event, ctx| {
-            if matches!(event, EditorEvent::Edited(_)) {
+            if matches!(event, EditorEvent::Edited(origin) if *origin != EditOrigin::SystemEdit) {
                 let value = editor.as_ref(ctx).buffer_text(ctx);
+                me.cancel_claude_signin();
                 me.draft_api_key = (!value.trim().is_empty()).then_some(value);
+                me.claude_credentials_available = false;
+                if me.provider_type == ProviderSetupProviderType::Anthropic {
+                    me.draft_models.clear();
+                }
+                me.update_next_button(ctx);
                 ctx.notify();
             }
         });
@@ -465,12 +478,15 @@ impl ProviderSetupView {
             },
             draft_acp: AcpProviderDraft {
                 name: String::new(),
-                agent_id: "codex".to_string(),
+                agent_id: "claude-acp".to_string(),
                 command: String::new(),
                 args: Vec::new(),
                 config_options: Vec::new(),
             },
             discovery_state: DiscoveryState::Idle,
+            acp_setup_status: String::new(),
+            acp_discovery_generation: 0,
+            acp_setup_abort: None,
             provider_type_buttons,
             acp_agent_buttons,
             name_editor,
@@ -488,6 +504,11 @@ impl ProviderSetupView {
             acp_command_editor,
             acp_args_editor,
             chatgpt_connect_mouse_state: MouseStateHandle::default(),
+            claude_connect_mouse_state: MouseStateHandle::default(),
+            claude_signin_abort: None,
+            claude_signin_generation: 0,
+            claude_signin_status: String::new(),
+            claude_credentials_available: false,
             bedrock_auth_buttons,
             bedrock_cross_region_toggle: SwitchStateHandle::default(),
             bedrock_auto_login_toggle: SwitchStateHandle::default(),
@@ -542,7 +563,7 @@ impl ProviderSetupView {
             ProviderSetupProviderType::Gemini => "Google Gemini",
             ProviderSetupProviderType::VertexAI => "Google Vertex AI",
             ProviderSetupProviderType::Bedrock => "AWS Bedrock",
-            ProviderSetupProviderType::Acp => "ACP agent runtime",
+            ProviderSetupProviderType::Acp => "Claude Code",
         }
     }
 
@@ -564,6 +585,8 @@ impl ProviderSetupView {
         provider_type: ProviderSetupProviderType,
         ctx: &mut ViewContext<Self>,
     ) {
+        self.cancel_acp_setup();
+        self.cancel_claude_signin();
         self.step = ProviderSetupStep::Configure;
         self.editing_index = None;
         self.provider_type = provider_type;
@@ -571,6 +594,7 @@ impl ProviderSetupView {
         self.draft_name = Self::default_name(provider_type).to_string();
         self.draft_base_url = Self::default_base_url(provider_type).to_string();
         self.draft_api_key = None;
+        self.claude_credentials_available = false;
         self.draft_project_id.clear();
         self.draft_location = "global".to_string();
         self.draft_models.clear();
@@ -588,7 +612,7 @@ impl ProviderSetupView {
         };
         self.draft_acp = AcpProviderDraft {
             name: String::new(),
-            agent_id: "codex".to_string(),
+            agent_id: "claude-acp".to_string(),
             command: String::new(),
             args: Vec::new(),
             config_options: Vec::new(),
@@ -613,6 +637,7 @@ impl ProviderSetupView {
         provider: OpenAIProviderConfig,
         ctx: &mut ViewContext<Self>,
     ) {
+        self.cancel_claude_signin();
         // Editing an existing provider is a local catalog operation. Do not
         // send the user through credentials or model discovery again.
         self.step = ProviderSetupStep::Models;
@@ -631,6 +656,14 @@ impl ProviderSetupView {
         self.draft_name = provider.name;
         self.draft_base_url = provider.base_url;
         self.draft_api_key = provider.api_key;
+        {
+            use galaxyui_extras::secure_storage::AppContextExt as _;
+            self.claude_credentials_available =
+                self.draft_api_key.as_deref().is_some_and(|reference| {
+                    crate::ai::claude_subscription::is_stored_credential(reference)
+                        && ctx.secure_storage().read_value(reference).is_ok()
+                });
+        }
         self.draft_project_id = provider.project_id.unwrap_or_default();
         self.draft_location = provider.location.unwrap_or_else(|| "global".to_string());
         self.draft_models = provider.models;
@@ -667,6 +700,7 @@ impl ProviderSetupView {
     }
 
     pub fn begin_edit_acp(&mut self, draft: AcpProviderDraft, ctx: &mut ViewContext<Self>) {
+        self.cancel_acp_setup();
         self.step = if draft.config_options.is_empty() {
             ProviderSetupStep::Configure
         } else {
@@ -685,6 +719,43 @@ impl ProviderSetupView {
         self.sync_model_switches(ctx);
         self.update_next_button(ctx);
         ctx.focus_self();
+        ctx.notify();
+    }
+
+    pub fn acp_discovery_generation(&self) -> u64 {
+        self.acp_discovery_generation
+    }
+
+    pub fn acp_discovery_is_current(&self, generation: u64) -> bool {
+        self.provider_type == ProviderSetupProviderType::Acp
+            && self.step == ProviderSetupStep::Discover
+            && matches!(self.discovery_state, DiscoveryState::Loading)
+            && self.acp_discovery_generation == generation
+    }
+
+    #[cfg(feature = "local_fs")]
+    pub fn prepare_acp_setup(&mut self) -> futures::future::AbortRegistration {
+        self.cancel_acp_setup();
+        let (handle, registration) = futures::future::AbortHandle::new_pair();
+        self.acp_setup_abort = Some(handle);
+        registration
+    }
+
+    fn cancel_acp_setup(&mut self) {
+        if let Some(handle) = self.acp_setup_abort.take() {
+            handle.abort();
+        }
+    }
+
+    pub fn set_acp_setup_status(&mut self, status: String, ctx: &mut ViewContext<Self>) {
+        self.acp_setup_status = status;
+        ctx.notify();
+    }
+
+    pub fn show_connection_error(&mut self, error: String, ctx: &mut ViewContext<Self>) {
+        self.discovery_state = DiscoveryState::Failed(error);
+        self.step = ProviderSetupStep::Discover;
+        self.update_next_button(ctx);
         ctx.notify();
     }
 
@@ -754,7 +825,13 @@ impl ProviderSetupView {
             editor.system_reset_buffer_text(&self.draft_base_url, ctx);
         });
         self.api_key_editor.update(ctx, |editor, ctx| {
-            editor.system_reset_buffer_text(self.draft_api_key.as_deref().unwrap_or_default(), ctx);
+            let credential = self.draft_api_key.as_deref().unwrap_or_default();
+            let text = if crate::ai::claude_subscription::is_stored_credential(credential) {
+                ""
+            } else {
+                credential
+            };
+            editor.system_reset_buffer_text(text, ctx);
         });
         self.project_id_editor.update(ctx, |editor, ctx| {
             editor.system_reset_buffer_text(&self.draft_project_id, ctx);
@@ -832,11 +909,6 @@ impl ProviderSetupView {
         {
             button.update(ctx, |button, ctx| {
                 button.set_active(agent.id.eq_ignore_ascii_case(selected), ctx);
-            });
-        }
-        if let Some(button) = self.acp_agent_buttons.last() {
-            button.update(ctx, |button, ctx| {
-                button.set_active(selected.eq_ignore_ascii_case("custom"), ctx);
             });
         }
     }
@@ -948,7 +1020,9 @@ impl ProviderSetupView {
                 | ProviderSetupProviderType::VertexAI => (
                     "Save",
                     self.draft_name.trim().is_empty()
-                        || !self.draft_models.iter().any(|model| model.enabled),
+                        || !self.draft_models.iter().any(|model| model.enabled)
+                        || (self.provider_type == ProviderSetupProviderType::Anthropic
+                            && !self.is_configure_valid()),
                 ),
                 ProviderSetupProviderType::Bedrock => (
                     "Save",
@@ -1057,8 +1131,11 @@ impl ProviderSetupView {
     }
 
     fn begin_discovery(&mut self, ctx: &mut ViewContext<Self>) {
+        self.cancel_acp_setup();
         self.step = ProviderSetupStep::Discover;
         self.discovery_state = DiscoveryState::Loading;
+        self.acp_setup_status.clear();
+        self.acp_discovery_generation = self.acp_discovery_generation.wrapping_add(1);
         self.update_next_button(ctx);
         ctx.notify();
 
@@ -1136,26 +1213,38 @@ impl ProviderSetupView {
         let provider = self.draft_provider();
         let existing_models = self.draft_models.clone();
         let authoritative_catalog = provider.kind == OpenAIProviderKind::LiteLLM;
+        let generation = self.acp_discovery_generation;
+        let requested_kind = self.provider_type;
+        let requested_credential = self.draft_api_key.clone();
         ctx.spawn(
             async move { LLMPreferences::discover_openai_provider_models(provider).await },
-            move |me, result, ctx| match result {
-                Ok(models) => {
-                    me.draft_models = if authoritative_catalog {
-                        replace_litellm_catalog(&existing_models, models)
-                    } else {
-                        merge_discovered_provider_models(&existing_models, models)
-                    };
-                    me.discovery_state = DiscoveryState::Idle;
-                    me.step = ProviderSetupStep::Models;
-                    me.sync_model_switches(ctx);
-                    me.update_next_button(ctx);
-                    ctx.focus(&me.name_editor);
-                    ctx.notify();
+            move |me, result, ctx| {
+                if generation != me.acp_discovery_generation
+                    || requested_kind != me.provider_type
+                    || requested_credential != me.draft_api_key
+                    || me.step != ProviderSetupStep::Discover
+                {
+                    return;
                 }
-                Err(error) => {
-                    me.discovery_state = DiscoveryState::Failed(error);
-                    me.update_next_button(ctx);
-                    ctx.notify();
+                match result {
+                    Ok(models) => {
+                        me.draft_models = if authoritative_catalog {
+                            replace_litellm_catalog(&existing_models, models)
+                        } else {
+                            merge_discovered_provider_models(&existing_models, models)
+                        };
+                        me.discovery_state = DiscoveryState::Idle;
+                        me.step = ProviderSetupStep::Models;
+                        me.sync_model_switches(ctx);
+                        me.update_next_button(ctx);
+                        ctx.focus(&me.name_editor);
+                        ctx.notify();
+                    }
+                    Err(error) => {
+                        me.discovery_state = DiscoveryState::Failed(error);
+                        me.update_next_button(ctx);
+                        ctx.notify();
+                    }
                 }
             },
         );
@@ -1313,6 +1402,138 @@ impl ProviderSetupView {
             .finish()
     }
 
+    fn cancel_claude_signin(&mut self) {
+        self.claude_signin_generation = self.claude_signin_generation.wrapping_add(1);
+        if let Some(abort) = self.claude_signin_abort.take() {
+            abort.abort();
+        }
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(reference) = self.draft_api_key.as_deref() {
+            crate::ai::claude_oauth::discard_draft(reference);
+        }
+        self.claude_signin_status.clear();
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn connect_claude(&mut self, ctx: &mut ViewContext<Self>) {
+        if self.claude_signin_abort.is_some() {
+            return;
+        }
+        self.cancel_claude_signin();
+        let login = match crate::ai::claude_oauth::BrowserLogin::start() {
+            Ok(login) => login,
+            Err(error) => {
+                self.claude_signin_status = error;
+                ctx.notify();
+                return;
+            }
+        };
+        let generation = self.claude_signin_generation;
+        let (abort, registration) = futures::future::AbortHandle::new_pair();
+        self.claude_signin_abort = Some(abort);
+        self.claude_signin_status = "Waiting for Claude sign-in in your browser…".to_string();
+        self.update_next_button(ctx);
+        ctx.open_url(login.url.as_str());
+        ctx.notify();
+        ctx.spawn(
+            futures::future::Abortable::new(login.finish(), registration),
+            move |me, result, ctx| {
+                if generation != me.claude_signin_generation
+                    || me.provider_type != ProviderSetupProviderType::Anthropic
+                {
+                    return;
+                }
+                me.claude_signin_abort = None;
+                match result {
+                    Ok(Ok(credentials)) => {
+                        let reference = format!(
+                            "{}{}",
+                            crate::ai::claude_subscription::OAUTH_REFERENCE_PREFIX,
+                            uuid::Uuid::new_v4()
+                        );
+                        match crate::ai::claude_oauth::save_credentials(
+                            &reference,
+                            &credentials,
+                            ctx,
+                        ) {
+                            Ok(()) => {
+                                me.draft_api_key = Some(reference);
+                                me.claude_credentials_available = true;
+                                me.draft_models.clear();
+                                me.claude_signin_status =
+                                    "Claude subscription connected.".to_string();
+                                me.sync_editors(ctx);
+                            }
+                            Err(error) => me.claude_signin_status = error,
+                        }
+                    }
+                    Ok(Err(error)) => me.claude_signin_status = error,
+                    Err(_) => me.claude_signin_status = "Claude sign-in cancelled.".to_string(),
+                }
+                me.update_next_button(ctx);
+                ctx.notify();
+            },
+        );
+    }
+
+    fn render_claude_auth(&self, appearance: &Appearance) -> Box<dyn galaxyui::Element> {
+        let connected = self.claude_credentials_available;
+        let description = if !self.claude_signin_status.is_empty() {
+            self.claude_signin_status.as_str()
+        } else if connected {
+            "Claude subscription credentials saved on this device."
+        } else {
+            "Sign in with your Claude subscription in your browser."
+        };
+        let mut children = vec![
+            Self::render_label(appearance, "Claude subscription authorization"),
+            Text::new(
+                description.to_string(),
+                appearance.ui_font_family(),
+                INPUT_FONT_SIZE,
+            )
+            .with_color(appearance.theme().nonactive_ui_text_color().into())
+            .soft_wrap(true)
+            .finish(),
+        ];
+        {
+            let pending = self.claude_signin_abort.is_some();
+            children.push(
+                appearance
+                    .ui_builder()
+                    .button(
+                        ButtonVariant::Secondary,
+                        self.claude_connect_mouse_state.clone(),
+                    )
+                    .with_text_label(
+                        if pending {
+                            "Cancel sign-in"
+                        } else if connected {
+                            "Sign out"
+                        } else {
+                            "Sign in with Claude"
+                        }
+                        .to_string(),
+                    )
+                    .build()
+                    .on_click(move |ctx, _, _| {
+                        ctx.dispatch_typed_action(if pending {
+                            ProviderSetupViewAction::CancelClaudeSignIn
+                        } else if connected {
+                            ProviderSetupViewAction::SignOutClaude
+                        } else {
+                            ProviderSetupViewAction::ConnectClaude
+                        });
+                    })
+                    .finish(),
+            );
+        }
+        Flex::column()
+            .with_spacing(10.)
+            .with_children(children)
+            .finish()
+    }
+
     #[cfg(not(target_family = "wasm"))]
     fn render_chatgpt_auth(
         &self,
@@ -1438,14 +1659,35 @@ impl ProviderSetupView {
                 );
             }
             ProviderSetupProviderType::Anthropic => {
-                children.push(self.render_input(appearance, "API key", &self.api_key_editor));
+                children.push(self.render_claude_auth(appearance));
+                if !self
+                    .draft_api_key
+                    .as_deref()
+                    .is_some_and(crate::ai::claude_subscription::is_stored_credential)
+                {
+                    children.push(self.render_input(
+                        appearance,
+                        "API key or setup token (optional alternative)",
+                        &self.api_key_editor,
+                    ));
+                }
                 children.push(
                     Text::new(
-                        "The key is stored locally and is never synced to the cloud. Models will be discovered from Anthropic after the connection test.",
+                        "Sign in with Claude to use your subscription. OAuth credentials are saved in Galaxy’s secure credential store and refreshed automatically. Alternatively, paste an API key or a token from `claude setup-token`; pasted setup tokens must be replaced manually if they expire. API keys use Anthropic API billing.",
                         appearance.ui_font_family(),
                         INPUT_FONT_SIZE,
                     )
                     .with_color(appearance.theme().nonactive_ui_text_color().into())
+                    .soft_wrap(true)
+                    .finish(),
+                );
+                children.push(
+                    Text::new(
+                        crate::ai::claude_subscription::SUBSCRIPTION_WARNING,
+                        appearance.ui_font_family(),
+                        INPUT_FONT_SIZE,
+                    )
+                    .with_color(appearance.theme().accent().into())
                     .soft_wrap(true)
                     .finish(),
                 );
@@ -1576,7 +1818,7 @@ impl ProviderSetupView {
                 }
                 children.push(
                     Text::new(
-                        "Known NPM-backed clients use npx with a pinned package version. If an ACP client needs another toolchain, choose Custom and configure the executable after installing it yourself.",
+                        "Test downloads Claude Code and its ACP adapter when missing. Sign-in opens through Claude Code in your browser; Galaxy does not store your Claude credentials.",
                         appearance.ui_font_family(),
                         INPUT_FONT_SIZE,
                     )
@@ -1596,7 +1838,13 @@ impl ProviderSetupView {
     fn render_discovery(&self, appearance: &Appearance) -> Box<dyn galaxyui::Element> {
         let (message, color) = match &self.discovery_state {
             DiscoveryState::Idle | DiscoveryState::Loading => (
-                "Testing the connection and discovering available models...".to_string(),
+                if self.provider_type == ProviderSetupProviderType::Acp
+                    && !self.acp_setup_status.is_empty()
+                {
+                    self.acp_setup_status.clone()
+                } else {
+                    "Testing the connection and discovering available models...".to_string()
+                },
                 appearance.theme().active_ui_text_color().into_solid(),
             ),
             DiscoveryState::Failed(error) => (error.clone(), appearance.theme().ui_error_color()),
@@ -2012,6 +2260,9 @@ impl ProviderSetupView {
     }
 
     fn is_configure_valid(&self) -> bool {
+        if self.claude_signin_abort.is_some() {
+            return false;
+        }
         match self.provider_type {
             ProviderSetupProviderType::OpenAI => {
                 !self.draft_base_url.trim().is_empty()
@@ -2021,7 +2272,16 @@ impl ProviderSetupView {
                         .is_some_and(|key| !key.trim().is_empty())
             }
             ProviderSetupProviderType::LiteLLM => !self.draft_base_url.trim().is_empty(),
-            ProviderSetupProviderType::Anthropic | ProviderSetupProviderType::Gemini => self
+            ProviderSetupProviderType::Anthropic => {
+                self.draft_api_key.as_deref().is_some_and(|key| {
+                    if crate::ai::claude_subscription::is_stored_credential(key) {
+                        self.claude_credentials_available
+                    } else {
+                        !key.trim().is_empty()
+                    }
+                })
+            }
+            ProviderSetupProviderType::Gemini => self
                 .draft_api_key
                 .as_deref()
                 .is_some_and(|key| !key.trim().is_empty()),
@@ -2202,6 +2462,9 @@ impl TypedActionView for ProviderSetupView {
         match action {
             ProviderSetupViewAction::SelectProvider(kind) => {
                 if self.provider_type != *kind {
+                    self.cancel_claude_signin();
+                    self.draft_api_key = None;
+                    self.claude_credentials_available = false;
                     self.draft_models.clear();
                     self.discovery_state = DiscoveryState::Idle;
                 }
@@ -2244,6 +2507,8 @@ impl TypedActionView for ProviderSetupView {
                     | ProviderSetupProviderType::VertexAI => {
                         if self.draft_name.trim().is_empty()
                             || !self.draft_models.iter().any(|model| model.enabled)
+                            || (self.provider_type == ProviderSetupProviderType::Anthropic
+                                && !self.is_configure_valid())
                         {
                             return;
                         }
@@ -2282,6 +2547,7 @@ impl TypedActionView for ProviderSetupView {
                     ctx.notify();
                 }
                 ProviderSetupStep::Discover => {
+                    self.cancel_acp_setup();
                     self.step = ProviderSetupStep::Configure;
                     self.discovery_state = DiscoveryState::Idle;
                     self.update_next_button(ctx);
@@ -2294,6 +2560,9 @@ impl TypedActionView for ProviderSetupView {
                 }
             },
             ProviderSetupViewAction::Cancel => {
+                self.cancel_acp_setup();
+                self.cancel_claude_signin();
+                self.discovery_state = DiscoveryState::Idle;
                 ctx.emit(ProviderSetupViewEvent::Close);
             }
             ProviderSetupViewAction::SelectAcpAgent(agent_id) => {
@@ -2337,6 +2606,28 @@ impl TypedActionView for ProviderSetupView {
             ProviderSetupViewAction::ConnectChatGPT => {
                 #[cfg(not(target_family = "wasm"))]
                 ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.connect(ctx));
+            }
+            ProviderSetupViewAction::ConnectClaude => {
+                #[cfg(not(target_family = "wasm"))]
+                self.connect_claude(ctx);
+            }
+            ProviderSetupViewAction::SignOutClaude => {
+                if let Some(reference) = self.draft_api_key.take() {
+                    crate::ai::claude_subscription::remove_credential(&reference, ctx);
+                }
+                self.cancel_claude_signin();
+                self.claude_credentials_available = false;
+                self.claude_signin_status = "Signed out of Claude on this device.".to_string();
+                self.draft_models.clear();
+                self.discovery_state = DiscoveryState::Idle;
+                self.update_next_button(ctx);
+                ctx.notify();
+            }
+            ProviderSetupViewAction::CancelClaudeSignIn => {
+                self.cancel_claude_signin();
+                self.claude_signin_status = "Claude sign-in cancelled.".to_string();
+                self.update_next_button(ctx);
+                ctx.notify();
             }
             ProviderSetupViewAction::SelectBedrockProfile(profile) => {
                 if self.draft_bedrock.profile != *profile {
@@ -2394,6 +2685,13 @@ fn provider_type_label(kind: ProviderSetupProviderType) -> &'static str {
         ProviderSetupProviderType::Gemini => "Google Gemini",
         ProviderSetupProviderType::VertexAI => "Google Vertex AI",
         ProviderSetupProviderType::Bedrock => "AWS Bedrock",
-        ProviderSetupProviderType::Acp => "ACP agent runtime",
+        ProviderSetupProviderType::Acp => "Claude Code",
+    }
+}
+
+impl Drop for ProviderSetupView {
+    fn drop(&mut self) {
+        self.cancel_claude_signin();
+        self.cancel_acp_setup();
     }
 }

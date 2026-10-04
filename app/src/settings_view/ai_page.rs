@@ -163,6 +163,7 @@ pub enum AISubpage {
     ProviderLiteLLM,
     /// ChatGPT subscription provider settings.
     ProviderChatGPTSubscription,
+    ProviderAnthropic,
     /// AWS Bedrock provider settings.
     ProviderBedrock,
     /// ACP provider settings.
@@ -185,6 +186,7 @@ impl AISubpage {
             SettingsSection::ProviderOpenAI => Some(Self::ProviderOpenAI),
             SettingsSection::ProviderLiteLLM => Some(Self::ProviderLiteLLM),
             SettingsSection::ProviderChatGPTSubscription => Some(Self::ProviderChatGPTSubscription),
+            SettingsSection::ProviderAnthropic => Some(Self::ProviderAnthropic),
             SettingsSection::ProviderBedrock => Some(Self::ProviderBedrock),
             SettingsSection::ProviderACP => Some(Self::ProviderACP),
             // AgentMCPServers renders the standalone MCPServers page, not an AI subpage.
@@ -677,6 +679,83 @@ impl AISettingsPageView {
         draft: &AcpProviderDraft,
         ctx: &mut ViewContext<Self>,
     ) {
+        let generation = self
+            .provider_setup_body
+            .read(ctx, |body, _| body.acp_discovery_generation());
+        #[cfg(feature = "local_fs")]
+        if draft.agent_id.eq_ignore_ascii_case("claude-acp") && draft.command.trim().is_empty() {
+            let (progress, updates) = async_channel::bounded(8);
+            self.watch_claude_setup_progress(updates, generation, ctx);
+            let draft = draft.clone();
+            let registration = self.provider_setup_body.update(ctx, |body, ctx| {
+                body.set_acp_setup_status("Checking Claude Code installation…".to_owned(), ctx);
+                body.prepare_acp_setup()
+            });
+            let _ = ctx.spawn(
+                futures::future::Abortable::new(
+                    async move { crate::ai::acp::ensure_claude_code_installed(progress).await },
+                    registration,
+                ),
+                move |me, result, ctx| {
+                    if !me
+                        .provider_setup_body
+                        .read(ctx, |body, _| body.acp_discovery_is_current(generation))
+                    {
+                        return;
+                    }
+                    let Ok(result) = result else {
+                        return;
+                    };
+                    match result {
+                        Ok(()) => me.resolve_and_start_acp_discovery(&draft, generation, ctx),
+                        Err(error) => {
+                            log::warn!("Claude Code setup failed: {error}");
+                            me.provider_setup_body.update(ctx, |body, ctx| {
+                                body.finish_acp_discovery(Err(error), Vec::new(), ctx);
+                            });
+                        }
+                    }
+                },
+            );
+            return;
+        }
+        self.resolve_and_start_acp_discovery(draft, generation, ctx);
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn watch_claude_setup_progress(
+        &mut self,
+        updates: async_channel::Receiver<&'static str>,
+        generation: u64,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let remaining_updates = updates.clone();
+        let _ = ctx.spawn(
+            async move { updates.recv().await },
+            move |me, update, ctx| {
+                if !me
+                    .provider_setup_body
+                    .read(ctx, |body, _| body.acp_discovery_is_current(generation))
+                {
+                    return;
+                }
+                if let Ok(update) = update {
+                    me.provider_setup_body.update(ctx, |body, ctx| {
+                        body.set_acp_setup_status(update.to_owned(), ctx);
+                    });
+                    me.watch_claude_setup_progress(remaining_updates, generation, ctx);
+                }
+            },
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn resolve_and_start_acp_discovery(
+        &mut self,
+        draft: &AcpProviderDraft,
+        generation: u64,
+        ctx: &mut ViewContext<Self>,
+    ) {
         let config = match crate::ai::acp::AcpRuntimeModel::discovery_config_for_values(
             &draft.agent_id,
             &draft.command,
@@ -691,7 +770,7 @@ impl AISettingsPageView {
                 return;
             }
         };
-        self.start_acp_discovery(config, draft.agent_id.clone(), ctx);
+        self.start_acp_discovery(config, draft.agent_id.clone(), generation, ctx);
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -699,6 +778,7 @@ impl AISettingsPageView {
         &mut self,
         config: galaxy_acp::AcpManagerConfig,
         agent_id: String,
+        generation: u64,
         ctx: &mut ViewContext<Self>,
     ) {
         let provider_setup_body = self.provider_setup_body.clone();
@@ -724,6 +804,11 @@ impl AISettingsPageView {
         let _ = ctx.spawn(
             async move { manager.discover_config_options(cwd, Vec::new()).await },
             move |_me, result, ctx| {
+                if !provider_setup_body
+                    .read(ctx, |body, _| body.acp_discovery_is_current(generation))
+                {
+                    return;
+                }
                 match result {
                     Ok(options) => {
                         let option_count = options.len();
@@ -1710,19 +1795,64 @@ impl AISettingsPageView {
         mut provider: OpenAIProviderConfig,
         ctx: &mut ViewContext<Self>,
     ) {
-        AISettings::handle(ctx).update(ctx, |settings, ctx| {
+        let new_reference =
+            match crate::ai::claude_subscription::store_credential(&mut provider, ctx) {
+                Ok(reference) => reference,
+                Err(error) => {
+                    self.provider_setup_body
+                        .update(ctx, |body, ctx| body.show_connection_error(error, ctx));
+                    return;
+                }
+            };
+        let old_reference = editing_index.and_then(|index| {
+            AISettings::as_ref(ctx)
+                .openai_providers
+                .value()
+                .get(index)
+                .and_then(|provider| provider.api_key.clone())
+        });
+        let saved = AISettings::handle(ctx).update(ctx, |settings, ctx| {
             let mut providers = settings.openai_providers.value().clone();
             match editing_index {
                 Some(index) => {
-                    if let Some(existing) = providers.get_mut(index) {
-                        provider.enabled = existing.enabled;
-                        *existing = provider.clone();
-                    }
+                    let Some(existing) = providers.get_mut(index) else {
+                        return false;
+                    };
+                    provider.enabled = existing.enabled;
+                    *existing = provider.clone();
                 }
                 None => providers.push(provider.clone()),
             }
-            report_if_error!(settings.openai_providers.set_value(providers, ctx));
+            match settings.openai_providers.set_value(providers, ctx) {
+                Ok(_) => true,
+                Err(error) => {
+                    report_error!(error);
+                    false
+                }
+            }
         });
+        if !saved {
+            if let Some(reference) = new_reference {
+                crate::ai::claude_subscription::remove_credential(&reference, ctx);
+            }
+            self.provider_setup_body.update(ctx, |body, ctx| {
+                body.show_connection_error(
+                    "Could not save the provider connection.".to_string(),
+                    ctx,
+                );
+            });
+            return;
+        }
+        if let Some(reference) = old_reference {
+            if !AISettings::as_ref(ctx)
+                .openai_providers
+                .value()
+                .iter()
+                .any(|provider| provider.api_key.as_deref() == Some(reference.as_str()))
+            {
+                crate::ai::claude_subscription::remove_credential(&reference, ctx);
+            }
+        }
         self.clear_inline_provider_setup(ctx);
     }
 
@@ -1927,6 +2057,12 @@ impl AISettingsPageView {
                 widgets.push(Box::new(ProviderSettingsWidget::new(
                     ctx,
                     ProviderSetupProviderType::ChatGPTSubscription,
+                )));
+            }
+            Some(AISubpage::ProviderAnthropic) => {
+                widgets.push(Box::new(ProviderSettingsWidget::new(
+                    ctx,
+                    ProviderSetupProviderType::Anthropic,
                 )));
             }
             Some(AISubpage::ProviderBedrock) => {
@@ -3297,8 +3433,22 @@ impl TypedActionView for AISettingsPageView {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
                     let mut providers = settings.openai_providers.value().clone();
                     if *provider_index < providers.len() {
-                        providers.remove(*provider_index);
-                        report_if_error!(settings.openai_providers.set_value(providers, ctx));
+                        let removed = providers.remove(*provider_index);
+                        let remaining = providers.clone();
+                        match settings.openai_providers.set_value(providers, ctx) {
+                            Ok(_) => {
+                                if let Some(reference) = removed.api_key {
+                                    if !remaining.iter().any(|provider| {
+                                        provider.api_key.as_deref() == Some(reference.as_str())
+                                    }) {
+                                        crate::ai::claude_subscription::remove_credential(
+                                            &reference, ctx,
+                                        );
+                                    }
+                                }
+                            }
+                            Err(error) => report_error!(error),
+                        }
                     }
                 });
                 self.rebuild_active_subpage(ctx);
@@ -3337,7 +3487,9 @@ impl TypedActionView for AISettingsPageView {
                     let mut providers = settings.acp_providers.value().clone();
                     if providers.is_empty() && provider_id == "legacy" {
                         report_if_error!(settings.acp_enabled.set_value(false, ctx));
-                        report_if_error!(settings.acp_agent_id.set_value("codex".to_string(), ctx));
+                        report_if_error!(settings
+                            .acp_agent_id
+                            .set_value("claude-acp".to_string(), ctx));
                         report_if_error!(settings.acp_agent_command.set_value(String::new(), ctx));
                         report_if_error!(settings.acp_agent_args.set_value(Vec::new(), ctx));
                         report_if_error!(settings
@@ -3366,7 +3518,9 @@ impl TypedActionView for AISettingsPageView {
                             .set_value(first_provider.name.clone(), ctx));
                     } else {
                         report_if_error!(settings.acp_enabled.set_value(false, ctx));
-                        report_if_error!(settings.acp_agent_id.set_value("codex".to_string(), ctx));
+                        report_if_error!(settings
+                            .acp_agent_id
+                            .set_value("claude-acp".to_string(), ctx));
                         report_if_error!(settings.acp_agent_command.set_value(String::new(), ctx));
                         report_if_error!(settings.acp_agent_args.set_value(Vec::new(), ctx));
                         report_if_error!(settings
@@ -6372,7 +6526,7 @@ impl SettingsWidget for ModelsOverviewWidget {
     type View = AISettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "models providers runtimes rig litellm openai compatible ollama lm studio bedrock acp agent client protocol"
+        "models providers runtimes rig litellm openai compatible ollama lm studio bedrock acp agent client protocol anthropic claude subscription token"
     }
 
     fn render(
@@ -6389,6 +6543,12 @@ impl SettingsWidget for ModelsOverviewWidget {
             .filter(|provider| {
                 ModelProviderSection::for_provider(provider) == ModelProviderSection::OpenAI
             })
+            .count();
+        let anthropic_count = settings
+            .openai_providers
+            .value()
+            .iter()
+            .filter(|provider| provider.kind == OpenAIProviderKind::Anthropic)
             .count();
         let litellm_count = settings
             .openai_providers
@@ -6420,13 +6580,13 @@ impl SettingsWidget for ModelsOverviewWidget {
             .with_spacing(8.)
             .with_child(build_sub_header(appearance, "Models", None).finish())
             .with_child(render_ai_setting_description(
-                "Configure Galaxy's direct model providers and agent runtimes in one place. OpenAI, LiteLLM, ChatGPT subscription, and Bedrock connections are configured here. ACP coding agents are shown read-only because the agent runtime controls their model, login, session, and tool loop.",
+                "Configure Galaxy's direct model providers and agent runtimes in one place. OpenAI, LiteLLM, ChatGPT subscription, Anthropic / Claude subscription, and Bedrock connections are configured here. ACP coding agents are shown read-only because the agent runtime controls their model, login, session, and tool loop.",
                 true,
                 app,
             ))
             .with_child(render_ai_setting_description(
                 format!(
-                    "{openai_count} OpenAI provider(s); {litellm_count} LiteLLM provider(s); {chatgpt_count} ChatGPT subscription provider(s); {endpoint_model_count} direct model(s); {bedrock_model_count} Bedrock model(s); {agent_runtime_count} enabled ACP runtime(s)."
+                    "{openai_count} OpenAI provider(s); {litellm_count} LiteLLM provider(s); {chatgpt_count} ChatGPT subscription provider(s); {anthropic_count} Anthropic / Claude subscription provider(s); {endpoint_model_count} direct model(s); {bedrock_model_count} Bedrock model(s); {agent_runtime_count} enabled ACP runtime(s)."
                 ),
                 true,
                 app,
@@ -6437,6 +6597,7 @@ impl SettingsWidget for ModelsOverviewWidget {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ModelProviderSection {
+    Anthropic,
     OpenAI,
     LiteLLM,
     ChatGPTSubscription,
@@ -6445,8 +6606,8 @@ enum ModelProviderSection {
 impl ModelProviderSection {
     fn for_provider(provider: &OpenAIProviderConfig) -> Self {
         match provider.kind {
+            OpenAIProviderKind::Anthropic => Self::Anthropic,
             OpenAIProviderKind::OpenAI
-            | OpenAIProviderKind::Anthropic
             | OpenAIProviderKind::Gemini
             | OpenAIProviderKind::VertexAI => Self::OpenAI,
             OpenAIProviderKind::LiteLLM => Self::LiteLLM,
@@ -6472,6 +6633,7 @@ struct ProviderSettingsWidget {
     bedrock_enabled_toggle: SwitchStateHandle,
     bedrock_model_switches: RefCell<HashMap<String, SwitchStateHandle>>,
     bedrock_model_table_state: TableStateHandle,
+    add_anthropic_provider_button: ViewHandle<ActionButton>,
     add_openai_provider_button: ViewHandle<ActionButton>,
     add_litellm_provider_button: ViewHandle<ActionButton>,
     add_chatgpt_provider_button: ViewHandle<ActionButton>,
@@ -6529,6 +6691,15 @@ impl ProviderSettingsWidget {
                 }
             })
             .collect();
+        let add_anthropic_provider_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Add provider", SecondaryTheme)
+                .with_icon(Icon::Plus)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(AISettingsPageAction::AddOpenAIProvider(
+                        ProviderSetupProviderType::Anthropic,
+                    ));
+                })
+        });
         let add_openai_provider_button = ctx.add_typed_action_view(|_| {
             ActionButton::new("Add provider", SecondaryTheme)
                 .with_icon(Icon::Plus)
@@ -6587,6 +6758,7 @@ impl ProviderSettingsWidget {
             bedrock_enabled_toggle: SwitchStateHandle::default(),
             bedrock_model_switches: RefCell::new(HashMap::new()),
             bedrock_model_table_state: TableStateHandle::new(0, |_, _| Vec::new()),
+            add_anthropic_provider_button,
             add_openai_provider_button,
             add_litellm_provider_button,
             add_chatgpt_provider_button,
@@ -6620,7 +6792,17 @@ impl ProviderSettingsWidget {
             OpenAIProviderKind::OpenAI => "OpenAI",
             OpenAIProviderKind::LiteLLM => "LiteLLM",
             OpenAIProviderKind::ChatGPTSubscription => "ChatGPT subscription",
-            OpenAIProviderKind::Anthropic => "Anthropic",
+            OpenAIProviderKind::Anthropic => {
+                if provider
+                    .api_key
+                    .as_deref()
+                    .is_some_and(crate::ai::claude_subscription::is_subscription_credential)
+                {
+                    "Claude subscription (unsupported)"
+                } else {
+                    "Anthropic API"
+                }
+            }
             OpenAIProviderKind::Gemini => "Google Gemini",
             OpenAIProviderKind::VertexAI => "Google Vertex AI",
         }
@@ -7212,8 +7394,8 @@ impl ProviderSettingsWidget {
             ProviderSetupProviderType::ChatGPTSubscription => {
                 Some(ModelProviderSection::ChatGPTSubscription)
             }
-            ProviderSetupProviderType::Anthropic
-            | ProviderSetupProviderType::Gemini
+            ProviderSetupProviderType::Anthropic => Some(ModelProviderSection::Anthropic),
+            ProviderSetupProviderType::Gemini
             | ProviderSetupProviderType::VertexAI
             | ProviderSetupProviderType::Bedrock
             | ProviderSetupProviderType::Acp => None,
@@ -7226,8 +7408,8 @@ impl ProviderSettingsWidget {
             ProviderSetupProviderType::LiteLLM => "LiteLLM",
             ProviderSetupProviderType::ChatGPTSubscription => "ChatGPT Subscription",
             ProviderSetupProviderType::Bedrock => "Bedrock",
-            ProviderSetupProviderType::Acp => "ACP",
-            ProviderSetupProviderType::Anthropic => "Anthropic",
+            ProviderSetupProviderType::Acp => "Claude Code",
+            ProviderSetupProviderType::Anthropic => "Anthropic / Claude subscription",
             ProviderSetupProviderType::Gemini => "Google Gemini",
             ProviderSetupProviderType::VertexAI => "Google Vertex AI",
         }
@@ -7248,9 +7430,9 @@ impl ProviderSettingsWidget {
                 "Use AWS Bedrock credentials and discovered Bedrock foundation models."
             }
             ProviderSetupProviderType::Acp => {
-                "Add an ACP agent connection here. After it is added, Settings shows it read-only because the agent controls its model, login, session, and tool loop."
+                "Connect Claude Code with your Claude account. Setup downloads missing components and opens sign-in in your browser."
             }
-            ProviderSetupProviderType::Anthropic => "Connect directly to Anthropic.",
+            ProviderSetupProviderType::Anthropic => crate::ai::claude_subscription::SUBSCRIPTION_WARNING,
             ProviderSetupProviderType::Gemini => "Connect directly to Google Gemini.",
             ProviderSetupProviderType::VertexAI => "Connect directly to Google Vertex AI.",
         }
@@ -7264,7 +7446,7 @@ impl ProviderSettingsWidget {
                 "No ChatGPT subscription provider configured."
             }
             ProviderSetupProviderType::Bedrock => "No Bedrock provider configured.",
-            ProviderSetupProviderType::Acp => "No ACP agent connection configured.",
+            ProviderSetupProviderType::Acp => "No Claude Code connection configured.",
             ProviderSetupProviderType::Anthropic => "No Anthropic provider configured.",
             ProviderSetupProviderType::Gemini => "No Google Gemini provider configured.",
             ProviderSetupProviderType::VertexAI => "No Google Vertex AI provider configured.",
@@ -7283,9 +7465,8 @@ impl ProviderSettingsWidget {
             }
             ProviderSetupProviderType::Bedrock => Some(&self.bedrock_add_button),
             ProviderSetupProviderType::Acp => Some(&self.acp_add_button),
-            ProviderSetupProviderType::Anthropic
-            | ProviderSetupProviderType::Gemini
-            | ProviderSetupProviderType::VertexAI => None,
+            ProviderSetupProviderType::Anthropic => Some(&self.add_anthropic_provider_button),
+            ProviderSetupProviderType::Gemini | ProviderSetupProviderType::VertexAI => None,
         }
     }
 
@@ -7369,7 +7550,8 @@ impl SettingsWidget for ProviderSettingsWidget {
         match self.provider_type {
             ProviderSetupProviderType::OpenAI
             | ProviderSetupProviderType::LiteLLM
-            | ProviderSetupProviderType::ChatGPTSubscription => {
+            | ProviderSetupProviderType::ChatGPTSubscription
+            | ProviderSetupProviderType::Anthropic => {
                 if is_setup_visible {
                     column.add_child(Self::render_inline_setup(appearance, view));
                 }
@@ -7462,22 +7644,20 @@ impl SettingsWidget for ProviderSettingsWidget {
                     None
                 };
                 let empty_message = if acp_supported {
-                    "No ACP agent connection configured."
+                    "No Claude Code connection configured."
                 } else {
                     "ACP providers are not available on this platform."
                 };
                 column.add_child(Self::render_provider_section(
-                    "ACP",
-                    "Add an ACP agent connection here. After it is added, Settings shows it read-only because the agent controls its model, login, session, and tool loop.",
+                    "Claude Code",
+                    "Connect Claude Code with your Claude account. Setup downloads missing components and opens sign-in in your browser.",
                     acp_add_button,
                     acp_cards,
                     empty_message,
                     appearance,
                 ));
             }
-            ProviderSetupProviderType::Anthropic
-            | ProviderSetupProviderType::Gemini
-            | ProviderSetupProviderType::VertexAI => {}
+            ProviderSetupProviderType::Gemini | ProviderSetupProviderType::VertexAI => {}
         }
 
         column.finish()

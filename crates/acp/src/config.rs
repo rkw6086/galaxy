@@ -26,73 +26,15 @@ pub struct AcpKnownAgent {
     pub args: &'static [&'static str],
 }
 
-/// Curated ACP Registry catalog. Launch commands are intentionally local-only:
-/// Galaxy never installs or downloads an agent on the user's behalf.
-pub const KNOWN_ACP_AGENTS: &[AcpKnownAgent] = &[
-    AcpKnownAgent {
-        id: "codex",
-        name: "Codex",
-        description: "OpenAI's coding assistant",
-        command: "codex",
-        args: &[],
-    },
-    AcpKnownAgent {
-        id: "opencode",
-        name: "OpenCode",
-        description: "Open source coding agent",
-        command: "opencode",
-        args: &["acp"],
-    },
-    AcpKnownAgent {
-        id: "claude-acp",
-        name: "Claude Agent",
-        description: "Anthropic's coding agent",
-        command: "claude-agent-acp",
-        args: &[],
-    },
-    AcpKnownAgent {
-        id: "gemini",
-        name: "Gemini CLI",
-        description: "Google's coding agent",
-        command: "gemini",
-        args: &["--acp"],
-    },
-    AcpKnownAgent {
-        id: "cline",
-        name: "Cline",
-        description: "Autonomous coding agent",
-        command: "cline",
-        args: &["--acp"],
-    },
-    AcpKnownAgent {
-        id: "cursor",
-        name: "Cursor",
-        description: "Cursor's coding agent",
-        command: "cursor-agent",
-        args: &["acp"],
-    },
-    AcpKnownAgent {
-        id: "github-copilot-cli",
-        name: "GitHub Copilot",
-        description: "GitHub's AI pair programmer",
-        command: "copilot",
-        args: &["--acp"],
-    },
-    AcpKnownAgent {
-        id: "goose",
-        name: "Goose",
-        description: "Block's open source AI agent",
-        command: "goose",
-        args: &["acp"],
-    },
-    AcpKnownAgent {
-        id: "auggie",
-        name: "Auggie CLI",
-        description: "Augment Code's coding agent",
-        command: "auggie",
-        args: &["--acp"],
-    },
-];
+/// ACP agents offered by Galaxy's connection setup. Existing explicit launch
+/// configurations remain supported independently of this catalog.
+pub const KNOWN_ACP_AGENTS: &[AcpKnownAgent] = &[AcpKnownAgent {
+    id: "claude-acp",
+    name: "Claude Code",
+    description: "Claude Code with your Claude subscription or API account",
+    command: "claude-agent-acp",
+    args: &[],
+}];
 
 pub fn known_acp_agents() -> &'static [AcpKnownAgent] {
     KNOWN_ACP_AGENTS

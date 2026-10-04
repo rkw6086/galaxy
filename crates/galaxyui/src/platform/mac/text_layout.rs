@@ -934,7 +934,9 @@ fn caret_positions_for_line(
     // edges and RTL text.
     positions.sort_unstable_by_key(|position| position.utf16_index);
     let mut carets: Vec<_> = positions
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|edges| {
             // Guaranteed by chunks_exact that there are 2 elements.
             let first = &edges[0];

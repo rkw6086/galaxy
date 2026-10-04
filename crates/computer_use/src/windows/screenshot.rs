@@ -225,7 +225,7 @@ fn read_bitmap_bits(
 /// GDI does not populate the alpha channel for `BI_RGB`, so we force it to `0xFF` to produce a
 /// fully opaque RGBA image.
 fn convert_bgra_to_rgba(mut buffer: Vec<u8>) -> Vec<u8> {
-    for chunk in buffer.chunks_exact_mut(4) {
+    for chunk in buffer.as_chunks_mut::<4>().0 {
         // Swap B and R channels so the 4-byte BGRA pixel becomes RGBA.
         chunk.swap(0, 2);
         chunk[3] = 0xFF;

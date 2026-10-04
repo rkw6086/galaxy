@@ -79,7 +79,7 @@ use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelHelper};
 use crate::ai::blocklist::secret_redaction::{redact_secrets_in_element, SecretRedactionState};
 use crate::ai::blocklist::view_util::error_color;
 use crate::ai::blocklist::{BlocklistAIActionModel, ShellCommandExecutor, TextLocation};
-use crate::ai::loading::shimmering_warp_loading_text;
+use crate::ai::loading::{loading_logo_size, shimmering_warp_loading_text, LOADING_LOGO_GAP};
 use crate::ai::AIRequestUsageModel;
 use crate::code::editor::view::CodeEditorView;
 use crate::code::editor_management::CodeSource;
@@ -625,14 +625,9 @@ pub fn render_warping_indicator_base(
     // will be rendered on a second line below the warping text. Captured before
     // `secondary_element` is consumed so the container can reserve room for it.
     let has_secondary_element = secondary_element.is_some();
-    // Unicode code point for the Warp glyph that is embedded in the version of Roboto we bundle
-    // into the app. This code point MUST be rendered using Roboto (the default ui font) or else the
-    // glyph may not be rendered.
-    const WARP_GLYPH: &str = "\u{E500}";
-
     let appearance = Appearance::as_ref(app);
 
-    let should_indent_tip_for_warp_glyph = matches!(
+    let should_indent_tip_for_logo = matches!(
         warping_indicator_text,
         MaybeShimmeringText::Shimmering { .. }
     );
@@ -640,7 +635,9 @@ pub fn render_warping_indicator_base(
     let text = render_output_status_text(warping_indicator_text, appearance, app);
 
     let text_content = {
-        let mut row = Flex::row().with_child(Shrinkable::new(1., text).finish());
+        let mut row = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(Shrinkable::new(1., text).finish());
 
         if let Some(non_shimmering) = non_shimmering_text {
             let additional = render_output_status_text(
@@ -660,25 +657,11 @@ pub fn render_warping_indicator_base(
 
     let mut text_col = Flex::column();
     if let Some(sub_element) = secondary_element {
-        // Our warping indicator text prepends the Warp glyph (and a space) to the label.
-        // If we render the tip directly underneath, it will align to the glyph instead of
-        // the start of the actual warping text.
-        let sub_element = if should_indent_tip_for_warp_glyph {
+        // Align the tip with the text after the Galaxy logo and its spacing.
+        let sub_element = if should_indent_tip_for_logo {
             let font_size = appearance.monospace_font_size() - 3.;
-            let glyph_indent = Text::new_inline(
-                format!("{WARP_GLYPH} "),
-                appearance.ui_font_family(),
-                font_size,
-            )
-            .with_color(ColorU::new(0, 0, 0, 0))
-            .with_selectable(false)
-            .soft_wrap(false)
-            .finish();
-
-            Flex::row()
-                .with_cross_axis_alignment(CrossAxisAlignment::Start)
-                .with_child(glyph_indent)
-                .with_child(Shrinkable::new(1., sub_element).finish())
+            Container::new(Shrinkable::new(1., sub_element).finish())
+                .with_margin_left(loading_logo_size(font_size) + LOADING_LOGO_GAP)
                 .finish()
         } else {
             Shrinkable::new(1., sub_element).finish()

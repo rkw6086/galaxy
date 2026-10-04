@@ -92,6 +92,7 @@ handlebars.workspace = true
 hex.workspace = true
 http.workspace = true
 http_client.workspace = true
+node_runtime.workspace = true
 image.workspace = true
 infer = "0.19.0"
 jaq-json.workspace = true
@@ -706,6 +707,7 @@ local_claude_codex_child_harnesses = []
 local_fs = [
     "ai/local_fs",
     "lsp/local_fs",
+    "node_runtime/local_fs",
     "persistence/local_fs",
     "repo_metadata/local_fs",
     "galaxy_core/local_fs",

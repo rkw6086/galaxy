@@ -1,11 +1,16 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::future::BoxFuture;
 use galaxy_agent_core::{
     AgentError, AgentErrorKind, AgentEventStream, AgentRuntime, RuntimeCapabilities,
     RuntimeDescriptor, RuntimeKind, TurnControl, TurnRequest,
 };
 use rig_core::client::{CompletionClient, ModelListingClient};
-use rig_core::providers::{anthropic, gemini};
+use rig_core::providers::gemini;
 
+use crate::anthropic_auth::{anthropic_client, prepare_subscription_request, restore_tool_names};
 use crate::request::build_completion_request;
 use crate::stream::{start_model_completion, start_model_turn};
 
@@ -17,7 +22,7 @@ pub struct RigModelInfo {
 }
 
 pub async fn discover_anthropic_models(api_key: &str) -> Result<Vec<RigModelInfo>, String> {
-    let client = anthropic::Client::new(api_key).map_err(|error| error.to_string())?;
+    let client = anthropic_client(api_key)?;
     let models = client
         .list_models()
         .await
@@ -84,23 +89,62 @@ pub fn validate_vertex_ai_credentials(project_id: &str, location: &str) -> Resul
         .map_err(|error| error.to_string())
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AnthropicRuntimeConfig {
     pub api_key: String,
     pub model: String,
     pub max_output_tokens: Option<u64>,
 }
 
-#[derive(Clone, Debug)]
+impl std::fmt::Debug for AnthropicRuntimeConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AnthropicRuntimeConfig")
+            .field("credential_configured", &!self.api_key.is_empty())
+            .field(
+                "subscription",
+                &crate::is_claude_subscription_token(&self.api_key),
+            )
+            .field("model", &self.model)
+            .field("max_output_tokens", &self.max_output_tokens)
+            .finish()
+    }
+}
+
+pub type AnthropicCredentialResolver =
+    Arc<dyn Fn() -> BoxFuture<'static, Result<String, String>> + Send + Sync>;
+
+#[derive(Clone)]
 pub struct AnthropicRuntime {
     config: AnthropicRuntimeConfig,
     descriptor: RuntimeDescriptor,
+    credential_resolver: Option<AnthropicCredentialResolver>,
+}
+
+impl std::fmt::Debug for AnthropicRuntime {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AnthropicRuntime")
+            .field("config", &self.config)
+            .field("descriptor", &self.descriptor)
+            .finish()
+    }
 }
 
 impl AnthropicRuntime {
     pub fn new(config: AnthropicRuntimeConfig) -> Self {
         let descriptor = native_descriptor("anthropic", &config.model);
-        Self { config, descriptor }
+        Self {
+            config,
+            descriptor,
+            credential_resolver: None,
+        }
+    }
+
+    /// Resolves renewable credentials before each turn without owning model retries.
+    pub fn with_credential_resolver(mut self, resolver: AnthropicCredentialResolver) -> Self {
+        self.credential_resolver = Some(resolver);
+        self
     }
 }
 
@@ -115,19 +159,42 @@ impl AgentRuntime for AnthropicRuntime {
         request: TurnRequest,
         control: TurnControl,
     ) -> Result<AgentEventStream, AgentError> {
-        if self.config.api_key.trim().is_empty() {
+        let credential = match &self.credential_resolver {
+            Some(resolve) => resolve()
+                .await
+                .map_err(|error| AgentError::new(AgentErrorKind::Configuration, error))?,
+            None => self.config.api_key.clone(),
+        };
+        if credential.trim().is_empty() {
             return Err(AgentError::new(
                 AgentErrorKind::Configuration,
-                "An Anthropic API key is required",
+                "An Anthropic API key or Claude subscription token is required",
             ));
         }
-        let client = anthropic::Client::new(&self.config.api_key)
+        let client = anthropic_client(&credential)
             .map_err(|error| AgentError::new(AgentErrorKind::Configuration, error.to_string()))?;
-        let model = client.completion_model(&self.config.model);
+        let mut model = client.completion_model(&self.config.model);
         let max_output_tokens = request.max_output_tokens.or(self.config.max_output_tokens);
-        let completion_request =
+        let mut completion_request =
             build_completion_request(request, max_output_tokens, true, true, None)?;
-        start_model_turn(model, completion_request, control, max_output_tokens).await
+        let aliases = if crate::is_claude_subscription_token(&credential) {
+            model = model.with_prompt_caching();
+            Some(prepare_subscription_request(&mut completion_request)?)
+        } else {
+            None
+        };
+        let stream =
+            start_model_turn(model, completion_request, control, max_output_tokens).await?;
+        if let Some(aliases) = aliases {
+            Ok(Box::pin(stream.map(move |result| {
+                result.map(|mut event| {
+                    restore_tool_names(&mut event, &aliases);
+                    event
+                })
+            })))
+        } else {
+            Ok(stream)
+        }
     }
 }
 

@@ -1,5 +1,3 @@
-use std::io::Write as _;
-
 use super::*;
 
 #[test]

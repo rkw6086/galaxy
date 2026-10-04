@@ -318,11 +318,19 @@ pub(crate) async fn provider_runtime_for_request(
                 },
             )),
             OpenAIProviderKind::Anthropic => {
-                Arc::new(AnthropicRuntime::new(AnthropicRuntimeConfig {
-                    api_key: config.api_key.unwrap_or_default(),
+                let credential = config.api_key.unwrap_or_default();
+                let stored = crate::ai::claude_subscription::is_stored_credential(&credential);
+                let mut runtime = AnthropicRuntime::new(AnthropicRuntimeConfig {
+                    api_key: credential.clone(),
                     model,
                     max_output_tokens: config.max_output_tokens.map(u64::from),
-                }))
+                });
+                if stored {
+                    runtime = runtime.with_credential_resolver(Arc::new(move || {
+                        Box::pin(crate::ai::claude_oauth::load_credential(credential.clone()))
+                    }));
+                }
+                Arc::new(runtime)
             }
             OpenAIProviderKind::Gemini => Arc::new(GeminiRuntime::new(GeminiRuntimeConfig {
                 api_key: config.api_key.unwrap_or_default(),

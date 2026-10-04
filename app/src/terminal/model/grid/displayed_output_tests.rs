@@ -129,7 +129,9 @@ pub fn test_append_to_row_translation_empty_displayed_rows() {
     };
 
     // Append displayed rows 0..=1.
-    displayed_output.append_to_row_translation(make_displayed_rows_from_ranges(vec![0..=1]).iter());
+    displayed_output.append_to_row_translation(
+        make_displayed_rows_from_ranges(std::iter::once(0..=1).collect::<Vec<_>>()).iter(),
+    );
 
     let expected_bimap = create_bimap_with_insertions(&[(0, 0), (1, 1)]);
     assert_eq!(displayed_output.row_translation_map, expected_bimap.into());
@@ -146,7 +148,9 @@ pub fn test_append_to_row_translation() {
     };
 
     // Append displayed rows 6..7.
-    displayed_output.append_to_row_translation(make_displayed_rows_from_ranges(vec![6..=7]).iter());
+    displayed_output.append_to_row_translation(
+        make_displayed_rows_from_ranges(std::iter::once(6..=7).collect::<Vec<_>>()).iter(),
+    );
 
     bimap.insert(6, 4);
     bimap.insert(7, 5);
@@ -163,7 +167,8 @@ pub fn test_prepend_to_row_translation_empty_displayed_rows() {
     };
 
     // Prepend displayed rows 0..=1.
-    let new_line_ranges = make_displayed_rows_from_ranges(vec![0..=1]);
+    let new_line_ranges =
+        make_displayed_rows_from_ranges(std::iter::once(0..=1).collect::<Vec<_>>());
     displayed_output
         .displayed_rows
         .splice(0..0, new_line_ranges);
@@ -186,7 +191,8 @@ pub fn test_prepend_to_row_translation() {
     };
 
     // Prepend displayed rows 0..=1.
-    let new_line_ranges = make_displayed_rows_from_ranges(vec![0..=1]);
+    let new_line_ranges =
+        make_displayed_rows_from_ranges(std::iter::once(0..=1).collect::<Vec<_>>());
     displayed_output
         .displayed_rows
         .splice(0..0, new_line_ranges);
@@ -209,7 +215,8 @@ pub fn test_replace_rows_from_row_translation() {
 
     // Replace displayed row 2 with displayed row 3.
     let replace_range = 1..2;
-    let new_line_ranges = make_displayed_rows_from_ranges(vec![3..=3]);
+    let new_line_ranges =
+        make_displayed_rows_from_ranges(std::iter::once(3..=3).collect::<Vec<_>>());
     displayed_output
         .displayed_rows
         .splice(replace_range.clone(), new_line_ranges);
@@ -231,7 +238,8 @@ pub fn test_replace_rows_from_row_translation_from_middle_to_end() {
 
     // Replace displayed rows 2, 4 with displayed row 3..=5.
     let replace_range = 1..3;
-    let new_line_ranges = make_displayed_rows_from_ranges(vec![3..=5]);
+    let new_line_ranges =
+        make_displayed_rows_from_ranges(std::iter::once(3..=5).collect::<Vec<_>>());
     displayed_output
         .displayed_rows
         .splice(replace_range.clone(), new_line_ranges);
@@ -253,7 +261,8 @@ pub fn test_replace_rows_from_row_translation_from_beginning_to_middle() {
 
     // Replace displayed rows 0, 2 with displayed row 0..=1.
     let replace_range = 0..2;
-    let new_line_ranges = make_displayed_rows_from_ranges(vec![0..=1]);
+    let new_line_ranges =
+        make_displayed_rows_from_ranges(std::iter::once(0..=1).collect::<Vec<_>>());
     displayed_output
         .displayed_rows
         .splice(replace_range.clone(), new_line_ranges);
@@ -268,7 +277,7 @@ pub fn test_replace_rows_from_row_translation_replace_beginning_row() {
     // Start with displayed rows 0.
     let bimap = create_bimap_with_insertions(&[(0, 0)]);
     let mut displayed_output = DisplayedOutput {
-        displayed_rows: make_displayed_rows_from_ranges(vec![0..=0]),
+        displayed_rows: make_displayed_rows_from_ranges(std::iter::once(0..=0).collect::<Vec<_>>()),
         height: 1,
         row_translation_map: bimap.into(),
     };
@@ -276,7 +285,8 @@ pub fn test_replace_rows_from_row_translation_replace_beginning_row() {
     // Replace displayed rows 0 with displayed row 0.
     // This is intended to simulate what happens if we process dirty bytes multiple times.
     let replace_range = 0..1;
-    let new_line_ranges = make_displayed_rows_from_ranges(vec![0..=0]);
+    let new_line_ranges =
+        make_displayed_rows_from_ranges(std::iter::once(0..=0).collect::<Vec<_>>());
     displayed_output
         .displayed_rows
         .splice(replace_range.clone(), new_line_ranges);
@@ -298,7 +308,8 @@ pub fn test_replace_rows_from_row_translation_break_range() {
 
     // Replace displayed rows 2..=3 with displayed row 2.
     let replace_range = 1..2;
-    let new_line_ranges = make_displayed_rows_from_ranges(vec![2..=2]);
+    let new_line_ranges =
+        make_displayed_rows_from_ranges(std::iter::once(2..=2).collect::<Vec<_>>());
     displayed_output
         .displayed_rows
         .splice(replace_range.clone(), new_line_ranges);
@@ -329,7 +340,8 @@ fn test_replace_rows_from_row_translation_no_removed_entries() {
 
     // Insert displayed rows 3..=4.
     let replace_range = 1..1;
-    let new_line_ranges = make_displayed_rows_from_ranges(vec![3..=4]);
+    let new_line_ranges =
+        make_displayed_rows_from_ranges(std::iter::once(3..=4).collect::<Vec<_>>());
     displayed_output
         .displayed_rows
         .splice(replace_range.clone(), new_line_ranges);
@@ -537,7 +549,8 @@ fn test_new_from_displayed_lines() {
 
 #[test]
 fn test_extend_displayed_lines() {
-    let displayed_rows = make_displayed_rows_from_ranges(vec![1..=3]);
+    let displayed_rows =
+        make_displayed_rows_from_ranges(std::iter::once(1..=3).collect::<Vec<_>>());
     let mut displayed_output = DisplayedOutput::new_from_displayed_lines(displayed_rows.clone());
 
     displayed_output.extend_displayed_lines(make_displayed_rows_from_ranges(vec![7..=7, 14..=18]));
@@ -561,7 +574,8 @@ fn test_extend_displayed_lines() {
 
 #[test]
 fn test_prepend_displayed_lines() {
-    let displayed_rows = make_displayed_rows_from_ranges(vec![14..=18]);
+    let displayed_rows =
+        make_displayed_rows_from_ranges(std::iter::once(14..=18).collect::<Vec<_>>());
     let mut displayed_output = DisplayedOutput::new_from_displayed_lines(displayed_rows.clone());
 
     displayed_output.prepend_displayed_lines(make_displayed_rows_from_ranges(vec![1..=3, 7..=7]));
@@ -626,7 +640,8 @@ fn test_splice_displayed_lines_nothing_replaced() {
     let displayed_rows = make_displayed_rows_from_ranges(vec![0..=1, 4..=5, 14..=16, 19..=19]);
     let mut displayed_output = DisplayedOutput::new_from_displayed_lines(displayed_rows.clone());
 
-    let new_displayed_rows = make_displayed_rows_from_ranges(vec![8..=9]);
+    let new_displayed_rows =
+        make_displayed_rows_from_ranges(std::iter::once(8..=9).collect::<Vec<_>>());
     displayed_output.splice_displayed_lines(2..2, new_displayed_rows);
 
     let expected_displayed_rows =

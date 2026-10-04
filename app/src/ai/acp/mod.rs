@@ -8,6 +8,8 @@ mod launch;
 mod permissions;
 mod prompt;
 mod runtime_model;
+#[cfg(feature = "local_fs")]
+mod setup;
 mod transport;
 
 pub(crate) use launch::{
@@ -17,6 +19,8 @@ pub(crate) use launch::{
 };
 pub(crate) use permissions::resolve_acp_permissions;
 pub(crate) use runtime_model::{AcpDiscoveryState, AcpRuntimeModel};
+#[cfg(feature = "local_fs")]
+pub(crate) use setup::ensure_claude_code_installed;
 pub(crate) use transport::{
     acp_output_stream, acp_startup_error_stream, galaxy_mcp_server, AcpSessionMetadata,
     AcpTurnControlSlot, GalaxyMcpTarget,

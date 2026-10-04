@@ -250,6 +250,7 @@ pub enum SettingsSection {
     ProviderOpenAI,
     ProviderLiteLLM,
     ProviderChatGPTSubscription,
+    ProviderAnthropic,
     ProviderBedrock,
     ProviderACP,
     /// Internal backing-page identifier for CodeSettingsPageView. Multiple subpages
@@ -282,6 +283,7 @@ impl Display for SettingsSection {
             SettingsSection::ProviderOpenAI => write!(f, "OpenAI"),
             SettingsSection::ProviderLiteLLM => write!(f, "LiteLLM"),
             SettingsSection::ProviderChatGPTSubscription => write!(f, "ChatGPT Subscription"),
+            SettingsSection::ProviderAnthropic => write!(f, "Anthropic / Claude subscription"),
             SettingsSection::ProviderBedrock => write!(f, "Bedrock"),
             SettingsSection::ProviderACP => write!(f, "ACP"),
             SettingsSection::Wormhole => write!(f, "Wormhole"),
@@ -318,6 +320,7 @@ impl SettingsSection {
             Self::ProviderOpenAI
                 | Self::ProviderLiteLLM
                 | Self::ProviderChatGPTSubscription
+                | Self::ProviderAnthropic
                 | Self::ProviderBedrock
                 | Self::ProviderACP
         )
@@ -335,6 +338,7 @@ impl SettingsSection {
                 | Self::ProviderOpenAI
                 | Self::ProviderLiteLLM
                 | Self::ProviderChatGPTSubscription
+                | Self::ProviderAnthropic
                 | Self::ProviderBedrock
                 | Self::ProviderACP
         )
@@ -376,6 +380,7 @@ impl SettingsSection {
             Self::ProviderOpenAI,
             Self::ProviderLiteLLM,
             Self::ProviderChatGPTSubscription,
+            Self::ProviderAnthropic,
             Self::ProviderBedrock,
             Self::ProviderACP,
         ]
@@ -413,6 +418,9 @@ impl FromStr for SettingsSection {
             "OpenAI / LiteLLM" | "LiteLLM" => Ok(Self::ProviderLiteLLM),
             "OpenAI" => Ok(Self::ProviderOpenAI),
             "ChatGPT Subscription" | "ChatGPTSubscription" => Ok(Self::ProviderChatGPTSubscription),
+            "Anthropic" | "Claude Subscription" | "Anthropic / Claude subscription" => {
+                Ok(Self::ProviderAnthropic)
+            }
             "Agent Client Protocol" | "ACP" => Ok(Self::ProviderACP),
             "Indexing and projects" | "CodeIndexing" => Ok(Self::CodeIndexing),
             "Editor and Code Review" | "EditorAndCodeReview" => Ok(Self::EditorAndCodeReview),

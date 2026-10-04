@@ -189,6 +189,8 @@ fn preset_version(agent_id: &str, custom_command: &str) -> Option<&'static str> 
     match agent_id.trim().to_ascii_lowercase().as_str() {
         "codex" => Some(CODEX_ACP_NPM_VERSION),
         "opencode" => Some(OPENCODE_NPM_VERSION),
+        #[cfg(feature = "local_fs")]
+        "claude-acp" => Some(super::setup::CLAUDE_ACP_VERSION),
         _ => None,
     }
 }
@@ -241,6 +243,26 @@ pub(crate) fn resolve_acp_launch(
     match agent_id.trim().to_ascii_lowercase().as_str() {
         "codex" => AcpAgentPreset::Codex.resolve_launch_config(),
         "opencode" => AcpAgentPreset::OpenCode.resolve_launch_config(),
+        #[cfg(feature = "local_fs")]
+        "claude-acp" => super::setup::resolve_claude_code_launch(),
+        // Removed from the setup catalog, but keep saved connections and their
+        // conversation launch identities usable rather than silently migrating
+        // an existing session to Claude Code.
+        "gemini" | "cline" => AcpLaunchConfig::new(agent_id.trim().to_ascii_lowercase())
+            .args(["--acp"])
+            .resolve_command(),
+        "cursor" => AcpLaunchConfig::new("cursor-agent")
+            .args(["acp"])
+            .resolve_command(),
+        "github-copilot-cli" => AcpLaunchConfig::new("copilot")
+            .args(["--acp"])
+            .resolve_command(),
+        "goose" => AcpLaunchConfig::new("goose")
+            .args(["acp"])
+            .resolve_command(),
+        "auggie" => AcpLaunchConfig::new("auggie")
+            .args(["acp"])
+            .resolve_command(),
         _ => resolve_known_acp_agent(agent_id).map_err(|error| {
             format!(
                 "{error} Configure a custom ACP executable if this client uses a different command."

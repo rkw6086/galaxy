@@ -1,4 +1,4 @@
-//! Shimmering Warp loading text - renders Warp logo with shimmering text for loading states.
+//! Renders the Galaxy logo with shimmering text for loading states.
 
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::shimmering_text::{
@@ -7,10 +7,13 @@ use galaxyui::elements::shimmering_text::{
 use galaxyui::elements::Element;
 use galaxyui::{AppContext, SingletonEntity};
 
-/// Warp icon glyph character
-const WARP_GLYPH: &str = "\u{E500}";
+pub const LOADING_LOGO_GAP: f32 = 8.;
 
-/// Creates a shimmering text element with the Warp glyph.
+pub fn loading_logo_size(font_size: f32) -> f32 {
+    (font_size * 1.5).max(24.)
+}
+
+/// Creates a shimmering text element beside the Galaxy logo.
 pub fn shimmering_warp_loading_text(
     text: impl Into<String>,
     font_size: f32,
@@ -27,15 +30,19 @@ pub fn shimmering_warp_loading_text(
     // Hardcoded shimmer config for consistent animation
     let config = ShimmerConfig::default();
 
-    // Create a single shimmering element with glyph and text
     ShimmeringTextElement::new(
-        format!("{} {}", WARP_GLYPH, text.into()),
+        text.into(),
         appearance.ui_font_family(),
         font_size,
         base_color,
         shimmer_color,
         config,
         shimmer_handle,
+    )
+    .with_leading_icon(
+        "bundled/svg/galaxy-mark.svg",
+        loading_logo_size(font_size),
+        LOADING_LOGO_GAP,
     )
     .finish()
 }

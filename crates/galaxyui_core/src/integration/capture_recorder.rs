@@ -382,7 +382,7 @@ cfg_if::cfg_if! {
             use crate::platform::CapturedFrameFormat;
             let pixel_count = data.len() / 4;
             let mut rgb = Vec::with_capacity(pixel_count * 3);
-            for chunk in data.chunks_exact(4) {
+            for chunk in data.as_chunks::<4>().0 {
                 match format {
                     CapturedFrameFormat::Rgba => {
                         rgb.push(chunk[0]);

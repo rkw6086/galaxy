@@ -818,11 +818,11 @@ pub fn test_add_context_lines_at_grid_bounds() {
         line\r\n\
         line\r\n",
     );
-    let line_ranges = [2..=2];
+    let line_range = 2..=2;
 
     let displayed_rows = blockgrid
         .grid_handler()
-        .add_context_lines(line_ranges.iter(), 5);
+        .add_context_lines(std::iter::once(&line_range), 5);
     assert_eq!(
         displayed_rows,
         vec![
@@ -845,11 +845,11 @@ pub fn test_add_context_lines_at_grid_bounds() {
 #[test]
 pub fn test_add_context_lines_no_context() {
     let blockgrid = mock_blockgrid("match");
-    let line_ranges = [0..=0];
+    let line_range = 0..=0;
 
     let displayed_rows = blockgrid
         .grid_handler()
-        .add_context_lines(line_ranges.iter(), 5);
+        .add_context_lines(std::iter::once(&line_range), 5);
     assert_eq!(
         displayed_rows,
         vec![DisplayedRows {
@@ -949,7 +949,8 @@ pub fn test_update_filtered_dirty_lines() {
     grid.grid_handler_mut()
         .set_displayed_output(displayed_output);
 
-    let new_displayed_rows = make_displayed_rows_from_ranges(vec![5..=5]);
+    let new_displayed_rows =
+        make_displayed_rows_from_ranges(std::iter::once(5..=5).collect::<Vec<_>>());
     grid.grid_handler_mut()
         .update_filtered_dirty_lines(5..=17, new_displayed_rows, 0);
 
@@ -968,7 +969,8 @@ pub fn test_update_filtered_dirty_lines_at_range_borders() {
     grid.grid_handler_mut()
         .set_displayed_output(displayed_output);
 
-    let new_displayed_rows = make_displayed_rows_from_ranges(vec![11..=12]);
+    let new_displayed_rows =
+        make_displayed_rows_from_ranges(std::iter::once(11..=12).collect::<Vec<_>>());
     grid.grid_handler_mut()
         .update_filtered_dirty_lines(6..=15, new_displayed_rows, 0);
 
@@ -983,7 +985,8 @@ pub fn test_update_filtered_dirty_lines_at_range_borders() {
     grid.grid_handler_mut()
         .set_displayed_output(displayed_output);
 
-    let new_displayed_rows = make_displayed_rows_from_ranges(vec![11..=12]);
+    let new_displayed_rows =
+        make_displayed_rows_from_ranges(std::iter::once(11..=12).collect::<Vec<_>>());
     grid.grid_handler_mut()
         .update_filtered_dirty_lines(10..=13, new_displayed_rows, 0);
 
@@ -1040,7 +1043,8 @@ pub fn test_update_filtered_dirty_lines_replace_one_line() {
     grid.grid_handler_mut()
         .set_displayed_output(displayed_output);
 
-    let new_displayed_rows = make_displayed_rows_from_ranges(vec![7..=7]);
+    let new_displayed_rows =
+        make_displayed_rows_from_ranges(std::iter::once(7..=7).collect::<Vec<_>>());
     grid.grid_handler_mut()
         .update_filtered_dirty_lines(6..=10, new_displayed_rows, 0);
 
@@ -1059,7 +1063,8 @@ pub fn test_update_filtered_dirty_lines_replace_single_row_line() {
     grid.grid_handler_mut()
         .set_displayed_output(displayed_output);
 
-    let new_displayed_rows = make_displayed_rows_from_ranges(vec![6..=8]);
+    let new_displayed_rows =
+        make_displayed_rows_from_ranges(std::iter::once(6..=8).collect::<Vec<_>>());
     grid.grid_handler_mut()
         .update_filtered_dirty_lines(7..=7, new_displayed_rows, 0);
 
@@ -1078,7 +1083,8 @@ pub fn test_update_filtered_dirty_lines_replace_at_start() {
     grid.grid_handler_mut()
         .set_displayed_output(displayed_output);
 
-    let new_displayed_rows = make_displayed_rows_from_ranges(vec![3..=5]);
+    let new_displayed_rows =
+        make_displayed_rows_from_ranges(std::iter::once(3..=5).collect::<Vec<_>>());
     grid.grid_handler_mut()
         .update_filtered_dirty_lines(1..=11, new_displayed_rows, 0);
 
@@ -1097,7 +1103,8 @@ pub fn test_update_filtered_dirty_lines_replace_at_end() {
     grid.grid_handler_mut()
         .set_displayed_output(displayed_output);
 
-    let new_displayed_rows = make_displayed_rows_from_ranges(vec![16..=18]);
+    let new_displayed_rows =
+        make_displayed_rows_from_ranges(std::iter::once(16..=18).collect::<Vec<_>>());
     grid.grid_handler_mut()
         .update_filtered_dirty_lines(12..=16, new_displayed_rows, 0);
 
@@ -1830,7 +1837,9 @@ fn test_truncate_cursor_updates_displayed_output() {
     grid[4][0].c = 'e';
 
     // Initialize displayed output with all rows in the grid.
-    grid_handler.displayed_output = Some(DisplayedOutput::new_for_test(vec![0..=4]));
+    grid_handler.displayed_output = Some(DisplayedOutput::new_for_test(
+        std::iter::once(0..=4).collect::<Vec<_>>(),
+    ));
 
     // Set the cursor to the middle of the grid
     grid_handler.set_cursor_point(2, 0);
@@ -2064,7 +2073,7 @@ pub fn test_find_non_matching_lines_all_returned() {
         ",
     );
 
-    let expected_non_matching_lines = vec![0..=10];
+    let expected_non_matching_lines = std::iter::once(0..=10).collect::<Vec<_>>();
 
     let dfas = RegexDFAs::new("match").unwrap();
     let non_matching_lines = blockgrid.grid_handler().find_non_matching_lines(&dfas);
@@ -2095,7 +2104,7 @@ pub fn test_find_non_matching_lines_in_range_all_returned() {
         ",
     );
 
-    let expected_non_matching_lines = vec![2..=12];
+    let expected_non_matching_lines = std::iter::once(2..=12).collect::<Vec<_>>();
 
     let dfas = RegexDFAs::new("match").unwrap();
     let non_matching_lines = blockgrid.grid_handler().find_non_matching_lines_in_range(

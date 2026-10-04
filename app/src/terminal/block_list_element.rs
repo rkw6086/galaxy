@@ -1096,16 +1096,18 @@ impl BlockListElement {
             .finish(),
         );
 
-        let snackbar_toggle_icon;
-        let rounded_corners;
-        if self.snackbar_header_state.show_snackbar {
+        let (snackbar_toggle_icon, rounded_corners) = if self.snackbar_header_state.show_snackbar {
             // Snackbar expanded. Show collapse button attached to bottom of snackbar.
-            snackbar_toggle_icon = UIIcon::Icon::ChevronUp;
-            rounded_corners = CornerRadius::with_top(Radius::Pixels(8.));
+            (
+                UIIcon::Icon::ChevronUp,
+                CornerRadius::with_top(Radius::Pixels(8.)),
+            )
         } else {
             // Snackbar collapsed. Show expand button attached to top of blocklist.
-            snackbar_toggle_icon = UIIcon::Icon::ChevronDown;
-            rounded_corners = CornerRadius::with_bottom(Radius::Pixels(8.));
+            (
+                UIIcon::Icon::ChevronDown,
+                CornerRadius::with_bottom(Radius::Pixels(8.)),
+            )
         };
         let icon = Container::new(
             ConstrainedBox::new(Icon::new(snackbar_toggle_icon.into(), icon_color).finish())

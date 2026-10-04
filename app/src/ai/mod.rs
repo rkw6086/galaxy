@@ -24,6 +24,8 @@ pub(crate) mod block_context;
 pub(crate) mod blocklist;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod chatgpt_auth;
+pub(crate) mod claude_oauth;
+pub(crate) mod claude_subscription;
 #[cfg(any(feature = "local_fs", not(target_family = "wasm")))]
 pub(crate) mod codebase_auto_indexing;
 pub mod control_code_parser;
@@ -87,6 +89,8 @@ pub fn init(app: &mut AppContext) {
     app.add_singleton_model(acp::AcpRuntimeModel::new);
     #[cfg(not(target_family = "wasm"))]
     app.add_singleton_model(|_| chatgpt_auth::ChatGPTAuthModel::new());
+    #[cfg(not(target_family = "wasm"))]
+    app.add_singleton_model(claude_oauth::ClaudeOAuthModel::new);
     blocklist::keyboard_navigable_buttons::init(app);
     blocklist::block::number_shortcut_buttons::init(app);
     blocklist::toggleable_items::init(app);

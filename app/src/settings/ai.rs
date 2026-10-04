@@ -1048,7 +1048,7 @@ impl std::fmt::Debug for OpenAIProviderConfig {
 impl settings_value::SettingsValue for OpenAIProviderConfig {}
 
 fn default_acp_agent_id() -> String {
-    "codex".to_string()
+    "claude-acp".to_string()
 }
 
 fn default_remote_logging_endpoint() -> String {
@@ -1512,7 +1512,7 @@ define_settings_group!(AISettings, settings: [
     // Stable identifier for the selected ACP agent preset.
     acp_agent_id: AcpAgentId {
         type: String,
-        default: "codex".to_string(),
+        default: "claude-acp".to_string(),
         supported_platforms: SupportedPlatforms::OR(SupportedPlatforms::MAC.into(), SupportedPlatforms::LINUX.into()),
         sync_to_cloud: SyncToCloud::Never,
         private: false,
@@ -2422,7 +2422,7 @@ impl AISettings {
         }
         let agent_id = self.acp_agent_id.value().trim();
         let agent_id = if agent_id.is_empty() {
-            "codex"
+            "claude-acp"
         } else {
             agent_id
         };

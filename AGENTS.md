@@ -111,6 +111,18 @@ Direct provider: controller.rs → prepare_provider_run() → ProviderRunCoordin
 ACP: controller.rs → ResponseStream → acp_output_stream (session-owned lifecycle)
 ```
 
+**Direct Claude subscription authentication (unsupported)**:
+- Settings > Providers > Anthropic / Claude subscription offers browser OAuth sign-in, an Anthropic API key, or a user-supplied `claude setup-token` token. Subscription credentials use the native Rig Messages runtime and Galaxy-owned tools, discovery, permission checks, and `ProviderRun` lifecycle, not ACP.
+- Subscription setup and provider overview display an explicit warning that Anthropic prohibits third-party subscription-token use and may restrict accounts or disable access. Pasted tokens are not automatically refreshed; expired tokens require replacement.
+- The subscription wire profile follows Pi’s Anthropic OAuth implementation: `claude-cli/2.1.280`, bearer-only auth, `x-app: cli`, direct-browser-access header, OAuth/Claude Code betas, identity prefix, eager tool streaming, canonical tool-name casing (mapped back before Galaxy execution), and tool-call ID normalization. The separately installed ACP CLI version must not change this user agent.
+- `app/src/ai/claude_oauth.rs` follows Pi’s PKCE browser flow and localhost callback on port 53692. OAuth access/refresh tokens and expiry are stored using Galaxy secure storage (owner-only file fallback where applicable); settings contain only a credential reference. A UI-thread credential service coalesces concurrent refresh requests five minutes before expiry. Every native Anthropic model turn and discovery resolves the current token; signing out invalidates refresh callbacks and deletes local credentials. Cancelled setup discards unsaved credentials.
+- Tokens are stored using Galaxy secure storage (owner-only file fallback where applicable); settings contain only a credential reference. Never read Claude Code's credential store, print tokens, or include them in logs/checkpoints.
+
+**Claude Code ACP setup**:
+- Connection setup offers Claude Code only. Existing explicit ACP configurations remain supported for saved conversations.
+- `app/src/ai/acp/setup.rs` downloads missing official Claude Code and ACP adapter packages on explicit connection Test into Galaxy's per-user data directory. It reuses the private Node runtime, avoids global package installs, and pins package versions.
+- Normal agent launches never download dependencies. The adapter receives `CLAUDE_CODE_EXECUTABLE` pointing to the unmodified CLI. Claude Code owns sign-in, browser OAuth, credential storage, and refresh; Galaxy never reads its token store or logs authentication command output.
+
 **Durable direct-provider run**:
 - `crates/galaxy_agent_core/src/provider_run.rs` — Serializable `ProviderRun` state machine, run/epoch identity, bounded model retries, ordered tool batches, cancellation, and terminal outcomes
 - `app/src/ai/runtime/provider_run_coordinator.rs` — Drives one-turn `AgentRuntime` calls, validates model events, projects output, and commits exact tool lifecycle events
