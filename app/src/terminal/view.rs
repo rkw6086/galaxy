@@ -27437,15 +27437,12 @@ impl TypedActionView for TerminalView {
             ToggleAutoexecuteMode => {
                 AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
                     let profile = profiles.active_profile(Some(self.view_id), ctx);
+                    use crate::ai::execution_profiles::PermissionMode;
                     let next = match profile.data().permission_mode {
-                        crate::ai::execution_profiles::PermissionMode::ReadOnly => return,
-                        crate::ai::execution_profiles::PermissionMode::AskFirst => {
-                            crate::ai::execution_profiles::PermissionMode::GalaxyDecides
-                        }
-                        crate::ai::execution_profiles::PermissionMode::GalaxyDecides
-                        | crate::ai::execution_profiles::PermissionMode::AllowAll => {
-                            crate::ai::execution_profiles::PermissionMode::AskFirst
-                        }
+                        PermissionMode::ReadOnly => PermissionMode::AskFirst,
+                        PermissionMode::AskFirst => PermissionMode::GalaxyDecides,
+                        PermissionMode::GalaxyDecides => PermissionMode::AllowAll,
+                        PermissionMode::AllowAll => PermissionMode::ReadOnly,
                     };
                     profiles.set_permission_mode(*profile.id(), next, ctx);
                 });

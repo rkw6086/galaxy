@@ -9,6 +9,7 @@ use warpui::elements::{
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use warpui::ui_components::text::Span;
 use warpui::{AppContext, Element, SingletonEntity, ViewHandle};
 
 use super::{ExecutionProfileEditorView, ExecutionProfileEditorViewAction};
@@ -627,23 +628,61 @@ fn render_command_allowlist_section(view: &ExecutionProfileEditorView, profile: 
         .with_child(render_input_list(None, items, Some(&view.command_allowlist_editor), appearance)).finish()
 }
 
-fn render_orchestration_providers(view: &ExecutionProfileEditorView, profile: &AIExecutionProfile, appearance: &Appearance) -> Box<dyn Element> {
-    let mut column = Flex::column().with_child(create_section_header("Orchestration providers", "Only included providers can supply models for sub-agents and code reviews. All providers includes providers added later.", appearance));
+fn render_orchestration_providers(
+    view: &ExecutionProfileEditorView,
+    profile: &AIExecutionProfile,
+    appearance: &Appearance,
+) -> Box<dyn Element> {
+    let mut column = Flex::column().with_child(create_section_header(
+        "Orchestration providers",
+        "Choose which providers can supply models for sub-agents and code reviews.",
+        appearance,
+    ));
     let all = profile.orchestration_providers.is_none();
-    let names: Vec<_> = view.orchestration_provider_switches.iter().map(|(name, _)| name.clone()).collect();
-    let selected = if all { Some(names.clone()) } else { None };
-    let switch = appearance.ui_builder().switch(view.all_providers_switch.clone()).check(all).build()
-        .on_click(move |ctx, _, _| ctx.dispatch_typed_action(ExecutionProfileEditorViewAction::SetOrchestrationProviders { providers: selected.clone() })).finish();
-    column.add_child(Flex::row().with_main_axis_alignment(MainAxisAlignment::SpaceBetween).with_child(Text::new("All providers", appearance.ui_font_family(), 13.).with_color(appearance.theme().active_ui_text_color().into()).finish()).with_child(switch).finish());
-    for (name, state) in &view.orchestration_provider_switches {
-        let included = profile.includes_orchestration_provider(name);
-        let mut next = profile.orchestration_providers.clone().unwrap_or_else(|| names.clone());
-        if included { next.retain(|provider| provider != name); } else { next.push(name.clone()); }
-        let switch = appearance.ui_builder().switch(state.clone()).check(included).build()
-            .on_click(move |ctx, _, _| ctx.dispatch_typed_action(ExecutionProfileEditorViewAction::SetOrchestrationProviders { providers: Some(next.clone()) })).finish();
-        column.add_child(Container::new(Flex::row().with_main_axis_alignment(MainAxisAlignment::SpaceBetween).with_child(Text::new(name.clone(), appearance.ui_font_family(), 13.).with_color(appearance.theme().active_ui_text_color().into()).finish()).with_child(switch).finish()).with_margin_top(8.).finish());
+    let names: Vec<_> = view.orchestration_provider_checkboxes
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect();
+    let selected = if all { Some(names) } else { None };
+    let checkbox = appearance.ui_builder()
+        .checkbox(view.all_providers_checkbox.clone(), Some(14.))
+        .with_label(Span::new("All providers", Default::default()))
+        .check(all)
+        .build()
+        .on_click(move |ctx, _, _| {
+            ctx.dispatch_typed_action(ExecutionProfileEditorViewAction::SetOrchestrationProviders {
+                providers: selected.clone(),
+            });
+        })
+        .finish();
+    column.add_child(Container::new(checkbox).with_margin_top(12.).finish());
+
+    if !all {
+        let mut providers = Flex::column();
+        for (name, state) in &view.orchestration_provider_checkboxes {
+            let included = profile.includes_orchestration_provider(name);
+            let mut next = profile.orchestration_providers.clone().unwrap_or_default();
+            if included {
+                next.retain(|provider| provider != name);
+            } else {
+                next.push(name.clone());
+            }
+            let checkbox = appearance.ui_builder()
+                .checkbox(state.clone(), Some(14.))
+                .with_label(Span::new(name.clone(), Default::default()))
+                .check(included)
+                .build()
+                .on_click(move |ctx, _, _| {
+                    ctx.dispatch_typed_action(ExecutionProfileEditorViewAction::SetOrchestrationProviders {
+                        providers: Some(next.clone()),
+                    });
+                })
+                .finish();
+            providers.add_child(Container::new(checkbox).with_margin_top(12.).finish());
+        }
+        column.add_child(Container::new(providers.finish()).with_margin_left(24.).finish());
     }
-    Container::new(column.finish()).with_margin_top(16.).finish()
+    Container::new(column.finish()).with_margin_top(16.).with_margin_bottom(12.).finish()
 }
 
 fn display_mcp_name(uuid: &Uuid, app: &AppContext) -> String {

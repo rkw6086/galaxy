@@ -970,11 +970,12 @@ fn render_permission_mode_button(
 ) -> Box<dyn Element> {
     use crate::ai::execution_profiles::PermissionMode;
     let is_active = matches!(props.mode, PermissionMode::GalaxyDecides | PermissionMode::AllowAll);
-    let is_locked = props.is_locked || props.mode == PermissionMode::ReadOnly;
-    let icon = if is_active {
-        Icon::FastForwardFilled
-    } else {
-        Icon::FastForward
+    let is_locked = props.is_locked;
+    let (icon, next_mode) = match props.mode {
+        PermissionMode::ReadOnly => (Icon::Eye, PermissionMode::AskFirst),
+        PermissionMode::AskFirst => (Icon::MessageChatSquare, PermissionMode::GalaxyDecides),
+        PermissionMode::GalaxyDecides => (Icon::GalaxyLogo, PermissionMode::AllowAll),
+        PermissionMode::AllowAll => (Icon::CheckCircleBroken, PermissionMode::ReadOnly),
     };
     let icon_size = get_icon_size(appearance);
     let icon = Container::new(
@@ -988,20 +989,28 @@ fn render_permission_mode_button(
     )
     .finish();
 
+    let content = Flex::row()
+        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+        .with_spacing(6.)
+        .with_child(icon)
+        .with_child(
+            Text::new(props.mode.label(), appearance.ui_font_family(), get_keybinding_font_size(appearance))
+                .with_color(appearance.theme().active_ui_text_color().into())
+                .finish(),
+        )
+        .finish();
     let tooltip_text = if is_locked {
-        "Permission mode is managed by the profile"
-    } else if is_active {
-        "Galaxy Decides · switch to Ask First"
+        format!("{} · permission mode is managed by the profile", props.mode.label())
     } else {
-        "Ask First · switch to Galaxy Decides"
+        format!("{} · switch to {}", props.mode.label(), next_mode.label())
     };
 
     render_warping_indicator_button(
         props.button_handle.clone(),
         appearance,
-        icon,
+        content,
         props.keystroke,
-        tooltip_text.to_string(),
+        tooltip_text,
         is_active,
         is_locked,
         move |ctx| {

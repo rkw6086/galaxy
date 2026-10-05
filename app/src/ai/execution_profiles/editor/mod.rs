@@ -201,8 +201,8 @@ pub struct ExecutionProfileEditorView {
     command_denylist_editor: ViewHandle<SubmittableTextInput>,
     command_allowlist_editor: ViewHandle<SubmittableTextInput>,
     command_allowlist_mouse_state_handles: Vec<MouseStateHandle>,
-    orchestration_provider_switches: Vec<(String, SwitchStateHandle)>,
-    all_providers_switch: SwitchStateHandle,
+    orchestration_provider_checkboxes: Vec<(String, MouseStateHandle)>,
+    all_providers_checkbox: MouseStateHandle,
     command_denylist_mouse_state_handles: Vec<MouseStateHandle>,
     command_denylist_tooltip_mouse_state_handles: Vec<MouseStateHandle>,
     mcp_denylist_dropdown: ViewHandle<FilterableDropdown<ExecutionProfileEditorViewAction>>,
@@ -364,8 +364,8 @@ impl ExecutionProfileEditorView {
             command_denylist_editor,
             command_allowlist_editor,
             command_allowlist_mouse_state_handles: Vec::new(),
-            orchestration_provider_switches: Vec::new(),
-            all_providers_switch: Default::default(),
+            orchestration_provider_checkboxes: Vec::new(),
+            all_providers_checkbox: Default::default(),
             command_denylist_mouse_state_handles,
             command_denylist_tooltip_mouse_state_handles: profile_data
                 .command_denylist
@@ -555,16 +555,16 @@ impl ExecutionProfileEditorView {
 
         self.command_allowlist_mouse_state_handles = current_permissions.command_allowlist.iter().map(|_| Default::default()).collect();
         let mut names: Vec<_> = LLMPreferences::as_ref(app).get_base_llm_choices_for_agent_mode(app)
-            .filter(|model| !crate::ai::custom_model_routers::is_custom_router_id(model.id.as_str()))
+            .filter(|model| !matches!(model.id.as_str(), "none" | "placeholder") && !crate::ai::custom_model_routers::is_custom_router_id(model.id.as_str()))
             .filter_map(|model| model.description.clone()).collect();
         names.extend(AISettings::as_ref(app).openai_providers.value().iter().map(|provider| provider.name.clone()));
-        if let Some(included) = &current_permissions.orchestration_providers { names.extend(included.iter().cloned()); }
+        names.retain(|name| !name.trim().is_empty());
         names.sort(); names.dedup();
-        self.orchestration_provider_switches.retain(|(name, _)| names.contains(name));
-        for name in names { if !self.orchestration_provider_switches.iter().any(|(existing, _)| existing == &name) {
-            self.orchestration_provider_switches.push((name, Default::default()));
+        self.orchestration_provider_checkboxes.retain(|(name, _)| names.contains(name));
+        for name in names { if !self.orchestration_provider_checkboxes.iter().any(|(existing, _)| existing == &name) {
+            self.orchestration_provider_checkboxes.push((name, Default::default()));
         }}
-        self.orchestration_provider_switches.sort_by(|a, b| a.0.cmp(&b.0));
+        self.orchestration_provider_checkboxes.sort_by(|a, b| a.0.cmp(&b.0));
 
         self.command_denylist_mouse_state_handles = current_permissions
             .command_denylist
