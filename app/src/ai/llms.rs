@@ -320,14 +320,24 @@ impl LLMInfo {
         if custom_model_routers::is_custom_router_id(self.id.as_str()) {
             return self.display_name.clone();
         }
-        // Base label includes optional description in parentheses
-        match &self.description {
-            // This is a temporary implementation that won't scale well for longer
-            // descriptions. We should implement a better approach for displaying
-            // model descriptions, maybe through subtext.
-            Some(desc) => format!("{} ({})", self.display_name, desc),
-            None => self.display_name.clone(),
+        self.label_with_provider(&self.display_name)
+    }
+
+    pub fn label_with_provider(&self, label: &str) -> String {
+        if custom_model_routers::is_custom_router_id(self.id.as_str()) {
+            return label.to_string();
         }
+        match self.description.as_deref().filter(|name| !name.trim().is_empty()) {
+            Some(name) => format!("{label} ({name})"),
+            None => label.to_string(),
+        }
+    }
+
+    /// Reasoning menus must never merge models belonging to different connections.
+    pub fn reasoning_group_key(&self) -> String {
+        let connection = self.id.as_str().rsplit_once("::connection::")
+            .map(|(_, connection)| connection).unwrap_or_default();
+        format!("{}\u{1f}{}\u{1f}{:?}\u{1f}{connection}", self.base_model_name, self.description.as_deref().unwrap_or_default(), self.provider)
     }
 
     /// Returns the given model's base name.
@@ -600,7 +610,7 @@ pub struct LLMPreferences {
     #[cfg(not(target_family = "wasm"))]
     fetched_openai_models: Vec<OpenAIModelConfig>,
     #[cfg(not(target_family = "wasm"))]
-    litellm_connections: Vec<OpenAIProviderConfig>,
+    catalog_connections: Vec<OpenAIProviderConfig>,
     #[cfg(not(target_family = "wasm"))]
     catalog_refresh_generations: HashMap<Option<usize>, u64>,
     #[cfg(not(target_family = "wasm"))]
@@ -740,7 +750,7 @@ impl LLMPreferences {
                 ) {
                     me.fetch_openai_models_from_endpoint(ctx);
                 }
-                me.refresh_changed_litellm_connections(ctx);
+                me.refresh_changed_catalog_connections(ctx);
                 // Safety: ensure the default model is still present in choices.
                 // If all provider models were removed, the default_id would dangle.
                 me.ensure_default_model_present();
@@ -780,7 +790,7 @@ impl LLMPreferences {
             #[cfg(not(target_family = "wasm"))]
             fetched_openai_models: Vec::new(),
             #[cfg(not(target_family = "wasm"))]
-            litellm_connections: Vec::new(),
+            catalog_connections: Vec::new(),
             #[cfg(not(target_family = "wasm"))]
             catalog_refresh_generations: HashMap::new(),
             #[cfg(not(target_family = "wasm"))]
@@ -816,7 +826,7 @@ impl LLMPreferences {
             me.inject_openai_models(ctx);
             me.ensure_default_model_present();
             me.fetch_openai_models_from_endpoint(ctx);
-            me.refresh_changed_litellm_connections(ctx);
+            me.refresh_changed_catalog_connections(ctx);
             me.refresh_chatgpt_subscription_models(ctx);
             me.schedule_chatgpt_subscription_model_refresh(ctx);
         }
@@ -1440,11 +1450,6 @@ impl LLMPreferences {
             |reasoning| format!("{display_name} ({})", reasoning.name),
         );
         let provider_name = provider.display_name();
-        let display_name = if display_name.eq_ignore_ascii_case(&provider_name) {
-            display_name
-        } else {
-            format!("{display_name} · {provider_name}")
-        };
         let agent_id = provider.agent_id.trim();
         let agent_id = if agent_id.is_empty() {
             "codex"
@@ -1475,7 +1480,7 @@ impl LLMPreferences {
                 request_multiplier: 1,
                 credit_multiplier: None,
             },
-            description: Some("ACP".to_string()),
+            description: Some(provider_name),
             disable_reason: None,
             vision_supported: false,
             spec: None,
@@ -1693,10 +1698,10 @@ impl LLMPreferences {
     }
 
     #[cfg(not(target_family = "wasm"))]
-    fn refresh_changed_litellm_connections(&mut self, ctx: &mut ModelContext<Self>) {
+    fn refresh_changed_catalog_connections(&mut self, ctx: &mut ModelContext<Self>) {
         let settings = AISettings::as_ref(ctx);
         if !settings.is_openai_provider_enabled() {
-            self.litellm_connections.clear();
+            self.catalog_connections.clear();
             return;
         }
         let connections: Vec<_> = settings
@@ -1714,19 +1719,19 @@ impl LLMPreferences {
             .enumerate()
             .filter_map(|(index, provider)| {
                 (provider.enabled
-                    && provider.kind == OpenAIProviderKind::LiteLLM
-                    && self.litellm_connections.get(index) != Some(provider))
+                    && matches!(provider.kind, OpenAIProviderKind::LiteLLM | OpenAIProviderKind::Anthropic)
+                    && self.catalog_connections.get(index) != Some(provider))
                 .then_some(index)
             })
             .collect();
-        self.litellm_connections = connections;
+        self.catalog_connections = connections;
         for index in changed {
             self.fetch_openai_provider_models(index, ctx);
         }
     }
 
     /// Explicitly refreshes the models for one entry in the OpenAI-compatible
-    /// provider registry. LiteLLM also refreshes on startup and connector changes.
+    /// provider registry. LiteLLM and Anthropic also refresh on startup and connector changes.
     #[cfg(not(target_family = "wasm"))]
     pub fn fetch_openai_provider_models(
         &mut self,
@@ -1989,7 +1994,7 @@ impl LLMPreferences {
                 context_size: model.context_size.unwrap_or(128_000),
                 max_input_tokens: model.context_size,
                 default_context_size: None,
-                max_output_tokens: None,
+                max_output_tokens: model.max_output_tokens,
                 provider: None,
                 supports_system_messages: Some(true),
                 capability_overrides: std::collections::HashMap::new(),

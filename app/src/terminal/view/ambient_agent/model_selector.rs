@@ -402,8 +402,7 @@ impl ModelSelector {
                 .unwrap_or_else(|| "default".to_string()),
             _ => LLMPreferences::as_ref(ctx)
                 .get_active_base_model(ctx, Some(self.terminal_view_id))
-                .display_name
-                .clone(),
+                .menu_display_name(),
         };
         self.button.update(ctx, |button, ctx| {
             button.set_label(active_label, ctx);

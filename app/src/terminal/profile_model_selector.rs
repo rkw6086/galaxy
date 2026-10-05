@@ -34,7 +34,6 @@ use crate::ai::blocklist::{
     BlocklistAIController, BlocklistAIControllerEvent, BlocklistAIInputEvent, BlocklistAIInputModel,
 };
 use crate::ai::cloud_agent_settings::CloudAgentSettings;
-use crate::ai::custom_model_routers::is_custom_router_id;
 use crate::ai::execution_profiles::model_menu_items::{
     available_model_menu_items, has_reasoning_variants, is_auto,
 };
@@ -715,17 +714,7 @@ impl ProfileModelSelector {
                 llm_preferences.get_active_base_model(ctx, Some(self.terminal_view_id))
             };
 
-            // Don't append description for custom model routers — it would add a
-            // redundant "(Custom auto · Local)" suffix to the button label.
-            if !is_custom_router_id(active_llm.id.as_str()) {
-                if let Some(description) = &active_llm.description {
-                    format!("{} ({})", active_llm.display_name, description)
-                } else {
-                    active_llm.display_name.clone()
-                }
-            } else {
-                active_llm.display_name.clone()
-            }
+            active_llm.menu_display_name()
         };
 
         // Non-Oz runs lock silently: the harness owns model selection, and the
@@ -1021,7 +1010,7 @@ impl ProfileModelSelector {
             .filter(|llm| custom_ids.contains(&llm.id))
             .collect();
 
-        // Group models by base_model_name to collapse reasoning variants.
+        // Group reasoning variants by model and configured provider.
         // Use "auto" as the key for all auto models so they collapse together.
         // Only group models that have reasoning levels - others stay separate.
         let mut groups: IndexMap<String, Vec<&LLMInfo>> = IndexMap::new();
@@ -1029,7 +1018,7 @@ impl ProfileModelSelector {
             let key = if is_auto(llm) {
                 "auto".to_string()
             } else if llm.has_reasoning_level() {
-                llm.base_model_name().to_string()
+                llm.reasoning_group_key()
             } else {
                 llm.id.to_string()
             };
@@ -1057,7 +1046,7 @@ impl ProfileModelSelector {
                     ProfileModelSelectorAction::SelectAutoModel
                 } else if has_reasoning_variants(llm, &all_refs) {
                     ProfileModelSelectorAction::SelectReasoningModel(
-                        llm.base_model_name().to_string(),
+                        llm.reasoning_group_key(),
                     )
                 } else {
                     ProfileModelSelectorAction::SelectModel(llm.id.clone())
@@ -1108,7 +1097,7 @@ impl ProfileModelSelector {
                         ProfileModelSelectorAction::SelectAutoModel
                     } else if has_reasoning_variants(llm, &all_refs) {
                         ProfileModelSelectorAction::SelectReasoningModel(
-                            llm.base_model_name().to_string(),
+                            llm.reasoning_group_key(),
                         )
                     } else {
                         ProfileModelSelectorAction::SelectModel(llm.id.clone())
@@ -1197,7 +1186,7 @@ impl ProfileModelSelector {
         let items: Vec<MenuItem<ProfileModelSelectorAction>> = self
             .all_model_choices
             .iter()
-            .filter(|llm| llm.base_model_name() == base_name && llm.has_reasoning_level())
+            .filter(|llm| llm.reasoning_group_key() == base_name && llm.has_reasoning_level())
             .map(|llm| {
                 let is_selected = llm.id == active_llm_id;
                 let label = llm.reasoning_level().unwrap_or_default();
@@ -1287,10 +1276,10 @@ impl ProfileModelSelector {
                             Some(ProfileModelSelectorAction::SelectAutoModel)
                         )
                     } else if active_llm.has_reasoning_level() {
-                        // For models with reasoning levels, match by base_model_name
+                        // Match the selected model and its configured provider.
                         matches!(
                             item.item_on_select_action(),
-                            Some(ProfileModelSelectorAction::SelectReasoningModel(name)) if *name == active_llm.base_model_name()
+                            Some(ProfileModelSelectorAction::SelectReasoningModel(name)) if *name == active_llm.reasoning_group_key()
                         )
                     } else {
                         let item_model_id = item
@@ -1349,7 +1338,7 @@ impl ProfileModelSelector {
                             self.all_model_choices
                                 .iter()
                                 .find(|llm| {
-                                    llm.base_model_name() == base_name && llm.has_reasoning_level()
+                                    llm.reasoning_group_key() == *base_name && llm.has_reasoning_level()
                                 })
                                 .cloned()
                         }
@@ -1405,7 +1394,7 @@ impl ProfileModelSelector {
                 self.set_sidecar_hovered_info(auto_index, ctx);
             } else if self.has_multiple_reasoning_variants(info) {
                 // If hovering a model with multiple reasoning variants, refresh reasoning menu
-                self.refresh_model_spec_sidecar_for_model(info.base_model_name(), ctx);
+                self.refresh_model_spec_sidecar_for_model(&info.reasoning_group_key(), ctx);
             }
         }
     }

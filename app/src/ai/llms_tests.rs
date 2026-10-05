@@ -231,7 +231,7 @@ fn empty_preferences() -> LLMPreferences {
         custom_model_routers: Vec::new(),
         openai_provider_routing: HashMap::new(),
         fetched_openai_models: Vec::new(),
-        litellm_connections: Vec::new(),
+        catalog_connections: Vec::new(),
         catalog_refresh_generations: HashMap::new(),
         chatgpt_subscription_models_refresh_in_flight: false,
         bedrock_models_refresh_in_flight: false,
@@ -447,7 +447,7 @@ fn acp_models_are_injected_only_while_acp_is_enabled() {
             custom_model_routers: Vec::new(),
             openai_provider_routing: HashMap::new(),
             fetched_openai_models: Vec::new(),
-            litellm_connections: Vec::new(),
+            catalog_connections: Vec::new(),
             catalog_refresh_generations: HashMap::new(),
             chatgpt_subscription_models_refresh_in_flight: false,
             bedrock_models_refresh_in_flight: false,
@@ -1255,4 +1255,24 @@ fn bedrock_verification_survives_settings_reload_but_not_connection_changes() {
         });
         app.read(|ctx| assert!(!preferences.bedrock_model_is_verified(&model.model_id, ctx)));
     });
+}
+
+#[test]
+fn model_selector_labels_and_reasoning_groups_include_configured_provider() {
+    let first: LLMInfo = serde_json::from_value(serde_json::json!({
+        "id": "model-a", "display_name": "Claude (high)", "base_model_name": "Claude",
+        "description": "My Claude Subscription", "provider": "LiteLLM",
+        "usage_metadata": { "request_multiplier": 1 }
+    })).unwrap();
+    assert_eq!(first.menu_display_name(), "Claude (high) (My Claude Subscription)");
+    assert_eq!(first.label_with_provider(first.base_model_name()), "Claude (My Claude Subscription)");
+    let mut other = first.clone();
+    other.description = Some("My LiteLLM".to_string());
+    assert_ne!(first.reasoning_group_key(), other.reasoning_group_key());
+    other.description = first.description.clone();
+    other.display_name = "Claude (low)".to_string();
+    other.id = LLMId::from("model-b");
+    assert_eq!(first.reasoning_group_key(), other.reasoning_group_key());
+    other.id = LLMId::from("model-b::connection::second-connection");
+    assert_ne!(first.reasoning_group_key(), other.reasoning_group_key());
 }

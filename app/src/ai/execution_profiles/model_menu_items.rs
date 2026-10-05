@@ -28,7 +28,7 @@ pub fn has_reasoning_variants(llm: &LLMInfo, all_models: &[&LLMInfo]) -> bool {
     }
     all_models
         .iter()
-        .filter(|other| other.base_model_name() == llm.base_model_name() && other.id != llm.id)
+        .filter(|other| other.reasoning_group_key() == llm.reasoning_group_key() && other.id != llm.id)
         .any(|other| other.has_reasoning_level())
 }
 
@@ -77,9 +77,9 @@ fn make_item_fields<A: Action + Clone>(
     app: &AppContext,
 ) -> MenuItem<A> {
     let label = if collapse_auto && is_auto(llm) {
-        "auto".to_string()
+        llm.label_with_provider("auto")
     } else if collapse_reasoning_variants && llm.has_reasoning_level() {
-        llm.base_model_name().to_string()
+        llm.label_with_provider(llm.base_model_name())
     } else {
         llm.menu_display_name()
     };
