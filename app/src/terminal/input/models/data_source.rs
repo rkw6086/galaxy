@@ -243,7 +243,7 @@ impl SyncDataSource for ModelSelectorDataSource {
             .into_iter()
             .filter_map(|llm| {
                 let match_result = match_indices_case_insensitive(
-                    llm.display_name.to_lowercase().as_str(),
+                    llm.menu_display_name().to_lowercase().as_str(),
                     query_text.as_str(),
                 )?;
 
@@ -327,7 +327,7 @@ impl ModelSearchItem {
             spec: llm.spec.clone(),
             leading_icon,
             credential_icon,
-            display_text: llm.display_name.clone(),
+            display_text: llm.menu_display_name(),
             is_selected: &llm.id == active_llm_id,
             is_custom_endpoint,
             is_custom_router,
