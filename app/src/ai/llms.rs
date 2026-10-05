@@ -2115,6 +2115,19 @@ impl LLMPreferences {
             .chain(self.custom_router_choices())
     }
 
+    pub fn orchestration_provider_name<'a>(&self, model: &'a LLMInfo) -> &'a str {
+        model.description.as_deref().unwrap_or_else(|| model.provider.display_name())
+    }
+
+    pub fn profile_allows_orchestration_model(&self, model: &LLMInfo, terminal: Option<EntityId>, app: &AppContext) -> bool {
+        let profile = AIExecutionProfilesModel::as_ref(app).active_profile(terminal, app);
+        // Routers can choose another provider, so they cannot bypass a restricted profile.
+        if profile.data().orchestration_providers.is_some() && custom_model_routers::is_custom_router_id(model.id.as_str()) {
+            return false;
+        }
+        profile.data().includes_orchestration_provider(self.orchestration_provider_name(model))
+    }
+
     /// Returns the set of LLMs available for coding.
     pub fn get_coding_llm_choices(&self, app: &AppContext) -> impl Iterator<Item = &LLMInfo> {
         // Don't show admin-disabled models in the dropdown

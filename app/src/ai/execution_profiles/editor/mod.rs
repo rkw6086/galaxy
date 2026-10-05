@@ -2,6 +2,7 @@ use ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent};
 use galaxy_core::ui::theme::color::internal_colors;
 use itertools::Itertools;
 use regex::Regex;
+use settings::Setting;
 use thousands::Separable;
 use warpui::elements::{
     Align, Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
@@ -156,6 +157,8 @@ pub enum ExecutionProfileEditorViewAction {
         id: LLMId,
     },
 
+    SetOrchestrationProviders { providers: Option<Vec<String>> },
+    RemoveFromCommandAllowlist { predicate: AgentModeCommandExecutionPredicate },
     SetPermissionMode {
         mode: PermissionMode,
     },
@@ -196,6 +199,10 @@ pub struct ExecutionProfileEditorView {
     computer_use_model_dropdown: ViewHandle<FilterableDropdown<ExecutionProfileEditorViewAction>>,
     permission_mode_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
     command_denylist_editor: ViewHandle<SubmittableTextInput>,
+    command_allowlist_editor: ViewHandle<SubmittableTextInput>,
+    command_allowlist_mouse_state_handles: Vec<MouseStateHandle>,
+    orchestration_provider_switches: Vec<(String, SwitchStateHandle)>,
+    all_providers_switch: SwitchStateHandle,
     command_denylist_mouse_state_handles: Vec<MouseStateHandle>,
     command_denylist_tooltip_mouse_state_handles: Vec<MouseStateHandle>,
     mcp_denylist_dropdown: ViewHandle<FilterableDropdown<ExecutionProfileEditorViewAction>>,
@@ -219,6 +226,7 @@ impl ExecutionProfileEditorView {
                     PermissionMode::ReadOnly,
                     PermissionMode::AskFirst,
                     PermissionMode::GalaxyDecides,
+                    PermissionMode::AllowAll,
                 ]
                 .into_iter()
                 .map(|mode| {
@@ -292,6 +300,11 @@ impl ExecutionProfileEditorView {
             dropdown.set_menu_width(MODEL_MENU_WIDTH, ctx);
             dropdown
         });
+        let command_allowlist_editor = ctx.add_typed_action_view(|ctx| {
+            let mut input = SubmittableTextInput::new(ctx).validate_on_edit(|s| Regex::new(s).is_ok());
+            input.set_placeholder_text("e.g. ^cargo test$", ctx);
+            input
+        });
         let command_denylist_editor = ctx.add_typed_action_view(|ctx| {
             let mut input =
                 SubmittableTextInput::new(ctx).validate_on_edit(|s| Regex::new(s).is_ok());
@@ -349,6 +362,10 @@ impl ExecutionProfileEditorView {
             computer_use_model_dropdown,
             permission_mode_dropdown,
             command_denylist_editor,
+            command_allowlist_editor,
+            command_allowlist_mouse_state_handles: Vec::new(),
+            orchestration_provider_switches: Vec::new(),
+            all_providers_switch: Default::default(),
             command_denylist_mouse_state_handles,
             command_denylist_tooltip_mouse_state_handles: profile_data
                 .command_denylist
@@ -375,6 +392,16 @@ impl ExecutionProfileEditorView {
             view.handle_context_window_editor_event(event, ctx);
         });
 
+        ctx.subscribe_to_view(&view.command_allowlist_editor, |view, _, event, ctx| {
+            if let SubmittableTextInputEvent::Submit(value) = event {
+                let Ok(predicate) = AgentModeCommandExecutionPredicate::new_regex(value) else { return; };
+                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
+                    profiles.add_to_command_allowlist(view.profile_id, &predicate, ctx);
+                });
+                ctx.notify();
+            }
+        });
+
         ctx.subscribe_to_view(&view.command_denylist_editor, |view, _, event, ctx| {
             if let SubmittableTextInputEvent::Submit(s) = event {
                 let predicate = match AgentModeCommandExecutionPredicate::new_regex(s) {
@@ -399,6 +426,7 @@ impl ExecutionProfileEditorView {
 
             match event {
                 LLMPreferencesEvent::UpdatedAvailableLLMs => {
+                    me.update_mouse_state_handles(ctx);
                     Self::refresh_filterable_model_dropdown(
                         &me.base_model_dropdown,
                         current_permissions.base_model.clone(),
@@ -524,6 +552,19 @@ impl ExecutionProfileEditorView {
         let app = ctx;
         let permissions = BlocklistAIPermissions::as_ref(app);
         let current_permissions = permissions.permissions_profile_for_id(app, self.profile_id);
+
+        self.command_allowlist_mouse_state_handles = current_permissions.command_allowlist.iter().map(|_| Default::default()).collect();
+        let mut names: Vec<_> = LLMPreferences::as_ref(app).get_base_llm_choices_for_agent_mode(app)
+            .filter(|model| !crate::ai::custom_model_routers::is_custom_router_id(model.id.as_str()))
+            .filter_map(|model| model.description.clone()).collect();
+        names.extend(AISettings::as_ref(app).openai_providers.value().iter().map(|provider| provider.name.clone()));
+        if let Some(included) = &current_permissions.orchestration_providers { names.extend(included.iter().cloned()); }
+        names.sort(); names.dedup();
+        self.orchestration_provider_switches.retain(|(name, _)| names.contains(name));
+        for name in names { if !self.orchestration_provider_switches.iter().any(|(existing, _)| existing == &name) {
+            self.orchestration_provider_switches.push((name, Default::default()));
+        }}
+        self.orchestration_provider_switches.sort_by(|a, b| a.0.cmp(&b.0));
 
         self.command_denylist_mouse_state_handles = current_permissions
             .command_denylist
@@ -1039,6 +1080,18 @@ impl TypedActionView for ExecutionProfileEditorView {
             ExecutionProfileEditorViewAction::SetComputerUseModel { id } => {
                 AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
                     profiles_model.set_computer_use_model(self.profile_id, Some(id.clone()), ctx);
+                });
+                ctx.notify();
+            }
+            ExecutionProfileEditorViewAction::SetOrchestrationProviders { providers } => {
+                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
+                    profiles.set_orchestration_providers(self.profile_id, providers.clone(), ctx);
+                });
+                ctx.notify();
+            }
+            ExecutionProfileEditorViewAction::RemoveFromCommandAllowlist { predicate } => {
+                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
+                    profiles.remove_from_command_allowlist(self.profile_id, predicate, ctx);
                 });
                 ctx.notify();
             }

@@ -35,8 +35,10 @@ pub(crate) fn prepare_direct_provider_params(
         params.orchestration_enabled,
     );
     if params.permission_mode == crate::ai::execution_profiles::PermissionMode::ReadOnly {
-        supported_tools.retain(is_read_only_tool);
-        supported_cli_agent_tools.retain(is_read_only_tool);
+        let permitted = |tool: &api::ToolType| is_read_only_tool(tool)
+            || (!params.command_allowlist.is_empty() && matches!(tool, api::ToolType::RunShellCommand | api::ToolType::ReadShellCommandOutput | api::ToolType::WriteToLongRunningShellCommand));
+        supported_tools.retain(permitted);
+        supported_cli_agent_tools.retain(permitted);
     }
     if params.should_redact_secrets {
         redaction::redact_inputs(&mut params.input);

@@ -45,6 +45,7 @@ fn serialized_profiles_only_store_one_permission_mode_and_bounded_approvals() {
         PermissionMode::ReadOnly,
         PermissionMode::AskFirst,
         PermissionMode::GalaxyDecides,
+        PermissionMode::AllowAll,
     ] {
         let profile = AIExecutionProfile {
             permission_mode: mode,
@@ -60,7 +61,6 @@ fn serialized_profiles_only_store_one_permission_mode_and_bounded_approvals() {
             "write_to_pty",
             "run_agents",
             "computer_use",
-            "command_allowlist",
             "directory_allowlist",
             "mcp_allowlist",
         ] {
@@ -74,4 +74,43 @@ fn serialized_profiles_only_store_one_permission_mode_and_bounded_approvals() {
         assert_eq!(restored.approved_command_hashes.len(), 256);
         assert_eq!(restored.approved_command_hashes.first().unwrap(), "44");
     }
+}
+
+#[test]
+fn explicit_command_approvals_and_provider_selection_survive_roundtrip_and_mode_changes() {
+    let mut profile = AIExecutionProfile {
+        permission_mode: PermissionMode::AllowAll,
+        command_allowlist: vec![AgentModeCommandExecutionPredicate::new_regex("^cargo test$").unwrap()],
+        orchestration_providers: Some(vec!["My LiteLLM".to_string()]),
+        ..Default::default()
+    };
+    for mode in [PermissionMode::ReadOnly, PermissionMode::AskFirst, PermissionMode::GalaxyDecides, PermissionMode::AllowAll] {
+        profile.permission_mode = mode;
+        profile.project_permission_mode();
+        let saved = serde_json::to_value(&profile).unwrap();
+        let restored: AIExecutionProfile = serde_json::from_value(saved).unwrap();
+        assert_eq!(restored.permission_mode, mode);
+        assert_eq!(restored.command_allowlist, profile.command_allowlist);
+        assert_eq!(restored.includes_orchestration_provider("My LiteLLM"), true);
+        assert_eq!(restored.includes_orchestration_provider("ChatGPT"), false);
+    }
+}
+
+#[test]
+fn missing_provider_selection_keeps_existing_profiles_unrestricted() {
+    let profile: AIExecutionProfile = serde_json::from_str("{}").unwrap();
+    assert_eq!(profile.includes_orchestration_provider("New provider"), true);
+    let excluded = AIExecutionProfile { orchestration_providers: Some(Vec::new()), ..Default::default() };
+    assert_eq!(excluded.includes_orchestration_provider("New provider"), false);
+}
+
+#[test]
+fn allow_all_projects_every_tool_to_always_allow() {
+    let mut profile = AIExecutionProfile { permission_mode: PermissionMode::AllowAll, ..Default::default() };
+    profile.project_permission_mode();
+    assert_eq!(profile.execute_commands, ActionPermission::AlwaysAllow);
+    assert_eq!(profile.apply_code_diffs, ActionPermission::AlwaysAllow);
+    assert_eq!(profile.mcp_permissions, ActionPermission::AlwaysAllow);
+    assert_eq!(profile.computer_use, ComputerUsePermission::AlwaysAllow);
+    assert_eq!(profile.run_agents, RunAgentsPermission::AlwaysAllow);
 }

@@ -6562,11 +6562,11 @@ impl BlocklistAIController {
         );
         let orchestration_models = LLMPreferences::as_ref(ctx)
             .get_base_llm_choices_for_agent_mode(ctx)
-            .filter(|model| model.disable_reason.is_none())
+            .filter(|model| model.disable_reason.is_none() && LLMPreferences::as_ref(ctx).profile_allows_orchestration_model(model, Some(self.terminal_surface_id), ctx))
             .map(|model| OrchestrationModelOption {
                 id: model.id.to_string(),
                 display_name: model.display_name.clone(),
-                provider: model.provider.display_name().to_string(),
+                provider: LLMPreferences::as_ref(ctx).orchestration_provider_name(model).to_string(),
                 quality: model.spec.as_ref().map(|spec| spec.quality),
                 cost: model.spec.as_ref().map(|spec| spec.cost),
                 credit_multiplier: model.usage_metadata.credit_multiplier,

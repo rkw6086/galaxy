@@ -21,6 +21,7 @@ pub enum PermissionMode {
     #[default]
     AskFirst,
     GalaxyDecides,
+    AllowAll,
     #[serde(other)]
     ReadOnly,
 }
@@ -31,13 +32,15 @@ impl PermissionMode {
             Self::ReadOnly => "Read Only",
             Self::AskFirst => "Ask First",
             Self::GalaxyDecides => "Galaxy Decides",
+            Self::AllowAll => "Allow All",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
+            Self::AllowAll => "Run tools without approval or model review. Explicit denylists and workspace restrictions still apply.",
             Self::ReadOnly => {
-                "Only file reads, code searches, grep, and file discovery are available. Commands, edits, MCP, computer use, and agents are disabled."
+                "Only file reads, code searches, grep, and file discovery are available. Commands, edits, MCP, computer use, and agents are disabled, except explicitly allowlisted shell commands."
             }
             Self::AskFirst => {
                 "Ask before taking action. Approved commands are remembered for this profile and working directory; changed commands require approval again."
@@ -53,6 +56,7 @@ impl PermissionMode {
             Self::ReadOnly => ActionPermission::Unknown,
             Self::AskFirst => ActionPermission::AlwaysAsk,
             Self::GalaxyDecides => ActionPermission::GalaxyDecides,
+            Self::AllowAll => ActionPermission::AlwaysAllow,
         }
     }
 }
@@ -418,6 +422,8 @@ pub struct AIExecutionProfile {
     pub permission_mode: PermissionMode,
     /// Digests of exact approved commands and their execution environment.
     pub approved_command_hashes: Vec<String>,
+    /// None includes all providers; an empty list explicitly permits none.
+    pub orchestration_providers: Option<Vec<String>>,
     pub is_default_profile: bool,
     // Legacy transport projection; permission_mode is authoritative.
     #[serde(skip_serializing)]
@@ -445,9 +451,7 @@ pub struct AIExecutionProfile {
     /// Always ask for permission for these commands
     pub command_denylist: Vec<AgentModeCommandExecutionPredicate>,
 
-    /// When the execute_commands is set to AlwaysAsk, autoexecute these commands
-    // Legacy transport projection; permission_mode is authoritative.
-    #[serde(skip_serializing)]
+    /// Explicit command approvals that apply in every permission mode. Denylists win.
     pub command_allowlist: Vec<AgentModeCommandExecutionPredicate>,
 
     /// When the read_files is set to AlwaysAsk, autoread from these directories
@@ -484,6 +488,7 @@ pub struct AIExecutionProfile {
 struct PersistedExecutionProfile {
     permission_mode: Option<PermissionMode>,
     approved_command_hashes: Vec<String>,
+    orchestration_providers: Option<Vec<String>>,
     name: String,
     is_default_profile: bool,
     apply_code_diffs: ActionPermission,
@@ -514,6 +519,7 @@ impl Default for PersistedExecutionProfile {
         Self {
             permission_mode: None,
             approved_command_hashes: Vec::new(),
+            orchestration_providers: None,
             name: profile.name,
             is_default_profile: profile.is_default_profile,
             apply_code_diffs: profile.apply_code_diffs,
@@ -555,6 +561,7 @@ impl<'de> Deserialize<'de> for AIExecutionProfile {
         let mut profile = Self {
             permission_mode,
             approved_command_hashes: saved.approved_command_hashes,
+            orchestration_providers: saved.orchestration_providers,
             name: saved.name,
             is_default_profile: saved.is_default_profile,
             apply_code_diffs: saved.apply_code_diffs,
@@ -596,6 +603,7 @@ impl Default for AIExecutionProfile {
             is_default_profile: false,
             permission_mode: PermissionMode::AskFirst,
             approved_command_hashes: Vec::new(),
+            orchestration_providers: None,
             apply_code_diffs: ActionPermission::AlwaysAsk,
             read_files: ActionPermission::AlwaysAllow,
             execute_commands: ActionPermission::AlwaysAsk,
@@ -621,6 +629,10 @@ impl Default for AIExecutionProfile {
 }
 
 impl AIExecutionProfile {
+    pub fn includes_orchestration_provider(&self, name: &str) -> bool {
+        self.orchestration_providers.as_ref().is_none_or(|providers| providers.iter().any(|provider| provider == name))
+    }
+
     /// Adapter for legacy providers that still consume per-tool permission fields.
     pub fn project_permission_mode(&mut self) {
         let permission = self.permission_mode.action_permission();
@@ -634,24 +646,26 @@ impl AIExecutionProfile {
         };
         self.write_to_pty = match self.permission_mode {
             PermissionMode::GalaxyDecides => WriteToPtyPermission::GalaxyDecides,
+            PermissionMode::AllowAll => WriteToPtyPermission::AlwaysAllow,
             PermissionMode::ReadOnly | PermissionMode::AskFirst => WriteToPtyPermission::AlwaysAsk,
         };
         self.computer_use = match self.permission_mode {
             PermissionMode::ReadOnly => ComputerUsePermission::Never,
             PermissionMode::AskFirst => ComputerUsePermission::AlwaysAsk,
             PermissionMode::GalaxyDecides => ComputerUsePermission::GalaxyDecides,
+            PermissionMode::AllowAll => ComputerUsePermission::AlwaysAllow,
         };
         self.run_agents = match self.permission_mode {
             PermissionMode::ReadOnly => RunAgentsPermission::NeverAllow,
             PermissionMode::AskFirst => RunAgentsPermission::AlwaysAsk,
             PermissionMode::GalaxyDecides => RunAgentsPermission::GalaxyDecides,
+            PermissionMode::AllowAll => RunAgentsPermission::AlwaysAllow,
         };
         self.ask_user_question = if self.permission_mode == PermissionMode::AskFirst {
             AskUserQuestionPermission::AlwaysAsk
         } else {
             AskUserQuestionPermission::Never
         };
-        self.command_allowlist.clear();
         self.directory_allowlist.clear();
         self.mcp_allowlist.clear();
     }
@@ -663,6 +677,7 @@ impl AIExecutionProfile {
             is_default_profile: false,
             permission_mode: PermissionMode::GalaxyDecides,
             approved_command_hashes: Vec::new(),
+            orchestration_providers: None,
             apply_code_diffs: ActionPermission::AlwaysAllow,
             read_files: ActionPermission::AlwaysAllow,
             execute_commands: ActionPermission::AlwaysAllow,
@@ -721,6 +736,7 @@ impl AIExecutionProfile {
             is_default_profile: true,
             permission_mode: PermissionMode::GalaxyDecides,
             approved_command_hashes: Vec::new(),
+            orchestration_providers: None,
             apply_code_diffs: ActionPermission::AlwaysAllow,
             read_files: ActionPermission::AlwaysAllow,
             execute_commands: ActionPermission::AlwaysAllow,

@@ -27442,7 +27442,8 @@ impl TypedActionView for TerminalView {
                         crate::ai::execution_profiles::PermissionMode::AskFirst => {
                             crate::ai::execution_profiles::PermissionMode::GalaxyDecides
                         }
-                        crate::ai::execution_profiles::PermissionMode::GalaxyDecides => {
+                        crate::ai::execution_profiles::PermissionMode::GalaxyDecides
+                        | crate::ai::execution_profiles::PermissionMode::AllowAll => {
                             crate::ai::execution_profiles::PermissionMode::AskFirst
                         }
                     };

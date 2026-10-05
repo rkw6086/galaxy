@@ -63,6 +63,7 @@ use crate::ai::harness_availability::{
     AuthSecretFetchState, HarnessAvailabilityEvent, HarnessAvailabilityModel,
 };
 use crate::ai::llms::{LLMPreferences, LLMPreferencesEvent};
+use crate::ai::execution_profiles::profiles::{AIExecutionProfilesModel, AIExecutionProfilesModelEvent};
 use crate::appearance::Appearance;
 use crate::menu::{Event as MenuEvent, Menu, MenuItemFields, MenuVariant};
 use crate::ui_components::blended_colors;
@@ -568,6 +569,18 @@ impl RunAgentsCardView {
             }
         });
 
+        ctx.subscribe_to_model(&AIExecutionProfilesModel::handle(ctx), |me, _, event, ctx| {
+            if matches!(event, AIExecutionProfilesModelEvent::ProfileUpdated(_) | AIExecutionProfilesModelEvent::UpdatedActiveProfile { .. }) {
+                if let Some(handle) = &me.handles.pickers.model_picker {
+                    oc::populate_model_picker_for_harness(Some(me.terminal_view_id), handle, &me.state.orch.model_id, &me.state.orch.harness_type, !me.state.orch.execution_mode.is_remote(), ctx);
+                }
+                me.reconcile_agent_model_selections(ctx);
+                me.repopulate_agent_model_pickers(ctx);
+                me.refresh_accept_button_state(ctx);
+                ctx.notify();
+            }
+        });
+
         // Repopulate the model pickers when available Galaxy LLMs change.
         // Only relevant for Oz harness — non-Oz harnesses get their
         // model catalog from HarnessAvailabilityModel, not LLMPreferences.
@@ -575,7 +588,7 @@ impl RunAgentsCardView {
             if let LLMPreferencesEvent::UpdatedAvailableLLMs = event {
                 if let Some(handle) = &me.handles.pickers.model_picker {
                     let is_local = !me.state.orch.execution_mode.is_remote();
-                    oc::populate_model_picker_for_harness(
+                    oc::populate_model_picker_for_harness(Some(me.terminal_view_id),
                         handle,
                         &me.state.orch.model_id,
                         &me.state.orch.harness_type,
@@ -676,6 +689,7 @@ impl RunAgentsCardView {
             has_auto_opened_create_modal: false,
         };
 
+        view.handles.pickers.terminal_view_id = Some(terminal_view_id);
         view.ensure_pickers(ctx);
         view.ensure_agent_model_pickers(ctx);
         view.refresh_accept_button_state(ctx);
@@ -750,7 +764,7 @@ impl RunAgentsCardView {
     fn reconcile_agent_model_selections(&mut self, ctx: &mut ViewContext<Self>) {
         let harness_type = self.state.orch.harness_type.clone();
         let is_local = !self.state.orch.execution_mode.is_remote();
-        let fallback = if oc::is_model_in_filtered_choices(
+        let fallback = if oc::is_model_in_filtered_choices(Some(self.terminal_view_id),
             &self.state.orch.model_id,
             &harness_type,
             is_local,
@@ -758,10 +772,10 @@ impl RunAgentsCardView {
         ) {
             self.state.orch.model_id.clone()
         } else {
-            oc::first_filtered_model_id(&harness_type, ctx).unwrap_or_default()
+            oc::first_filtered_model_id(Some(self.terminal_view_id), &harness_type, ctx).unwrap_or_default()
         };
         for config in &mut self.state.agent_run_configs {
-            if !oc::is_model_in_filtered_choices(&config.model_id, &harness_type, is_local, ctx) {
+            if !oc::is_model_in_filtered_choices(Some(self.terminal_view_id), &config.model_id, &harness_type, is_local, ctx) {
                 config.model_id = fallback.clone();
             }
         }
@@ -779,7 +793,7 @@ impl RunAgentsCardView {
             let handle = oc::new_standard_filterable_picker_dropdown(&styles, ctx);
             Self::set_upward_filterable_menu_position(&handle, ctx);
             let agent_name = config.name.clone();
-            oc::populate_model_picker_for_harness_with_action(
+            oc::populate_model_picker_for_harness_with_action(Some(self.terminal_view_id),
                 &handle,
                 &config.model_id,
                 &harness_type,
@@ -803,7 +817,7 @@ impl RunAgentsCardView {
                 continue;
             };
             let agent_name = config.name.clone();
-            oc::populate_model_picker_for_harness_with_action(
+            oc::populate_model_picker_for_harness_with_action(Some(self.terminal_view_id),
                 handle,
                 &config.model_id,
                 &harness_type,
@@ -1019,7 +1033,7 @@ impl RunAgentsCardView {
             let is_local = !state.orch.execution_mode.is_remote();
             let handle = oc::new_standard_filterable_picker_dropdown(&styles, ctx);
             Self::set_upward_filterable_menu_position(&handle, ctx);
-            oc::populate_model_picker_for_harness(
+            oc::populate_model_picker_for_harness(Some(self.terminal_view_id),
                 &handle,
                 &initial_model_id,
                 &state.orch.harness_type,

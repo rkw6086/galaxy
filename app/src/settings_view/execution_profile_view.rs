@@ -262,6 +262,14 @@ impl View for ExecutionProfileView {
                             appearance,
                             is_any_ai_enabled,
                         ));
+                        permissions_column.add_child(with_standard_vertical_margin(render_command_predicate_row(
+                            Icon::Check, "Always approve commands:".to_string(), &profile.command_allowlist, appearance, is_any_ai_enabled,
+                        )));
+                        permissions_column.add_child(with_standard_vertical_margin(render_permission_line_with_icon(
+                            Icon::Dataflow, "Orchestration providers:",
+                            profile.orchestration_providers.as_ref().map(|names| if names.is_empty() { "None".to_string() } else { names.join(", ") }).unwrap_or_else(|| "All providers".to_string()),
+                            appearance, is_any_ai_enabled,
+                        )));
                         permissions_column.add_child(render_mcp_denylist(
                             &profile,
                             appearance,

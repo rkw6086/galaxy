@@ -2006,6 +2006,7 @@ impl BlocklistAIActionModel {
                 .get_permission_mode(ctx, Some(self.terminal_view_id))
                 == crate::ai::execution_profiles::PermissionMode::ReadOnly
                 && !risk_review::is_read_only_inspection(&action.action)
+                && !self.is_explicitly_allowlisted_command(action, ctx)
             {
                 // A prohibited action must not perform even preprocessing in Read Only.
             } else {

@@ -286,6 +286,7 @@ impl OrchestrationEditState {
 /// block. Generic over the action type `A`.
 #[derive(Clone)]
 pub struct OrchestrationPickerHandles<A: OrchestrationControlAction> {
+    pub terminal_view_id: Option<warpui::EntityId>,
     pub model_picker: Option<ViewHandle<FilterableDropdown<A>>>,
     pub harness_picker: Option<ViewHandle<Dropdown<A>>>,
     pub environment_picker: Option<ViewHandle<FilterableDropdown<A>>>,
@@ -301,6 +302,7 @@ pub struct OrchestrationPickerHandles<A: OrchestrationControlAction> {
 impl<A: OrchestrationControlAction> Default for OrchestrationPickerHandles<A> {
     fn default() -> Self {
         Self {
+            terminal_view_id: None,
             model_picker: None,
             harness_picker: None,
             environment_picker: None,
@@ -411,10 +413,12 @@ fn get_base_model_choices<'a>(
     llm_prefs: &'a LLMPreferences,
     app: &'a AppContext,
     is_local: bool,
+    terminal_view_id: Option<warpui::EntityId>,
 ) -> impl Iterator<Item = &'a LLMInfo> {
     llm_prefs
         .get_base_llm_choices_for_agent_mode(app)
         .filter(move |llm| is_local || llm_prefs.custom_llm_info_for_id(&llm.id).is_none())
+        .filter(move |llm| llm_prefs.profile_allows_orchestration_model(llm, terminal_view_id, app))
 }
 /// Populates the model picker based on the active harness.
 ///
@@ -425,13 +429,14 @@ fn get_base_model_choices<'a>(
 ///   by the server-provided harness model catalog from
 ///   `HarnessAvailabilityModel::models_for()`.
 pub fn populate_model_picker_for_harness<A: OrchestrationControlAction, V: View>(
+    terminal_view_id: Option<warpui::EntityId>,
     dropdown: &ViewHandle<FilterableDropdown<A>>,
     initial_model_id: &str,
     harness_type: &str,
     is_local: bool,
     ctx: &mut ViewContext<V>,
 ) {
-    populate_model_picker_for_harness_with_action(
+    populate_model_picker_for_harness_with_action(terminal_view_id,
         dropdown,
         initial_model_id,
         harness_type,
@@ -448,6 +453,7 @@ pub fn populate_model_picker_for_harness_with_action<
     V: View,
     F: Fn(String) -> A + Clone,
 >(
+    terminal_view_id: Option<warpui::EntityId>,
     dropdown: &ViewHandle<FilterableDropdown<A>>,
     initial_model_id: &str,
     harness_type: &str,
@@ -466,7 +472,7 @@ pub fn populate_model_picker_for_harness_with_action<
                 // Order: auto models first, then custom models, then other models.
                 let llm_prefs = LLMPreferences::as_ref(ctx_dropdown);
                 let (auto_models, rest): (Vec<_>, Vec<_>) =
-                    get_base_model_choices(llm_prefs, ctx_dropdown, is_local)
+                    get_base_model_choices(llm_prefs, ctx_dropdown, is_local, terminal_view_id)
                         .partition(|llm| llm.id.as_str().starts_with("auto"));
                 let (custom_models, other_models): (Vec<_>, Vec<_>) = rest
                     .into_iter()
@@ -556,6 +562,7 @@ fn default_model_menu_item<A: OrchestrationControlAction>(
 /// model choices. Used to detect when a harness change invalidates the
 /// current model selection.
 pub fn is_model_in_filtered_choices<V: View>(
+    terminal_view_id: Option<warpui::EntityId>,
     model_id: &str,
     harness_type: &str,
     is_local: bool,
@@ -565,7 +572,7 @@ pub fn is_model_in_filtered_choices<V: View>(
     match harness {
         Some(Harness::Oz) | None => {
             let llm_prefs = LLMPreferences::as_ref(ctx);
-            get_base_model_choices(llm_prefs, ctx, is_local)
+            get_base_model_choices(llm_prefs, ctx, is_local, terminal_view_id)
                 .any(|llm| llm.id.to_string() == model_id)
         }
         Some(Harness::Codex) if is_local => model_id.is_empty(),
@@ -587,6 +594,7 @@ pub fn is_model_in_filtered_choices<V: View>(
 /// For Oz this is the first Warp LLM; for non-Oz harnesses it is an empty
 /// string (the "Default model" entry).
 pub fn first_filtered_model_id<V: View>(
+    terminal_view_id: Option<warpui::EntityId>,
     harness_type: &str,
     ctx: &mut ViewContext<V>,
 ) -> Option<String> {
@@ -594,8 +602,7 @@ pub fn first_filtered_model_id<V: View>(
     match harness {
         Some(Harness::Oz) | None => {
             let llm_prefs = LLMPreferences::as_ref(ctx);
-            llm_prefs
-                .get_base_llm_choices_for_agent_mode(ctx)
+            get_base_model_choices(llm_prefs, ctx, true, terminal_view_id)
                 .next()
                 .map(|llm| llm.id.to_string())
         }
@@ -1361,21 +1368,21 @@ pub fn apply_harness_change<A: OrchestrationControlAction, V: View>(
     let new_key = harness_save_key(&state.harness_type);
     let restored = memory
         .get(new_key)
-        .filter(|id| is_model_in_filtered_choices(id, &state.harness_type, is_local, ctx))
+        .filter(|id| is_model_in_filtered_choices(handles.terminal_view_id, id, &state.harness_type, is_local, ctx))
         .cloned();
     if let Some(saved_id) = restored {
         state.model_id = saved_id;
-    } else if !is_model_in_filtered_choices(&state.model_id, &state.harness_type, is_local, ctx) {
+    } else if !is_model_in_filtered_choices(handles.terminal_view_id, &state.model_id, &state.harness_type, is_local, ctx) {
         // No saved model — fall back to conversation base model
         // for Oz, or default for non-Oz.
         let reset_id = fallback_base_model_id(ctx)
-            .filter(|id| is_model_in_filtered_choices(id, &state.harness_type, is_local, ctx))
-            .or_else(|| first_filtered_model_id(&state.harness_type, ctx))
+            .filter(|id| is_model_in_filtered_choices(handles.terminal_view_id, id, &state.harness_type, is_local, ctx))
+            .or_else(|| first_filtered_model_id(handles.terminal_view_id, &state.harness_type, ctx))
             .unwrap_or_default();
         state.model_id = reset_id;
     }
     if let Some(handle) = &handles.model_picker {
-        populate_model_picker_for_harness(
+        populate_model_picker_for_harness(handles.terminal_view_id,
             handle,
             &state.model_id,
             &state.harness_type,
@@ -1422,15 +1429,15 @@ pub fn apply_execution_mode_change<A: OrchestrationControlAction, V: View>(
             }
         }
     }
-    if !is_model_in_filtered_choices(&state.model_id, &state.harness_type, is_local, ctx) {
+    if !is_model_in_filtered_choices(handles.terminal_view_id, &state.model_id, &state.harness_type, is_local, ctx) {
         let reset_id = fallback_base_model_id(ctx)
-            .filter(|id| is_model_in_filtered_choices(id, &state.harness_type, is_local, ctx))
-            .or_else(|| first_filtered_model_id(&state.harness_type, ctx))
+            .filter(|id| is_model_in_filtered_choices(handles.terminal_view_id, id, &state.harness_type, is_local, ctx))
+            .or_else(|| first_filtered_model_id(handles.terminal_view_id, &state.harness_type, ctx))
             .unwrap_or_default();
         state.model_id = reset_id;
     }
     if let Some(handle) = &handles.model_picker {
-        populate_model_picker_for_harness(
+        populate_model_picker_for_harness(handles.terminal_view_id,
             handle,
             &state.model_id,
             &state.harness_type,
@@ -1467,13 +1474,13 @@ pub fn repopulate_all_pickers<A: OrchestrationControlAction, V: View>(
         populate_harness_picker(handle, &state.harness_type, is_local, ctx);
     }
     // Reset model if it disappeared from the harness's catalog.
-    if !is_model_in_filtered_choices(&state.model_id, &state.harness_type, is_local, ctx) {
-        if let Some(first_id) = first_filtered_model_id(&state.harness_type, ctx) {
+    if !is_model_in_filtered_choices(handles.terminal_view_id, &state.model_id, &state.harness_type, is_local, ctx) {
+        if let Some(first_id) = first_filtered_model_id(handles.terminal_view_id, &state.harness_type, ctx) {
             state.model_id = first_id;
         }
     }
     if let Some(handle) = &handles.model_picker {
-        populate_model_picker_for_harness(
+        populate_model_picker_for_harness(handles.terminal_view_id,
             handle,
             &state.model_id,
             &state.harness_type,

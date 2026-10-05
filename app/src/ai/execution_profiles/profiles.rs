@@ -648,6 +648,19 @@ impl AIExecutionProfilesModel {
         );
     }
 
+    pub fn set_orchestration_providers(
+        &mut self,
+        profile_id: ClientProfileId,
+        providers: Option<Vec<String>>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.edit_profile_internal(profile_id, |profile| {
+            if profile.orchestration_providers == providers { return false; }
+            profile.orchestration_providers = providers;
+            true
+        }, ctx);
+    }
+
     pub fn set_permission_mode(
         &mut self,
         profile_id: ClientProfileId,

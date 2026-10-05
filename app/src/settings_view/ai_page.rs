@@ -1457,6 +1457,7 @@ impl AISettingsPageView {
                     PermissionMode::ReadOnly,
                     PermissionMode::AskFirst,
                     PermissionMode::GalaxyDecides,
+                    PermissionMode::AllowAll,
                 ]
                 .into_iter()
                 .map(|mode| {

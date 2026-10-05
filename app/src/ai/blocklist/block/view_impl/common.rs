@@ -969,7 +969,7 @@ fn render_permission_mode_button(
     appearance: &Appearance,
 ) -> Box<dyn Element> {
     use crate::ai::execution_profiles::PermissionMode;
-    let is_active = props.mode == PermissionMode::GalaxyDecides;
+    let is_active = matches!(props.mode, PermissionMode::GalaxyDecides | PermissionMode::AllowAll);
     let is_locked = props.is_locked || props.mode == PermissionMode::ReadOnly;
     let icon = if is_active {
         Icon::FastForwardFilled

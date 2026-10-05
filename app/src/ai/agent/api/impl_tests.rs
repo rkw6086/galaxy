@@ -38,6 +38,7 @@ fn request_params_with_ask_user_question_enabled(ask_user_question_enabled: bool
         custom_model_providers: None,
         custom_model_routers: None,
         permission_mode: Default::default(),
+        command_allowlist: Vec::new(),
         autonomy_level: api::AutonomyLevel::Supervised,
         isolation_level: api::IsolationLevel::None,
         web_search_enabled: false,
@@ -216,4 +217,15 @@ fn read_only_mode_filters_even_explicit_tool_overrides() {
     let (base, cli) = super::prepare_direct_provider_params(&mut params);
     assert_eq!(base, vec![api::ToolType::Grep, api::ToolType::ReadFiles]);
     assert_eq!(cli, base);
+}
+
+#[test]
+fn read_only_advertises_shell_only_when_explicit_command_approvals_exist() {
+    let mut params = request_params_with_ask_user_question_enabled(true);
+    params.permission_mode = crate::ai::execution_profiles::PermissionMode::ReadOnly;
+    params.command_allowlist = vec!["^cargo test$".to_string()];
+    let (base, _) = super::prepare_direct_provider_params(&mut params);
+    assert!(base.contains(&api::ToolType::RunShellCommand));
+    assert!(!base.contains(&api::ToolType::ApplyFileDiffs));
+    assert!(!base.contains(&api::ToolType::RunAgents));
 }

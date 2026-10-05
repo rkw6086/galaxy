@@ -100,6 +100,23 @@ impl Entity for RunAgentsExecutor {
 }
 
 impl RunAgentsExecutor {
+    fn validate_profile_providers(&self, request: &RunAgentsRequest, ctx: &ModelContext<Self>) -> Result<(), String> {
+        let profile = crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx).active_profile(Some(self.terminal_view_id), ctx);
+        if profile.data().orchestration_providers.is_none() { return Ok(()); }
+        if !request.harness_type.trim().is_empty() && !matches!(Harness::parse_orchestration_harness(&request.harness_type), Some(Harness::Oz)) {
+            return Err("This profile restricts orchestration to selected Galaxy model providers. External harnesses cannot bypass that selection.".to_string());
+        }
+        let prefs = crate::ai::llms::LLMPreferences::as_ref(ctx);
+        for child in &request.agent_run_configs {
+            let id = if !child.model_id.trim().is_empty() { child.model_id.as_str() } else if !request.model_id.trim().is_empty() { request.model_id.as_str() } else { prefs.get_active_base_model(ctx, Some(self.terminal_view_id)).id.as_str() };
+            let model = prefs.get_llm_info(&crate::ai::llms::LLMId::from(id)).ok_or_else(|| format!("Unknown orchestration model: {id}"))?;
+            if model.disable_reason.is_some() || !prefs.profile_allows_orchestration_model(model, Some(self.terminal_view_id), ctx) {
+                return Err(format!("Model {id} is excluded by this profile's orchestration provider selection. Choose a model from the advertised provider list."));
+            }
+        }
+        Ok(())
+    }
+
     pub fn new(
         start_agent_executor: ModelHandle<StartAgentExecutor>,
         terminal_view_id: EntityId,
@@ -275,7 +292,7 @@ impl RunAgentsExecutor {
             return receiver;
         }
 
-        if let Err(error) = validate_request(&request) {
+        if let Err(error) = validate_request(&request).and_then(|()| self.validate_profile_providers(&request, ctx)) {
             log::warn!("RunAgentsExecutor: validation failure: {error}");
             #[cfg(not(target_family = "wasm"))]
             log_run_agents_event(
@@ -358,7 +375,7 @@ impl RunAgentsExecutor {
             let _ = sender.try_send(RunAgentsResult::Cancelled);
             return receiver;
         }
-        if let Err(error) = validate_request(&request) {
+        if let Err(error) = validate_request(&request).and_then(|()| self.validate_profile_providers(&request, ctx)) {
             let _ = sender.try_send(RunAgentsResult::Failure { error });
             return receiver;
         }
@@ -391,6 +408,11 @@ impl RunAgentsExecutor {
         sender: async_channel::Sender<RunAgentsResult>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if let Err(error) = self.validate_profile_providers(&request, ctx) {
+            self.pending.remove(&(parent_conversation_id, action_id.clone()));
+            let _ = sender.try_send(RunAgentsResult::Failure { error });
+            return;
+        }
         self.pending.insert(
             (parent_conversation_id, action_id.clone()),
             PendingRunAgents::Spawning,

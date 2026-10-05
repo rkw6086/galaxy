@@ -252,6 +252,7 @@ fn prepare_rig_turn_for_provider(
         messages_sent,
         global_rules,
         permission_mode,
+        command_allowlist,
         mcp_context,
         ..
     } = params;
@@ -294,11 +295,15 @@ fn prepare_rig_turn_for_provider(
     }
     let mut system_prompt = build_system_prompt(&input, &tools, &global_rules, mode);
     system_prompt.push_str(match permission_mode {
+        crate::ai::execution_profiles::PermissionMode::AllowAll => "\n## Permission Mode: Allow All\nTools run without permission review. Explicit denylists and workspace restrictions remain binding; never work around a denial.\n",
         crate::ai::execution_profiles::PermissionMode::ReadOnly => "\n## Permission Mode: Read Only\nOnly inspection and search tools are available. Describe proposed changes without executing commands, editing, delegating, or invoking MCP/computer use.\n",
         crate::ai::execution_profiles::PermissionMode::AskFirst => "\n## Permission Mode: Ask First\nGalaxy asks for approval before actions and remembers exact approved commands in their working directory. Do not request blanket permission in prose; submit the concrete tool action for the approval pane.\n",
         crate::ai::execution_profiles::PermissionMode::GalaxyDecides => "\n## Permission Mode: Galaxy Decides\nGalaxy's independent terminal-use model resolves tool permissions without asking the user. Treat denials as binding. Revise the action scope or provide concrete missing justification addressing the stated risk, or use a safer approach. Never repeat an unchanged denied request, seek user approval to override it, or claim a denied action ran. Work autonomously and report concrete blockers when no authorized approach remains. For routine inspection, prefer the permission fast path: pwd, simple ls commands, git --version, git --no-pager -c core.fsmonitor=false status --short, or git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --stat (optionally --cached). Shell expansions, chaining, redirects and other command forms still require model review.\n",
     });
 
+    if !command_allowlist.is_empty() {
+        system_prompt.push_str(&format!("\nExplicit command allowlist (regular expressions): {}. Matching shell commands are permitted even in Read Only; denylist and workspace restrictions still win. Do not broaden a command to exploit a pattern.\n", serde_json::to_string(&command_allowlist).unwrap_or_default()));
+    }
     system_prompt.push_str("Approval of a long-running command covers monitoring and interaction with that same conversation-owned command while you retain control. Use the existing command block; do not request permission again or restart the command just to interact with it. A new command requires its own permission decision.\n");
 
     let mut new_messages = input_messages(input, tool_results, max_context_tokens);

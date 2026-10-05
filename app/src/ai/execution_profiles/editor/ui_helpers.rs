@@ -451,7 +451,9 @@ pub fn render_permissions_section(
                 .clone(),
         ),
         render_command_denylist_section(view, profile_data, appearance, app),
+        render_command_allowlist_section(view, profile_data, appearance),
         render_mcp_denylist_section(view, profile_data, app, appearance),
+        render_orchestration_providers(view, profile_data, appearance),
     ]);
     if FeatureFlag::WebSearchUI.is_enabled() {
         column.add_child(
@@ -613,6 +615,35 @@ fn render_command_denylist_section(
     Container::new(column.finish())
         .with_margin_bottom(16.)
         .finish()
+}
+
+fn render_command_allowlist_section(view: &ExecutionProfileEditorView, profile: &AIExecutionProfile, appearance: &Appearance) -> Box<dyn Element> {
+    let items: Vec<_> = profile.command_allowlist.iter().cloned().zip(view.command_allowlist_mouse_state_handles.iter().cloned()).map(|(predicate, mouse_state_handle)| InputListItem {
+        item: predicate.to_string(), mouse_state_handle,
+        on_remove_action: ExecutionProfileEditorViewAction::RemoveFromCommandAllowlist { predicate },
+        is_disabled: false, tooltip_mouse_state: None,
+    }).collect();
+    Flex::column().with_child(create_section_header("Always approve commands", "Regular expressions approved in every mode, including Read Only. Denylists and workspace restrictions take precedence. Anchor patterns with ^ and $ to match the complete command.", appearance))
+        .with_child(render_input_list(None, items, Some(&view.command_allowlist_editor), appearance)).finish()
+}
+
+fn render_orchestration_providers(view: &ExecutionProfileEditorView, profile: &AIExecutionProfile, appearance: &Appearance) -> Box<dyn Element> {
+    let mut column = Flex::column().with_child(create_section_header("Orchestration providers", "Only included providers can supply models for sub-agents and code reviews. All providers includes providers added later.", appearance));
+    let all = profile.orchestration_providers.is_none();
+    let names: Vec<_> = view.orchestration_provider_switches.iter().map(|(name, _)| name.clone()).collect();
+    let selected = if all { Some(names.clone()) } else { None };
+    let switch = appearance.ui_builder().switch(view.all_providers_switch.clone()).check(all).build()
+        .on_click(move |ctx, _, _| ctx.dispatch_typed_action(ExecutionProfileEditorViewAction::SetOrchestrationProviders { providers: selected.clone() })).finish();
+    column.add_child(Flex::row().with_main_axis_alignment(MainAxisAlignment::SpaceBetween).with_child(Text::new("All providers", appearance.ui_font_family(), 13.).with_color(appearance.theme().active_ui_text_color().into()).finish()).with_child(switch).finish());
+    for (name, state) in &view.orchestration_provider_switches {
+        let included = profile.includes_orchestration_provider(name);
+        let mut next = profile.orchestration_providers.clone().unwrap_or_else(|| names.clone());
+        if included { next.retain(|provider| provider != name); } else { next.push(name.clone()); }
+        let switch = appearance.ui_builder().switch(state.clone()).check(included).build()
+            .on_click(move |ctx, _, _| ctx.dispatch_typed_action(ExecutionProfileEditorViewAction::SetOrchestrationProviders { providers: Some(next.clone()) })).finish();
+        column.add_child(Container::new(Flex::row().with_main_axis_alignment(MainAxisAlignment::SpaceBetween).with_child(Text::new(name.clone(), appearance.ui_font_family(), 13.).with_color(appearance.theme().active_ui_text_color().into()).finish()).with_child(switch).finish()).with_margin_top(8.).finish());
+    }
+    Container::new(column.finish()).with_margin_top(16.).finish()
 }
 
 fn display_mcp_name(uuid: &Uuid, app: &AppContext) -> String {

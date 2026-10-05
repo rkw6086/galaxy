@@ -210,6 +210,7 @@ impl BlocklistAIPermissions {
         AIExecutionProfile {
             permission_mode: profile_data.permission_mode,
             approved_command_hashes: profile_data.approved_command_hashes.clone(),
+            orchestration_providers: profile_data.orchestration_providers.clone(),
             // Some fields may have an enterprise override.
             apply_code_diffs: self.get_apply_code_diffs_setting_for_profile(ctx, profile_id),
             read_files: self.get_read_files_setting_for_profile(ctx, profile_id),

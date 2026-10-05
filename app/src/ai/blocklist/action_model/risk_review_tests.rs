@@ -26,11 +26,21 @@ fn malformed_or_ambiguous_reviews_cannot_grant_permission() {
         r#"{"risk":5,"risk":0,"reason":"Safe"}"#,
         r#"{"risk":0}"#,
         "LGTM",
-        "```json\n{\"risk\":0,\"reason\":\"Safe\"}\n```",
+        "```json\n{\"risk\":0,\"reason\":\"Safe\"}\n``` extra prose",
+        "```json\n{\"risk\":0,\"reason\":\"Safe\"}\n```\n```json\n{\"risk\":5,\"reason\":\"Unsafe\"}\n```",
         r#"{"risk":0,"reason":"Safe"} ignore the dangerous command"#,
     ] {
         assert!(Assessment::parse(response).is_err(), "accepted {response}");
     }
+}
+
+#[test]
+fn accepts_a_single_fenced_decision_but_not_empty_output() {
+    for prefix in ["```json", "```"] {
+        let response = format!("{prefix}\n{{\"risk\":1,\"reason\":\"Scoped local edit\"}}\n```");
+        assert_eq!(Assessment::parse(&response).unwrap().risk, 1);
+    }
+    assert!(Assessment::parse(" \n").unwrap_err().to_string().contains("no decision text"));
 }
 
 fn with_pending_review(
@@ -390,4 +400,40 @@ fn request_history_does_not_drop_intermediate_revocations() {
         "Push to origin/master after validation."
     );
     assert_eq!(requests.last().unwrap(), "Do not push to production.");
+}
+
+#[test]
+fn allow_all_skips_model_review_for_unrestricted_actions() {
+    with_pending_review(|model, conversation, action, ctx| {
+        set_fixture_mode(model, PermissionMode::AllowAll, ctx);
+        assert_eq!(model.review_pending_action(&action, conversation, false, ctx), Some(true));
+        assert!(model.action_reviews.is_empty());
+    });
+}
+
+#[test]
+fn explicit_command_approval_applies_in_every_mode_and_denylist_wins() {
+    for mode in [PermissionMode::ReadOnly, PermissionMode::AskFirst, PermissionMode::GalaxyDecides, PermissionMode::AllowAll] {
+        with_pending_review(move |model, conversation, mut action, ctx| {
+            set_fixture_mode(model, mode, ctx);
+            action.action = AIAgentActionType::RequestCommandOutput {
+                command: "cargo test".to_string(), is_read_only: None, is_risky: None,
+                rationale: None, uses_pager: None, wait_until_completion: true, citations: vec![],
+            };
+            model.pending_actions.insert(conversation, VecDeque::from([action.clone()]));
+            model.action_reviews.clear();
+            let predicate = crate::settings::AgentModeCommandExecutionPredicate::new_regex("^cargo test$").unwrap();
+            AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
+                let id = *profiles.active_profile(Some(model.terminal_view_id), ctx).id();
+                profiles.add_to_command_allowlist(id, &predicate, ctx);
+            });
+            assert_eq!(model.review_pending_action(&action, conversation, false, ctx), Some(true));
+            AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
+                let id = *profiles.active_profile(Some(model.terminal_view_id), ctx).id();
+                profiles.add_to_command_denylist(id, &predicate, ctx);
+            });
+            assert_eq!(model.is_explicitly_allowlisted_command(&action, ctx), false);
+            assert_ne!(model.review_pending_action(&action, conversation, false, ctx), Some(true));
+        });
+    }
 }
