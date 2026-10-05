@@ -753,6 +753,18 @@ impl ProviderRunCoordinator {
                         return Ok(());
                     }
                     buffer.text.push_str(&text);
+                    if !self
+                        .project_or_fail_acknowledged(
+                            ProviderRunProjection::ModelEvent {
+                                work_id: call.work_id.clone(),
+                                event: AgentEvent::TextDelta { text },
+                            },
+                            project,
+                        )
+                        .await?
+                    {
+                        return Ok(());
+                    }
                 }
                 AgentEvent::ReasoningDelta { text } => {
                     if !self
@@ -764,6 +776,18 @@ impl ProviderRunCoordinator {
                         return Ok(());
                     }
                     buffer.reasoning.push_str(&text);
+                    if !self
+                        .project_or_fail_acknowledged(
+                            ProviderRunProjection::ModelEvent {
+                                work_id: call.work_id.clone(),
+                                event: AgentEvent::ReasoningDelta { text },
+                            },
+                            project,
+                        )
+                        .await?
+                    {
+                        return Ok(());
+                    }
                 }
                 AgentEvent::ReasoningCompleted { text, signature }
                     if text.is_empty() && signature.is_none() =>
@@ -783,6 +807,18 @@ impl ProviderRunCoordinator {
                     }
                     buffer.reasoning.clone_from(&text);
                     buffer.reasoning_signature.clone_from(&signature);
+                    if !self
+                        .project_or_fail_acknowledged(
+                            ProviderRunProjection::ModelEvent {
+                                work_id: call.work_id.clone(),
+                                event: AgentEvent::ReasoningCompleted { text, signature },
+                            },
+                            project,
+                        )
+                        .await?
+                    {
+                        return Ok(());
+                    }
                 }
                 AgentEvent::Tool {
                     event: ToolEvent::Proposed { call: tool_call },
@@ -829,47 +865,8 @@ impl ProviderRunCoordinator {
                     {
                         return Ok(());
                     }
-                    // A model can speak before its tool call arrives. Wait until the turn
-                    // finishes so routine tool-turn narration never reaches the conversation.
-                    // Keep it in the canonical turn for provider continuity.
-                    if buffer.tool_calls.is_empty()
-                        && !matches!(
-                            &reason,
-                            StopReason::Cancelled | StopReason::ContextWindowExceeded
-                        )
-                    {
-                        if !buffer.reasoning.is_empty()
-                            && !self
-                                .project_or_fail_acknowledged(
-                                    ProviderRunProjection::ModelEvent {
-                                        work_id: call.work_id.clone(),
-                                        event: AgentEvent::ReasoningCompleted {
-                                            text: buffer.reasoning.clone(),
-                                            signature: buffer.reasoning_signature.clone(),
-                                        },
-                                    },
-                                    project,
-                                )
-                                .await?
-                        {
-                            return Ok(());
-                        }
-                        if !buffer.text.is_empty()
-                            && !self
-                                .project_or_fail_acknowledged(
-                                    ProviderRunProjection::ModelEvent {
-                                        work_id: call.work_id.clone(),
-                                        event: AgentEvent::TextDelta {
-                                            text: buffer.text.clone(),
-                                        },
-                                    },
-                                    project,
-                                )
-                                .await?
-                        {
-                            return Ok(());
-                        }
-                    }
+                    // Output is projected as it arrives. The buffer is only for canonical
+                    // history; replaying it here would duplicate the streamed response.
                     if !self
                         .project_or_fail_acknowledged(
                             ProviderRunProjection::ModelTurnFinished {

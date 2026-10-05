@@ -20,6 +20,7 @@ type ScriptedTurn = Result<Vec<ScriptedEvent>, AgentError>;
 struct ScriptedRuntime {
     descriptor: RuntimeDescriptor,
     turns: Mutex<VecDeque<ScriptedTurn>>,
+    events_consumed: Arc<AtomicUsize>,
     requests: Mutex<Vec<TurnRequest>>,
 }
 
@@ -37,6 +38,7 @@ impl ScriptedRuntime {
                 capabilities: RuntimeCapabilities::provider(),
             },
             turns: Mutex::new(turns.into()),
+            events_consumed: Arc::new(AtomicUsize::new(0)),
             requests: Mutex::new(Vec::new()),
         }
     }
@@ -64,7 +66,10 @@ impl AgentRuntime for ScriptedRuntime {
             .unwrap()
             .pop_front()
             .expect("scripted runtime ran out of turns")?;
-        Ok(Box::pin(futures::stream::iter(turn)))
+        let events_consumed = self.events_consumed.clone();
+        Ok(Box::pin(futures::stream::iter(turn).inspect(move |_| {
+            events_consumed.fetch_add(1, Ordering::Relaxed);
+        })))
     }
 }
 
@@ -302,7 +307,7 @@ fn answer_turn() -> ScriptedTurn {
 }
 
 #[tokio::test]
-async fn tool_turn_narration_stays_in_history_but_out_of_visible_output() {
+async fn tool_turn_text_is_streamed_and_retained_in_history() {
     let runtime = Arc::new(ScriptedRuntime::new(vec![tool_turn()]));
     let mut coordinator = coordinator(runtime);
     let mut projections = Vec::new();
@@ -319,15 +324,91 @@ async fn tool_turn_narration_stays_in_history_but_out_of_visible_output() {
         .transcript()
         .iter()
         .any(|message| format!("{:?}", message.content).contains("I will inspect it.")));
-    assert!(!projections.iter().any(|projection| matches!(
-        projection,
-        ProviderRunProjection::ModelEvent {
-            event: AgentEvent::TextDelta { .. }
-                | AgentEvent::ReasoningDelta { .. }
-                | AgentEvent::ReasoningCompleted { .. },
-            ..
-        }
-    )));
+    let text: Vec<_> = projections
+        .iter()
+        .filter_map(|projection| match projection {
+            ProviderRunProjection::ModelEvent {
+                event: AgentEvent::TextDelta { text },
+                ..
+            } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(text, ["I will inspect it."]);
+}
+
+#[tokio::test]
+async fn text_and_reasoning_are_projected_before_reading_the_next_stream_event() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![Ok(vec![
+        started("request-streaming"),
+        Ok(AgentEvent::TextDelta {
+            text: "First ".to_string(),
+        }),
+        Ok(AgentEvent::ReasoningDelta {
+            text: "Thinking".to_string(),
+        }),
+        Ok(AgentEvent::ReasoningCompleted {
+            text: "Thinking".to_string(),
+            signature: Some("signature".to_string()),
+        }),
+        Ok(AgentEvent::TextDelta {
+            text: "second.".to_string(),
+        }),
+        usage(10, 4),
+        stopped(StopReason::Completed),
+    ])]));
+    let events_consumed = runtime.events_consumed.clone();
+    let mut coordinator = coordinator(runtime);
+    let mut output = Vec::new();
+    let (_sender, control) = turn_control();
+
+    coordinator
+        .drive_until_blocked(control, |projection| {
+            if let ProviderRunProjection::ModelEvent { event, .. } = projection {
+                if matches!(
+                    event,
+                    AgentEvent::TextDelta { .. }
+                        | AgentEvent::ReasoningDelta { .. }
+                        | AgentEvent::ReasoningCompleted { .. }
+                ) {
+                    output.push((events_consumed.load(Ordering::Relaxed), event));
+                }
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        output,
+        vec![
+            (
+                2,
+                AgentEvent::TextDelta {
+                    text: "First ".to_string()
+                }
+            ),
+            (
+                3,
+                AgentEvent::ReasoningDelta {
+                    text: "Thinking".to_string()
+                }
+            ),
+            (
+                4,
+                AgentEvent::ReasoningCompleted {
+                    text: "Thinking".to_string(),
+                    signature: Some("signature".to_string()),
+                }
+            ),
+            (
+                5,
+                AgentEvent::TextDelta {
+                    text: "second.".to_string()
+                }
+            ),
+        ]
+    );
 }
 
 #[tokio::test]
