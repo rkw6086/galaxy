@@ -28,6 +28,7 @@ use crate::ai::execution_profiles::{
 };
 use crate::ai::llms::{
     DisableReason, LLMContextWindow, LLMId, LLMInfo, LLMPreferences, LLMPreferencesEvent,
+    LLMProvider,
 };
 use crate::cloud_object::model::generic_string_model::StringModel;
 use crate::editor::{
@@ -556,7 +557,10 @@ impl ExecutionProfileEditorView {
         self.command_allowlist_mouse_state_handles = current_permissions.command_allowlist.iter().map(|_| Default::default()).collect();
         let mut names: Vec<_> = LLMPreferences::as_ref(app).get_base_llm_choices_for_agent_mode(app)
             .filter(|model| !matches!(model.id.as_str(), "none" | "placeholder") && !crate::ai::custom_model_routers::is_custom_router_id(model.id.as_str()))
-            .filter_map(|model| model.description.clone()).collect();
+            // Cloud catalog descriptions name vendors, not configured connections.
+            // Direct registry models already carry the user's connection name.
+            .filter(|model| matches!(model.provider, LLMProvider::LiteLLM | LLMProvider::Bedrock | LLMProvider::Acp))
+            .map(|model| LLMPreferences::as_ref(app).orchestration_provider_name(model).to_string()).collect();
         names.extend(AISettings::as_ref(app).openai_providers.value().iter().map(|provider| provider.name.clone()));
         names.retain(|name| !name.trim().is_empty());
         names.sort(); names.dedup();

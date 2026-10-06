@@ -34,6 +34,7 @@ pub struct Checkbox {
 
     /// Optional, clickable text rendered to the right of the checkbox
     label: Option<Span>,
+    label_styles: UiComponentStyles,
 }
 
 impl UiComponent for Checkbox {
@@ -46,7 +47,12 @@ impl UiComponent for Checkbox {
                     .with_cross_axis_alignment(crate::elements::CrossAxisAlignment::Center)
                     .with_child(checkbox)
                     .with_child(
-                        Container::new(label.with_style(self.styles(state)).build().finish())
+                        Container::new(
+                            label
+                                .with_style(self.styles(state).merge(self.label_styles))
+                                .build()
+                                .finish(),
+                        )
                             .with_margin_left(LABEL_LEFT_MARGIN)
                             .finish(),
                     )
@@ -102,6 +108,7 @@ impl Checkbox {
             disabled: false,
             checked: false,
             label: None,
+            label_styles: Default::default(),
         }
     }
 
@@ -117,6 +124,12 @@ impl Checkbox {
 
     pub fn with_label(mut self, label: Span) -> Self {
         self.label = Some(label);
+        self
+    }
+
+    /// Styles the label independently of the checkbox and its checkmark.
+    pub fn with_label_style(mut self, styles: UiComponentStyles) -> Self {
+        self.label_styles = styles;
         self
     }
 
