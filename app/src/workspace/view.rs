@@ -2765,6 +2765,9 @@ impl Workspace {
     fn sync_settings_error_state_into_settings_pane(&mut self, ctx: &mut ViewContext<Self>) {
         let error = self.settings_file_error.clone();
         let dismissed = self.settings_error_banner_dismissed;
+        if self.settings_pane.try_as_ref(ctx).is_none() {
+            return;
+        }
         self.settings_pane.update(ctx, |view, ctx| {
             view.set_settings_error_state(error, dismissed, ctx);
         });
@@ -9799,6 +9802,14 @@ impl Workspace {
                 self.show_tab_group_right_click_menu = None;
                 self.show_tab_selection_right_click_menu = None;
                 self.hide_move_to_group_sidecar(ctx);
+                if !self.current_workspace_state.is_tab_being_renamed()
+                    && !self.current_workspace_state.is_any_pane_being_renamed()
+                    && !self
+                        .current_workspace_state
+                        .is_any_tab_group_being_renamed()
+                {
+                    self.focus_active_tab(ctx);
+                }
                 ctx.notify();
             }
             MenuEvent::ItemHovered | MenuEvent::ItemSelected => {
@@ -11747,6 +11758,7 @@ impl Workspace {
         } else {
             let matching = self.vertical_tabs_panel.matching_tab_indices(
                 &self.tabs,
+                &self.tab_groups,
                 self.active_tab_index,
                 ctx,
             );
@@ -11771,6 +11783,7 @@ impl Workspace {
         } else {
             let matching = self.vertical_tabs_panel.matching_tab_indices(
                 &self.tabs,
+                &self.tab_groups,
                 self.active_tab_index,
                 ctx,
             );

@@ -1132,6 +1132,10 @@ pub enum InputAction {
     CtrlR,
     CtrlD,
     Up,
+    /// Deferred so Up does not update InlineHistoryMenuView while it is already checked out.
+    SelectPreviousInlineHistoryItem,
+    /// Deferred so Down does not update InlineHistoryMenuView while it is already checked out.
+    SelectNextInlineHistoryItem,
     PageUp,
     PageDown,
     ClearScreen,
@@ -2741,7 +2745,9 @@ impl Input {
                     render_decorator_elements: Some(Box::new(
                         move |app| -> EditorDecoratorElements {
                             let terminal_model = model_clone.lock();
-                            let active_block = terminal_model.block_list().active_block();
+                            let prompt_block = terminal_model
+                                .prompt_block()
+                                .unwrap_or_else(|| terminal_model.block_list().active_block());
 
                             let mut editor_decorator_elements = EditorDecoratorElements::default();
 
@@ -2771,7 +2777,7 @@ impl Input {
                                 editor_decorator_elements.left_notch = lprompt_bottom;
                                 editor_decorator_elements.right_notch = rprompt;
                                 editor_decorator_elements.right_notch_offset_px = Some(
-                                    active_block.rprompt_render_offset(
+                                    prompt_block.rprompt_render_offset(
                                         &input_render_state_model_handle_clone
                                             .as_ref(app)
                                             .size_info,
@@ -4963,6 +4969,9 @@ impl Input {
         let has_input = !self.editor.as_ref(ctx).buffer_text(ctx).is_empty();
         let should_clear_prompt_for_search =
             has_input && FeatureFlag::RestorePromptOnInlineModelSelectorSearch.is_enabled();
+        if !ctx.is_window_open(self.inline_model_selector_view.window_id(ctx)) {
+            return;
+        }
         self.inline_model_selector_view.update(ctx, |view, ctx| {
             if has_input && !should_clear_prompt_for_search {
                 view.set_filter_results_by_input(false);
@@ -8743,6 +8752,44 @@ impl Input {
         ctx.notify();
     }
 
+    fn select_previous_inline_history_item(&mut self, ctx: &mut ViewContext<Self>) {
+        if !self
+            .suggestions_mode_model
+            .as_ref(ctx)
+            .is_inline_history_menu()
+        {
+            return;
+        }
+
+        if self.is_cloud_mode_input_v2_composing(ctx) {
+            if let Some(view) = self.cloud_mode_v2_history_menu_view.clone() {
+                view.update(ctx, |view, ctx| view.select_up(ctx));
+            }
+        } else {
+            self.inline_history_menu_view
+                .update(ctx, |view, ctx| view.select_up(ctx));
+        }
+    }
+
+    fn select_next_inline_history_item(&mut self, ctx: &mut ViewContext<Self>) {
+        if !self
+            .suggestions_mode_model
+            .as_ref(ctx)
+            .is_inline_history_menu()
+        {
+            return;
+        }
+
+        if self.is_cloud_mode_input_v2_composing(ctx) {
+            if let Some(view) = self.cloud_mode_v2_history_menu_view.clone() {
+                view.update(ctx, |view, ctx| view.select_down(ctx));
+            }
+        } else {
+            self.inline_history_menu_view
+                .update(ctx, |view, ctx| view.select_down(ctx));
+        }
+    }
+
     fn editor_up(&mut self, ctx: &mut ViewContext<Self>) {
         if self.should_show_auth_secret_ftux(ctx) {
             if let Some(ftux_view) = self.auth_secret_ftux_view().cloned() {
@@ -8848,17 +8895,7 @@ impl Input {
                 true
             }
             InputSuggestionsMode::InlineHistoryMenu { .. } => {
-                if self.is_cloud_mode_input_v2_composing(ctx) {
-                    if let Some(view) = self.cloud_mode_v2_history_menu_view.clone() {
-                        view.update(ctx, |view, ctx| {
-                            view.select_up(ctx);
-                        });
-                    }
-                } else {
-                    self.inline_history_menu_view.update(ctx, |view, ctx| {
-                        view.select_up(ctx);
-                    });
-                }
+                ctx.dispatch_typed_action_deferred(InputAction::SelectPreviousInlineHistoryItem);
                 true
             }
             InputSuggestionsMode::IndexedReposMenu => {
@@ -9249,17 +9286,7 @@ impl Input {
             .as_ref(ctx)
             .is_inline_history_menu()
         {
-            if self.is_cloud_mode_input_v2_composing(ctx) {
-                if let Some(view) = self.cloud_mode_v2_history_menu_view.clone() {
-                    view.update(ctx, |view, ctx| {
-                        view.select_down(ctx);
-                    });
-                }
-            } else {
-                self.inline_history_menu_view.update(ctx, |view, ctx| {
-                    view.select_down(ctx);
-                });
-            }
+            ctx.dispatch_typed_action_deferred(InputAction::SelectNextInlineHistoryItem);
             return;
         }
 
@@ -11983,6 +12010,28 @@ impl Input {
                                 match_strategy: MatchStrategy::Fuzzy,
                             }
                         }),
+                    };
+
+                    let suggestions = match suggestions {
+                        Some(suggestions)
+                            if suggestions.suggestions.is_empty()
+                                && use_native_shell_completions =>
+                        {
+                            completer::suggestions(
+                                before_cursor_text.as_str(),
+                                cursor_position,
+                                session_env_vars.as_ref(),
+                                CompleterOptions {
+                                    match_strategy: matcher,
+                                    fallback_strategy: CompletionsFallbackStrategy::FilePaths,
+                                    suggest_file_path_completions_only: true,
+                                    parse_quotes_as_literals: input_type.is_ai(),
+                                },
+                                &completion_context,
+                            )
+                            .await
+                        }
+                        suggestions => suggestions,
                     };
 
                     (suggestions, completions_trigger, editor_snapshot)
@@ -15733,6 +15782,10 @@ impl TypedActionView for Input {
         match action {
             InputAction::FocusInputBox => self.focus_input_box(ctx),
             InputAction::Up => self.editor_up(ctx),
+            InputAction::SelectPreviousInlineHistoryItem => {
+                self.select_previous_inline_history_item(ctx)
+            }
+            InputAction::SelectNextInlineHistoryItem => self.select_next_inline_history_item(ctx),
             InputAction::PageUp => self.editor_page_up(ctx),
             InputAction::PageDown => self.editor_page_down(ctx),
             InputAction::CtrlD => self.ctrl_d(ctx),

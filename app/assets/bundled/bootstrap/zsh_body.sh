@@ -1390,6 +1390,7 @@ esac
 
   # The main logic for generating completions.
   function warp_main_completer () {
+    (( ${+functions[_generic]} )) || return 0
     # We want all the results listed.
     compstate[list_max]=-1
 
@@ -1422,12 +1423,17 @@ esac
     # Start by reading in the completion buffer.
     zle warp_read_completion_buffer
 
-    compprefuncs=( warp_mark_start_of_completions_for_compadd_override )
-    comppostfuncs=( warp_mark_end_of_completions )
-    COMPADD_OVERRIDE=true
-    zle warp_complete_via_compadd_override_internal
-    BUFFER=""
-    unset COMPADD_OVERRIDE
+    # Own the response frame even when compinit is missing or completion fails.
+    warp_mark_start_of_completions_for_compadd_override
+    {
+      local -a compprefuncs=() comppostfuncs=()
+      COMPADD_OVERRIDE=true
+      zle warp_complete_via_compadd_override_internal
+    } always {
+      unset COMPADD_OVERRIDE
+      warp_mark_end_of_completions
+      BUFFER=""
+    }
   }
 
   function warp_read_completion_buffer() {

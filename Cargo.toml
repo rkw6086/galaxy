@@ -442,6 +442,13 @@ debug = "line-tables-only"
 # location while retaining the debug information.
 split-debuginfo = "unpacked"
 
+# Reduce duplicated code/unwind records in the monolithic app test binary
+# to stay within macOS compact-unwind offsets. Production and dependency
+# compilation retain their existing settings.
+[profile.test.package.galaxy]
+opt-level = 3
+codegen-units = 4
+
 [profile.dev.package]
 # Improve the performance of core terminal logic.
 galaxy_terminal.opt-level = 3
