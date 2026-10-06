@@ -647,6 +647,7 @@ fn render_orchestration_providers(
     let checkbox = appearance.ui_builder()
         .checkbox(view.all_providers_checkbox.clone(), Some(14.))
         .with_label(Span::new("All providers", Default::default()))
+        .with_style(UiComponentStyles { foreground: Some(appearance.theme().active_ui_text_color().into()), ..Default::default() })
         .check(all)
         .build()
         .on_click(move |ctx, _, _| {
@@ -670,6 +671,7 @@ fn render_orchestration_providers(
             let checkbox = appearance.ui_builder()
                 .checkbox(state.clone(), Some(14.))
                 .with_label(Span::new(name.clone(), Default::default()))
+                .with_style(UiComponentStyles { foreground: Some(appearance.theme().active_ui_text_color().into()), ..Default::default() })
                 .check(included)
                 .build()
                 .on_click(move |ctx, _, _| {
