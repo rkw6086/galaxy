@@ -222,7 +222,7 @@ function App() {
         // ─── Step 2: Bundle ─────────────────────────────────────────────
         updateStep(2, { status: "running" });
         await runCommandStreaming(
-          "cargo bundle --release --bin galaxy-oss --package galaxy --features release_bundle,extern_plist",
+          "cargo bundle --release --format osx --bin galaxy-oss --package galaxy --features release_bundle,extern_plist",
           WORKSPACE_ROOT,
           (line) => appendLog(2, line)
         );
