@@ -237,18 +237,28 @@ function App() {
 
         await stopApp("Galaxy", (line) => appendLog(3, line));
 
-        appendLog(3, "Administrator password required to install in /Applications");
-        await runCommandStreaming(
-          "sudo -k && sudo -v",
-          WORKSPACE_ROOT,
-          (line) => appendLog(3, line),
-          true
-        );
+        let needsAdministrator = false;
+        try {
+          fs.accessSync(path.dirname(destPath), fs.constants.W_OK);
+          if (fs.existsSync(destPath)) fs.accessSync(destPath, fs.constants.W_OK);
+        } catch {
+          needsAdministrator = true;
+        }
+        const installPrefix = needsAdministrator ? "sudo -n " : "";
+        if (needsAdministrator) {
+          appendLog(3, "Administrator password required to install in /Applications");
+          await runCommandStreaming(
+            "sudo -v",
+            WORKSPACE_ROOT,
+            (line) => appendLog(3, line),
+            true
+          );
+        }
 
         if (fs.existsSync(destPath)) {
           appendLog(3, `Removing existing ${destPath}`);
           await runCommandStreaming(
-            `sudo -n rm -rf "${destPath}"`,
+            `${installPrefix}rm -rf "${destPath}"`,
             WORKSPACE_ROOT,
             (line) => appendLog(3, line)
           );
@@ -256,7 +266,7 @@ function App() {
 
         appendLog(3, `Copying ${appPath} → ${destPath}`);
         await runCommandStreaming(
-          `sudo -n ditto "${appPath}" "${destPath}"`,
+          `${installPrefix}ditto "${appPath}" "${destPath}"`,
           WORKSPACE_ROOT,
           (line) => appendLog(3, line)
         );
