@@ -27,6 +27,8 @@ use warp_multi_agent_api as api;
 use super::custom_model_routers::{self, CustomModelRouter, ModelConfigError};
 use super::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::acp::{acp_launch_fingerprint, acp_provider_selection_identity};
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::provider::external_config::ExternalBedrockConfig;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::auth::AuthStateProvider;
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
@@ -616,6 +618,7 @@ pub struct LLMPreferences {
     #[cfg(not(target_family = "wasm"))]
     chatgpt_subscription_models_refresh_in_flight: bool,
     bedrock_models_refresh_in_flight: bool,
+    bedrock_verification_generation: u64,
     #[cfg(not(target_family = "wasm"))]
     bedrock_verified_config: Option<super::provider::client::BedrockClientConfig>,
     #[cfg(not(target_family = "wasm"))]
@@ -796,6 +799,7 @@ impl LLMPreferences {
             #[cfg(not(target_family = "wasm"))]
             chatgpt_subscription_models_refresh_in_flight: false,
             bedrock_models_refresh_in_flight: false,
+            bedrock_verification_generation: 0,
             #[cfg(not(target_family = "wasm"))]
             bedrock_verified_config: None,
             #[cfg(not(target_family = "wasm"))]
@@ -844,7 +848,9 @@ impl LLMPreferences {
             return;
         }
         self.bedrock_models_refresh_in_flight = true;
+        let generation = self.begin_bedrock_verification();
         let config = bedrock_discovery_config(settings);
+        let revision = super::provider::authentication::connection_revision(ctx);
         let requested_config = config.clone();
         self.bedrock_verified_config = None;
         self.bedrock_verified_model_ids.clear();
@@ -860,6 +866,11 @@ impl LLMPreferences {
                     discovery.models
                 });
                 me.bedrock_models_refresh_in_flight = false;
+                if me.bedrock_verification_generation != generation
+                    || super::provider::authentication::connection_revision(ctx) != revision
+                {
+                    return;
+                }
                 if !*AISettings::as_ref(ctx).bedrock_enabled.value() {
                     return;
                 }
@@ -888,7 +899,7 @@ impl LLMPreferences {
                         ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
                     }
                     Err(error) => {
-                        log::debug!("[bedrock] Startup model discovery unavailable: {error}");
+                        log::warn!("[bedrock] Startup model discovery unavailable: {error}");
                     }
                 }
             },
@@ -896,18 +907,29 @@ impl LLMPreferences {
     }
 
     #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn begin_bedrock_verification(&mut self) -> u64 {
+        self.bedrock_verification_generation += 1;
+        self.bedrock_verification_generation
+    }
+
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn record_bedrock_verification(
         &mut self,
+        generation: u64,
         config: super::provider::client::BedrockClientConfig,
         models: &[BedrockModelConfig],
         ctx: &mut ModelContext<Self>,
-    ) {
+    ) -> bool {
+        if self.bedrock_verification_generation != generation {
+            return false;
+        }
         self.bedrock_verified_model_ids =
             models.iter().map(|model| model.model_id.clone()).collect();
         self.bedrock_verified_config = Some(config);
         self.inject_bedrock_models(ctx);
         self.ensure_default_model_present();
         ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+        true
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -945,48 +967,14 @@ impl LLMPreferences {
         let region = settings.bedrock_region.value().clone();
         let cross_region = *settings.bedrock_cross_region_inference.value();
 
-        // Check if user wants only 1-hour cache models
-        use crate::ai::provider::external_config::ExternalBedrockConfig;
-        let external_config = ExternalBedrockConfig::load();
-        let require_1h_cache = external_config.enable_prompt_caching_1h;
-
-        let mut effective = discovered_models;
-
-        // Filter out models that don't support 1-hour caching if required
-        if require_1h_cache {
-            effective.retain(|model| {
-                // 1-hour caching is supported by Claude 4.5+ models
-                // Opus 4.5+, Sonnet 4.5+, Haiku 4.5+
-                let supports_1h = model.model_id.contains("4-5")
-                    || model.model_id.contains("4.5")
-                    || model.model_id.contains("-4-6") // Opus/Sonnet 4.6+ also support 1h
-                    || model.model_id.contains("4.6")
-                    || model.model_id.contains("-4-7")
-                    || model.model_id.contains("4.7")
-                    || model.model_id.contains("-4-8")
-                    || model.model_id.contains("4.8");
-
-                if !supports_1h {
-                    log::info!(
-                        "[bedrock] Filtering out model {} - does not support 1-hour cache (ENABLE_PROMPT_CACHING_1H=1)",
-                        model.model_id
-                    );
-                }
-                supports_1h
-            });
-
-            if effective.is_empty() {
-                log::warn!("[bedrock] No models left after filtering for 1-hour cache support!");
-            }
-        }
-
-        let effective = effective;
-        for model in effective {
+        for model in discovered_models {
             if !model.enabled || !self.bedrock_model_is_verified(&model.model_id, ctx) {
                 continue;
             }
             let metadata = model_metadata(&model.model_id);
-            if metadata.is_some_and(|metadata| metadata.supports_agent_runtime() == Some(false)) {
+            if model.runtime_supported == Some(false)
+                || metadata.is_some_and(|metadata| metadata.supports_agent_runtime() == Some(false))
+            {
                 log::debug!(
                     "[bedrock] Excluding {} from Agent Mode because its catalog metadata marks it as incompatible with streaming Converse",
                     model.model_id
@@ -1046,7 +1034,6 @@ impl LLMPreferences {
 
         // Default agent mode to ANTHROPIC_MODEL from external config if set,
         // otherwise Claude Opus 4.6, falling back to the first available model.
-        // Note: external_config already loaded above for filtering
         let external_config_for_default = ExternalBedrockConfig::load();
 
         if let Some(id) = external_config_for_default
@@ -1082,7 +1069,11 @@ impl LLMPreferences {
                     .map(|m| m.id.clone())
             })
         {
-            self.models_by_feature.agent_mode.default_id = id;
+            if !self.models_by_feature.agent_mode.choices.iter().any(|model| {
+                model.id == self.models_by_feature.agent_mode.default_id
+            }) {
+                self.models_by_feature.agent_mode.default_id = id;
+            }
         }
 
         // Default coding to Claude Sonnet 4.6, falling back to the first available model.
@@ -1095,12 +1086,18 @@ impl LLMPreferences {
             .or_else(|| self.models_by_feature.coding.choices.first())
             .map(|m| m.id.clone())
         {
-            self.models_by_feature.coding.default_id = id;
+            if !self.models_by_feature.coding.choices.iter().any(|model| {
+                model.id == self.models_by_feature.coding.default_id
+            }) {
+                self.models_by_feature.coding.default_id = id;
+            }
         }
 
         // Default CLI agent to the first available model.
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            if let Some(id) = cli.choices.first().map(|m| m.id.clone()) {
+            if let Some(id) = cli.choices.first().filter(|_| {
+                !cli.choices.iter().any(|model| model.id == cli.default_id)
+            }).map(|m| m.id.clone()) {
                 cli.default_id = id;
             }
         }

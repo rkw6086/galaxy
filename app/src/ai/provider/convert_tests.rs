@@ -1,3 +1,15 @@
+#[test]
+fn cache_preferences_do_not_enable_unsupported_or_unknown_model_caching() {
+    let external = super::external_config::ExternalBedrockConfig {
+        enable_prompt_caching_1h: true,
+        ..Default::default()
+    };
+    for id in ["future.new-model-v100", "openai.gpt-5.6-sol"] {
+        let config = super::convert::CachingConfig::from_external_config(&external).for_model(id);
+        assert!(!config.enabled);
+        assert!(!config.extended_ttl_requested);
+    }
+}
 use aws_sdk_bedrockruntime::types::{ContentBlock, ConversationRole, SystemContentBlock, Tool};
 use serde_json::json;
 

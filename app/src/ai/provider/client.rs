@@ -28,6 +28,7 @@ fn strip_context_marker(model_id: &str) -> String {
 pub struct BedrockClient {
     runtime_client: BedrockRuntimeClient,
     region: String,
+    invocation_model_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,6 +40,7 @@ pub struct BedrockClientConfig {
     pub secret_access_key: String,
     pub session_token: Option<String>,
     pub credentials_expiry: Option<SystemTime>,
+    pub invocation_model_id: Option<String>,
     pub cross_region_inference: bool,
 }
 
@@ -155,6 +157,7 @@ impl BedrockClient {
         Ok(Self {
             runtime_client,
             region,
+            invocation_model_id: config.invocation_model_id,
         })
     }
 
@@ -185,14 +188,16 @@ impl BedrockClient {
         tool_result_archive: Vec<ConversationMessage>,
     ) -> Result<LegacyResponseStream, BedrockError> {
         let base_model_id = strip_context_marker(model_id);
-        let effective_model_id = if cross_region_inference {
+        let effective_model_id = if let Some(model) = &self.invocation_model_id {
+            model.clone()
+        } else if cross_region_inference {
             apply_cross_region_prefix(&base_model_id, &self.region)
         } else {
             base_model_id
         };
 
         let external_config = ExternalBedrockConfig::load();
-        let caching_config = CachingConfig::from_external_config(&external_config);
+        let caching_config = CachingConfig::from_external_config(&external_config).for_model(model_id);
 
         if !caching_config.enabled {
             log::info!("[bedrock] Prompt caching disabled (DISABLE_PROMPT_CACHING=1)");

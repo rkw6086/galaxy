@@ -146,6 +146,7 @@ fn parse_claude_code_model_map(
                 model_id: arn,
                 display_name,
                 vision_supported: true,
+                ..Default::default()
             }
         })
         .collect()

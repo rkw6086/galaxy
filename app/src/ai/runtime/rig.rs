@@ -346,14 +346,15 @@ pub(crate) async fn provider_runtime_for_request(
         },
         crate::ai::provider::ProviderConfig::Bedrock(config) => {
             let max_output_tokens = Some(bedrock_max_output_tokens(&model));
-            let cross_region_inference = config.cross_region_inference;
+            let cross_region_inference = config.invocation_model_id.is_none() && config.cross_region_inference;
             let caching_config =
-                CachingConfig::from_external_config(&ExternalBedrockConfig::load());
+                CachingConfig::from_external_config(&ExternalBedrockConfig::load()).for_model(&model);
+            let invocation_model = config.invocation_model_id.clone().unwrap_or(model);
             let client = BedrockClient::from_config(config).await?;
             Arc::new(BedrockRuntime::from_aws_client(
                 client.runtime_client(),
                 BedrockRigConfig {
-                    model,
+                    model: invocation_model,
                     region: client.region().to_string(),
                     cross_region_inference,
                     prompt_caching: caching_config.enabled,

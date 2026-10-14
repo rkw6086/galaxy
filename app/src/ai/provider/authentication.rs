@@ -22,8 +22,25 @@ impl BedrockClientConfig {
             secret_access_key: settings.bedrock_secret_access_key.value().clone(),
             session_token: None,
             credentials_expiry: None,
+            invocation_model_id: None,
             cross_region_inference: *settings.bedrock_cross_region_inference.value(),
         }
+    }
+
+    pub(crate) fn with_model_route(
+        mut self,
+        model_id: &str,
+        models: &[crate::settings::BedrockModelConfig],
+    ) -> Self {
+        self.invocation_model_id = models.iter().find(|model| {
+            model.model_id == model_id
+                || model.invocation_model_id == model_id
+                || super::models::foundation_model_id(&model.model_id)
+                    == super::models::foundation_model_id(model_id)
+        }).and_then(|model| {
+            (!model.invocation_model_id.is_empty()).then(|| model.invocation_model_id.clone())
+        });
+        self
     }
 
     pub(crate) fn with_managed_credentials(

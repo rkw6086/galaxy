@@ -32,6 +32,22 @@ fn create_test_request_limit_info(
     }
 }
 
+#[test]
+fn legacy_bedrock_model_settings_default_live_capabilities_without_authorization() {
+    let model: BedrockModelConfig = serde_json::from_value(serde_json::json!({
+        "model_id": "future.new-model",
+        "display_name": "Saved model",
+        "enabled": false,
+        "vision_supported": true
+    })).unwrap();
+    assert_eq!(model.invocation_model_id, "");
+    assert_eq!(model.provider_name, "");
+    assert_eq!(model.response_streaming_supported, None);
+    assert_eq!(model.runtime_supported, None);
+    assert!(!model.access_verified);
+    assert!(!model.enabled);
+}
+
 fn add_ai_enablement_dependencies_for_test(app: &mut App) {
     app.add_singleton_model(|_| AuthStateProvider::new_for_test());
     app.add_singleton_model(UserWorkspaces::default_mock);
@@ -446,6 +462,7 @@ fn orchestration_is_enabled_when_ai_is_enabled() {
                         model_id: "test-model".to_string(),
                         display_name: "Test model".to_string(),
                         vision_supported: false,
+                        ..Default::default()
                     }],
                     ctx,
                 )

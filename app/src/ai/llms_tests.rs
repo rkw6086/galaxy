@@ -159,6 +159,51 @@ fn openai_model(model_id: &str) -> OpenAIModelConfig {
     }
 }
 
+#[test]
+fn live_bedrock_models_are_not_hidden_by_missing_catalog_metadata() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let id = "future.new-live-model";
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings.bedrock_enabled.set_value(true, ctx).unwrap();
+            settings.bedrock_models.set_value(
+                vec![bedrock_model("future.other-model"), bedrock_model(id)], ctx,
+            ).unwrap();
+        });
+        let mut preferences = empty_preferences();
+        preferences.models_by_feature.agent_mode.default_id = id.into();
+        preferences.models_by_feature.coding.default_id = id.into();
+        app.read(|ctx| {
+            preferences.bedrock_verified_config =
+                Some(super::bedrock_discovery_config(AISettings::as_ref(ctx)));
+            preferences.bedrock_verified_model_ids.insert(id.to_owned());
+            preferences.bedrock_verified_model_ids.insert("future.other-model".to_owned());
+            preferences.inject_bedrock_models(ctx);
+        });
+        assert!(preferences.models_by_feature.agent_mode.choices.iter().any(|model| model.id.as_str() == id));
+        assert_eq!(preferences.models_by_feature.agent_mode.default_id.as_str(), id);
+        assert_eq!(preferences.models_by_feature.coding.default_id.as_str(), id);
+    });
+}
+
+#[test]
+fn newer_bedrock_discovery_invalidates_older_results() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let preferences = app.add_model(|_| empty_preferences());
+        let models = [bedrock_model("future.new-live-model")];
+        preferences.update(&mut app, |preferences, ctx| {
+            let first = preferences.begin_bedrock_verification();
+            let latest = preferences.begin_bedrock_verification();
+            let config = super::bedrock_discovery_config(AISettings::as_ref(ctx));
+            assert!(!preferences.record_bedrock_verification(first, config.clone(), &models, ctx));
+            assert!(preferences.bedrock_verified_model_ids.is_empty());
+            assert!(preferences.record_bedrock_verification(latest, config, &models, ctx));
+            assert!(preferences.bedrock_verified_model_ids.contains("future.new-live-model"));
+        });
+    });
+}
+
 fn bedrock_model(model_id: &str) -> BedrockModelConfig {
     BedrockModelConfig {
         enabled: true,
@@ -166,6 +211,7 @@ fn bedrock_model(model_id: &str) -> BedrockModelConfig {
         model_id: model_id.to_string(),
         display_name: model_id.to_string(),
         vision_supported: false,
+        ..Default::default()
     }
 }
 
@@ -235,6 +281,7 @@ fn empty_preferences() -> LLMPreferences {
         catalog_refresh_generations: HashMap::new(),
         chatgpt_subscription_models_refresh_in_flight: false,
         bedrock_models_refresh_in_flight: false,
+        bedrock_verification_generation: 0,
         bedrock_verified_config: None,
         bedrock_verified_model_ids: HashSet::new(),
         acp_selections: HashMap::new(),
@@ -451,6 +498,7 @@ fn acp_models_are_injected_only_while_acp_is_enabled() {
             catalog_refresh_generations: HashMap::new(),
             chatgpt_subscription_models_refresh_in_flight: false,
             bedrock_models_refresh_in_flight: false,
+            bedrock_verification_generation: 0,
             bedrock_verified_config: None,
             bedrock_verified_model_ids: HashSet::new(),
             acp_selections: HashMap::new(),

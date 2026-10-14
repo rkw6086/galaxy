@@ -183,6 +183,7 @@ impl CrosscheckReviewer {
         if *settings.bedrock_enabled.value() {
             let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
             let config = crate::ai::provider::client::BedrockClientConfig::from_settings(settings)
+                .with_model_route(model_id, settings.bedrock_models.value())
                 .with_managed_credentials(
                     &api_key_manager.aws_credentials_refresh_strategy(),
                     api_key_manager.aws_credentials_state(),

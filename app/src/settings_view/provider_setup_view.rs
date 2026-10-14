@@ -1130,6 +1130,20 @@ impl ProviderSetupView {
         }
     }
 
+    fn bedrock_client_config(&self) -> crate::ai::provider::client::BedrockClientConfig {
+        crate::ai::provider::client::BedrockClientConfig {
+            auth_method: self.draft_bedrock.auth_method,
+            profile: self.draft_bedrock.profile.clone(),
+            region: self.draft_bedrock.region.clone(),
+            access_key_id: self.draft_bedrock.access_key_id.clone(),
+            secret_access_key: self.draft_bedrock.secret_access_key.clone(),
+            session_token: None,
+            credentials_expiry: None,
+            invocation_model_id: None,
+            cross_region_inference: self.draft_bedrock.cross_region_inference,
+        }
+    }
+
     fn begin_discovery(&mut self, ctx: &mut ViewContext<Self>) {
         self.cancel_acp_setup();
         self.step = ProviderSetupStep::Discover;
@@ -1145,34 +1159,45 @@ impl ProviderSetupView {
                 return;
             }
             ProviderSetupProviderType::Bedrock => {
-                let config = crate::ai::provider::client::BedrockClientConfig {
-                    auth_method: self.draft_bedrock.auth_method,
-                    profile: self.draft_bedrock.profile.clone(),
-                    region: self.draft_bedrock.region.clone(),
-                    access_key_id: self.draft_bedrock.access_key_id.clone(),
-                    secret_access_key: self.draft_bedrock.secret_access_key.clone(),
-                    session_token: None,
-                    credentials_expiry: None,
-                    cross_region_inference: self.draft_bedrock.cross_region_inference,
-                };
+                let config = self.bedrock_client_config();
                 let requested_config = config.clone();
+                let generation = self.acp_discovery_generation;
+                let verification_generation = LLMPreferences::handle(ctx)
+                    .update(ctx, |preferences, _| preferences.begin_bedrock_verification());
                 ctx.spawn(
                     async move {
                         crate::ai::provider::discovery::discover_available_models(config).await
                     },
-                    move |me, result, ctx| match result {
+                    move |me, result, ctx| {
+                        if generation != me.acp_discovery_generation
+                            || me.provider_type != ProviderSetupProviderType::Bedrock
+                            || me.step != ProviderSetupStep::Discover
+                            || me.bedrock_client_config() != requested_config
+                        {
+                            return;
+                        }
+                        match result {
                         Ok(discovery) => {
                             for record in discovery.records {
                                 crate::ai::remote_logging::log_view_event(ctx, record);
                             }
                             let models = discovery.models;
-                            LLMPreferences::handle(ctx).update(ctx, |preferences, ctx| {
+                            let accepted = LLMPreferences::handle(ctx).update(ctx, |preferences, ctx| {
                                 preferences.record_bedrock_verification(
+                                    verification_generation,
                                     requested_config,
                                     &models,
                                     ctx,
-                                );
+                                )
                             });
+                            if !accepted {
+                                me.discovery_state = DiscoveryState::Failed(
+                                    "A newer Bedrock connection test superseded this result. Retry the test.".to_owned(),
+                                );
+                                me.update_next_button(ctx);
+                                ctx.notify();
+                                return;
+                            }
                             me.draft_bedrock.models =
                                 crate::ai::provider::discovery::preserve_model_toggles(
                                     &me.draft_bedrock.models,
@@ -1189,6 +1214,7 @@ impl ProviderSetupView {
                             me.discovery_state = DiscoveryState::Failed(error);
                             me.update_next_button(ctx);
                             ctx.notify();
+                        }
                         }
                     },
                 );

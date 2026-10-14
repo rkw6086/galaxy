@@ -13,6 +13,7 @@ fn config(auth_method: BedrockAuthMethod) -> BedrockClientConfig {
         secret_access_key: "configured-secret".to_owned(),
         session_token: None,
         credentials_expiry: None,
+        invocation_model_id: None,
         cross_region_inference: true,
     }
 }
@@ -142,6 +143,22 @@ fn credential_expiry_is_checked_at_the_boundary() {
     assert!(credentials_are_current(Some(now + Duration::from_secs(1)), now));
     assert!(!credentials_are_current(Some(now), now));
     assert!(!credentials_are_current(Some(now - Duration::from_secs(1)), now));
+}
+
+#[test]
+fn model_routes_use_discovered_ids_and_match_legacy_cross_region_selections() {
+    let model = crate::settings::BedrockModelConfig {
+        model_id: "future.new-model".to_owned(),
+        invocation_model_id: "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.future.new-model".to_owned(),
+        ..Default::default()
+    };
+    for selected in ["future.new-model", "us.future.new-model"] {
+        let resolved = config(BedrockAuthMethod::Profile)
+            .with_model_route(selected, &[model.clone()]);
+        assert_eq!(resolved.invocation_model_id.as_deref(), Some(model.invocation_model_id.as_str()));
+    }
+    let resolved = config(BedrockAuthMethod::Profile).with_model_route("unrelated.model", &[model]);
+    assert_eq!(resolved.invocation_model_id, None);
 }
 
 fn test_credentials() -> AwsCredentials {
