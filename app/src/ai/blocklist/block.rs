@@ -4439,7 +4439,7 @@ impl AIBlock {
         }
 
         let ai_settings = AISettings::as_ref(ctx);
-        let login_command = ai_settings.bedrock_auth_refresh_command.value().clone();
+        let login_command = crate::ai::provider::authentication::BedrockAuthConnection::current(ctx).command;
         // Recreating a historical error view must not restart authentication.
         let auto_login_enabled = attempt_auto_login && *ai_settings.bedrock_auto_login.value();
 
@@ -4452,7 +4452,7 @@ impl AIBlock {
 
         let model_name = model_name.clone();
         let view = ctx.add_typed_action_view(|ctx| {
-            AwsBedrockCredentialsErrorView::new(model_name, login_command, auto_login_enabled, ctx)
+            AwsBedrockCredentialsErrorView::new(model_name, login_command, ctx)
         });
 
         // Subscribe to events from the view and emit AIBlockEvents directly

@@ -105,10 +105,26 @@ fn flattened_bedrock_credential_errors_are_authentication_failures() {
         r#"{"__type":"ExpiredTokenException","message":"The security token included in the request is expired"}"#,
         "UnrecognizedClientException: The security token included in the request is invalid",
         "AccessDeniedException: not authorized to perform bedrock:ConverseStream",
+        "UnauthorizedException: Session token not found or invalid",
+        "SSO session has expired or is otherwise invalid",
+        "Failed to load AWS credentials: credentials were not loaded",
+        "Bedrock credentials not configured",
     ] {
         let mapped = map_completion_error(CompletionError::ProviderError(message.to_string()));
         assert_eq!(mapped.kind, AgentErrorKind::Authentication);
         assert!(!mapped.recoverable);
         assert!(mapped.user_message.is_some());
+    }
+}
+
+#[test]
+fn unrelated_provider_failures_do_not_become_authentication_failures() {
+    for message in [
+        "HTTP client error: connection reset",
+        "ProviderError: temporarily unavailable",
+        "ValidationException: invalid model",
+    ] {
+        let mapped = map_completion_error(CompletionError::ProviderError(message.to_owned()));
+        assert_ne!(mapped.kind, AgentErrorKind::Authentication);
     }
 }

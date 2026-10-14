@@ -3471,13 +3471,5 @@ mod tests;
 fn bedrock_discovery_config(
     settings: &AISettings,
 ) -> crate::ai::provider::client::BedrockClientConfig {
-    crate::ai::provider::client::BedrockClientConfig {
-        auth_method: *settings.bedrock_auth_method.value(),
-        profile: settings.bedrock_profile.value().clone(),
-        region: settings.bedrock_region.value().clone(),
-        access_key_id: settings.bedrock_access_key_id.value().clone(),
-        secret_access_key: settings.bedrock_secret_access_key.value().clone(),
-        session_token: None,
-        cross_region_inference: *settings.bedrock_cross_region_inference.value(),
-    }
+    crate::ai::provider::client::BedrockClientConfig::from_settings(settings)
 }

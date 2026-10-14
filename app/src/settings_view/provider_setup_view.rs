@@ -1152,6 +1152,7 @@ impl ProviderSetupView {
                     access_key_id: self.draft_bedrock.access_key_id.clone(),
                     secret_access_key: self.draft_bedrock.secret_access_key.clone(),
                     session_token: None,
+                    credentials_expiry: None,
                     cross_region_inference: self.draft_bedrock.cross_region_inference,
                 };
                 let requested_config = config.clone();

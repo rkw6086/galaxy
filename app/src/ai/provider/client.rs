@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use anyhow::Result;
 use aws_config::BehaviorVersion;
@@ -37,40 +38,17 @@ pub struct BedrockClientConfig {
     pub access_key_id: String,
     pub secret_access_key: String,
     pub session_token: Option<String>,
+    pub credentials_expiry: Option<SystemTime>,
     pub cross_region_inference: bool,
 }
 
-impl BedrockClientConfig {
-    /// Applies external config (from Claude Code / OpenCode) as fallback values
-    /// when Galaxy's own settings are at their defaults.
-    pub fn with_external_fallbacks(mut self) -> Self {
-        let external = ExternalBedrockConfig::load();
-        if external.is_empty() {
-            return self;
-        }
-
-        if self.profile == "default" {
-            if let Some(profile) = external.profile {
-                log::info!("[bedrock] Using profile from external config: {profile}");
-                self.profile = profile;
-            }
-        }
-
-        if self.region.is_empty() {
-            if let Some(region) = external.region {
-                log::info!("[bedrock] Using region from external config: {region}");
-                self.region = region;
-            }
-        }
-
-        self
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum BedrockError {
     #[error("Bedrock credentials not configured")]
     CredentialsNotConfigured,
+    #[error("Failed to load AWS credentials: {0}")]
+    CredentialsLoadFailed(String),
     #[error("Bedrock region not configured and could not be auto-detected")]
     RegionNotConfigured,
     #[error("Bedrock API error: {0}")]
@@ -115,12 +93,20 @@ impl BedrockClient {
                 if config.access_key_id.is_empty() || config.secret_access_key.is_empty() {
                     return Err(BedrockError::CredentialsNotConfigured);
                 }
+                if !super::authentication::credentials_are_current(
+                    config.credentials_expiry,
+                    SystemTime::now(),
+                ) {
+                    return Err(BedrockError::CredentialsLoadFailed(
+                        "AWS credentials have expired".to_owned(),
+                    ));
+                }
 
                 let creds = aws_credential_types::Credentials::new(
                     &config.access_key_id,
                     &config.secret_access_key,
                     config.session_token,
-                    None,
+                    config.credentials_expiry,
                     "warp-bedrock-static",
                 );
 
@@ -148,11 +134,15 @@ impl BedrockClient {
                     );
                 }
                 Err(e) => {
-                    log::warn!("[bedrock] Failed to resolve AWS credentials from provider: {e:?}");
+                    let message = crate::ai::aws_credentials::user_facing_aws_credentials_error_message(
+                        &e,
+                        &config.profile,
+                    );
+                    return Err(BedrockError::CredentialsLoadFailed(message));
                 }
             }
         } else {
-            log::warn!("[bedrock] No credentials provider found in resolved AWS config");
+            return Err(BedrockError::CredentialsNotConfigured);
         }
 
         let region = aws_config

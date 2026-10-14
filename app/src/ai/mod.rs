@@ -86,6 +86,8 @@ pub(crate) use ai::paths;
 
 pub fn init(app: &mut AppContext) {
     #[cfg(not(target_family = "wasm"))]
+    app.add_singleton_model(provider::authentication::BedrockAuthentication::new);
+    #[cfg(not(target_family = "wasm"))]
     app.add_singleton_model(acp::AcpRuntimeModel::new);
     #[cfg(not(target_family = "wasm"))]
     app.add_singleton_model(|_| chatgpt_auth::ChatGPTAuthModel::new());

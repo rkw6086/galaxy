@@ -161,7 +161,7 @@ async fn load_aws_config(
                 &config.access_key_id,
                 &config.secret_access_key,
                 config.session_token.clone(),
-                None,
+                config.credentials_expiry,
                 "galaxy-bedrock-discovery",
             );
             let mut loader =

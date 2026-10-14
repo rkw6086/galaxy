@@ -512,6 +512,11 @@ fn text_indicates_authentication_failure(text: &str) -> bool {
         "unrecognized client",
         "security token included in the request is invalid",
         "unable to locate credentials",
+        "unauthorizedexception",
+        "session token not found or invalid",
+        "sso session has expired",
+        "failed to load aws credentials",
+        "bedrock credentials not configured",
         "credential should be scoped to a valid region",
     ]
     .iter()

@@ -6610,7 +6610,11 @@ impl BlocklistAIController {
         let prepared = match result {
             Ok(prepared) => prepared,
             Err(error) => {
-                self.fail_provider_startup(conversation_id, stream_id, error.to_string(), ctx);
+                let renderable = crate::ai::provider::authentication::provider_startup_error(
+                    &error,
+                    slot.response_stream.as_ref(ctx).model_id(),
+                );
+                self.fail_provider_startup_with_error(conversation_id, stream_id, renderable, ctx);
                 return;
             }
         };
@@ -8917,6 +8921,21 @@ impl BlocklistAIController {
         message: String,
         ctx: &mut ModelContext<Self>,
     ) {
+        self.fail_provider_startup_with_error(
+            conversation_id,
+            stream_id,
+            RenderableAIError::other(message, false),
+            ctx,
+        );
+    }
+
+    fn fail_provider_startup_with_error(
+        &mut self,
+        conversation_id: AIConversationId,
+        stream_id: ResponseStreamId,
+        error: RenderableAIError,
+        ctx: &mut ModelContext<Self>,
+    ) {
         let response_stream = self
             .active_provider_runs
             .get(&conversation_id)
@@ -8925,14 +8944,10 @@ impl BlocklistAIController {
         let Some(response_stream) = response_stream else {
             return;
         };
+        let message = error.to_string();
         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
             history_model.mark_response_stream_completed_with_error(
-                RenderableAIError::Other {
-                    error_message: message.clone(),
-                    will_attempt_resume: false,
-                    waiting_for_network: false,
-                    is_user_error: false,
-                },
+                error,
                 false,
                 &stream_id,
                 conversation_id,
