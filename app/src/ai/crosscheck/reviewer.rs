@@ -215,9 +215,8 @@ impl CrosscheckReviewer {
                         model: config.model.unwrap_or(model_id),
                         reasoning_effort: config.reasoning_effort,
                         max_output_tokens: Some(u64::from(REVIEWER_MAX_OUTPUT_TOKENS)),
-                        auth_file: None,
                     },
-                );
+                ).with_credential_resolver(crate::ai::chatgpt_auth::credential_resolver());
                 runtime
                     .complete_text(
                         prompt::CROSSCHECK_REVIEWER_SYSTEM_PROMPT.to_string(),

@@ -90,7 +90,7 @@ pub fn init(app: &mut AppContext) {
     #[cfg(not(target_family = "wasm"))]
     app.add_singleton_model(acp::AcpRuntimeModel::new);
     #[cfg(not(target_family = "wasm"))]
-    app.add_singleton_model(|_| chatgpt_auth::ChatGPTAuthModel::new());
+    app.add_singleton_model(chatgpt_auth::ChatGPTAuthModel::new);
     #[cfg(not(target_family = "wasm"))]
     app.add_singleton_model(claude_oauth::ClaudeOAuthModel::new);
     blocklist::keyboard_navigable_buttons::init(app);

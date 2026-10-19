@@ -1,6 +1,7 @@
-use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use futures::StreamExt;
 use galaxy_agent_core::{
     AgentError, AgentErrorKind, AgentEvent, AgentEventStream, AgentRuntime, ConversationMessage,
@@ -8,35 +9,50 @@ use galaxy_agent_core::{
     TurnRequest, turn_control,
 };
 use rig_core::client::CompletionClient;
-use rig_core::providers::chatgpt;
+use rig_core::providers::chatgpt::{self, ChatGPTAuth};
 
 use crate::request::build_completion_request;
 use crate::stream::start_model_turn;
 
-/// Refreshes Galaxy's cached ChatGPT subscription credentials without allowing
-/// Rig to fall back to its interactive device-code flow.
-pub async fn refresh_chatgpt_subscription_credentials() -> Result<(), String> {
-    let client = chatgpt::Client::builder()
-        .oauth()
-        .allow_device_flow(false)
-        .originator("galaxy")
-        .build()
-        .map_err(|error| error.to_string())?;
-    client.authorize().await.map_err(|error| error.to_string())
+#[derive(Clone, PartialEq, Eq)]
+pub struct ChatGPTSubscriptionCredentials {
+    pub access_token: String,
+    pub account_id: Option<String>,
 }
+
+impl std::fmt::Debug for ChatGPTSubscriptionCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatGPTSubscriptionCredentials")
+            .field("access_token", &"<redacted>")
+            .field("account_id", &self.account_id.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
+}
+pub type ChatGPTCredentialResolver = Arc<
+    dyn Fn() -> BoxFuture<'static, Result<ChatGPTSubscriptionCredentials, String>> + Send + Sync,
+>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatGPTSubscriptionRuntimeConfig {
     pub model: String,
     pub reasoning_effort: Option<String>,
     pub max_output_tokens: Option<u64>,
-    pub auth_file: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ChatGPTSubscriptionRuntime {
     config: ChatGPTSubscriptionRuntimeConfig,
     descriptor: RuntimeDescriptor,
+    credential_resolver: Option<ChatGPTCredentialResolver>,
+}
+
+impl std::fmt::Debug for ChatGPTSubscriptionRuntime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatGPTSubscriptionRuntime")
+            .field("config", &self.config)
+            .field("has_credential_resolver", &self.credential_resolver.is_some())
+            .finish()
+    }
 }
 
 fn reasoning_additional_params(reasoning_effort: Option<&str>) -> Option<serde_json::Value> {
@@ -56,7 +72,24 @@ impl ChatGPTSubscriptionRuntime {
             kind: RuntimeKind::Provider,
             capabilities: RuntimeCapabilities::provider(),
         };
-        Self { config, descriptor }
+        Self { config, descriptor, credential_resolver: None }
+    }
+
+    pub fn with_credential_resolver(mut self, resolver: ChatGPTCredentialResolver) -> Self {
+        self.credential_resolver = Some(resolver);
+        self
+    }
+
+    async fn resolve_auth(&self) -> Result<ChatGPTAuth, AgentError> {
+        let resolver = self.credential_resolver.as_ref().ok_or_else(|| {
+            AgentError::new(AgentErrorKind::Authentication, "ChatGPT sign-in required. Reconnect ChatGPT in Providers.")
+        })?;
+        let credentials = resolver().await
+            .map_err(|message| AgentError::new(AgentErrorKind::Authentication, message))?;
+        Ok(ChatGPTAuth::AccessToken {
+            access_token: credentials.access_token,
+            account_id: credentials.account_id,
+        })
     }
 
     /// Completes a text-only request for callers such as crosscheck reviewers.
@@ -117,14 +150,11 @@ impl AgentRuntime for ChatGPTSubscriptionRuntime {
         request: TurnRequest,
         control: TurnControl,
     ) -> Result<AgentEventStream, AgentError> {
-        let mut builder = chatgpt::Client::builder()
-            .oauth()
+        let auth = self.resolve_auth().await?;
+        let client = chatgpt::Client::builder()
+            .api_key(auth)
             .allow_device_flow(false)
-            .originator("galaxy");
-        if let Some(auth_file) = &self.config.auth_file {
-            builder = builder.auth_file(auth_file);
-        }
-        let client = builder
+            .originator("galaxy")
             .build()
             .map_err(|error| AgentError::new(AgentErrorKind::Configuration, error.to_string()))?;
         let model = client.completion_model(&self.config.model);

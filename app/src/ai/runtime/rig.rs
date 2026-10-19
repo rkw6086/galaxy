@@ -314,9 +314,8 @@ pub(crate) async fn provider_runtime_for_request(
                     model,
                     reasoning_effort: config.reasoning_effort,
                     max_output_tokens: config.max_output_tokens.map(u64::from),
-                    auth_file: None,
                 },
-            )),
+            ).with_credential_resolver(crate::ai::chatgpt_auth::credential_resolver())),
             OpenAIProviderKind::Anthropic => {
                 let credential = config.api_key.unwrap_or_default();
                 let stored = crate::ai::claude_subscription::is_stored_credential(&credential);

@@ -16,13 +16,49 @@ fn runtime_descriptor_identifies_chatgpt_subscription() {
         model: "gpt-5.3-codex".to_string(),
         reasoning_effort: Some("high".to_string()),
         max_output_tokens: None,
-        auth_file: None,
     });
 
     assert_eq!(
         runtime.descriptor().id,
         "rig-chatgpt-subscription:gpt-5.3-codex"
     );
+}
+
+#[tokio::test]
+async fn runtime_resolves_current_credentials_without_rig_oauth() {
+    let runtime = ChatGPTSubscriptionRuntime::new(ChatGPTSubscriptionRuntimeConfig {
+        model: "test-model".to_owned(),
+        reasoning_effort: None,
+        max_output_tokens: None,
+    }).with_credential_resolver(std::sync::Arc::new(|| {
+        Box::pin(async {
+            Ok(ChatGPTSubscriptionCredentials {
+                access_token: "resolved-token".to_owned(),
+                account_id: Some("resolved-account".to_owned()),
+            })
+        })
+    }));
+    match runtime.resolve_auth().await.unwrap() {
+        ChatGPTAuth::AccessToken { access_token, account_id } => {
+            assert_eq!(access_token, "resolved-token");
+            assert_eq!(account_id.as_deref(), Some("resolved-account"));
+        }
+        ChatGPTAuth::OAuth => panic!("The runtime must not own OAuth refresh"),
+    }
+}
+
+#[tokio::test]
+async fn missing_or_failed_resolver_requires_sign_in_without_device_flow() {
+    let runtime = ChatGPTSubscriptionRuntime::new(ChatGPTSubscriptionRuntimeConfig {
+        model: "test-model".to_owned(),
+        reasoning_effort: None,
+        max_output_tokens: None,
+    });
+    assert_eq!(runtime.resolve_auth().await.unwrap_err().kind, AgentErrorKind::Authentication);
+    let runtime = runtime.with_credential_resolver(std::sync::Arc::new(|| {
+        Box::pin(async { Err("Sign in again".to_owned()) })
+    }));
+    assert_eq!(runtime.resolve_auth().await.unwrap_err().kind, AgentErrorKind::Authentication);
 }
 
 #[test]
