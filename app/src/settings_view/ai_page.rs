@@ -43,7 +43,7 @@ use strum::IntoEnumIterator;
 use super::execution_profile_view::{ExecutionProfileView, ExecutionProfileViewEvent};
 use super::provider_setup_view::{
     model_catalog_table, AcpProviderDraft, BedrockProviderDraft, ProviderSetupProviderType,
-    ProviderSetupView, ProviderSetupViewEvent,
+    ProviderSetupView, ProviderSetupViewAction, ProviderSetupViewEvent,
 };
 use super::settings_page::{
     build_sub_header, build_toggle_element, render_body_item_label,
@@ -2720,6 +2720,7 @@ pub enum AISettingsPageAction {
     },
     RemoveOpenAIProvider(usize),
     EditBedrockProvider,
+    RefreshBedrockModels,
     RemoveBedrockProvider,
     RemoveAcpProvider(String),
     ToggleFileBasedMcp,
@@ -3456,6 +3457,12 @@ impl TypedActionView for AISettingsPageView {
             }
             AISettingsPageAction::EditBedrockProvider => {
                 self.begin_inline_bedrock_setup(ctx);
+            }
+            AISettingsPageAction::RefreshBedrockModels => {
+                self.begin_inline_bedrock_setup(ctx);
+                self.provider_setup_body.update(ctx, |body, ctx| {
+                    body.handle_action(&ProviderSetupViewAction::Next, ctx);
+                });
             }
             AISettingsPageAction::RemoveBedrockProvider => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -6641,6 +6648,7 @@ struct ProviderSettingsWidget {
     bedrock_add_button: ViewHandle<ActionButton>,
     acp_add_button: ViewHandle<ActionButton>,
     bedrock_edit_button: ViewHandle<ActionButton>,
+    bedrock_refresh_button: ViewHandle<ActionButton>,
     bedrock_remove_button: ViewHandle<ActionButton>,
     provider_cards: Vec<OpenAIProviderCardState>,
     acp_provider_cards: Vec<AcpProviderCardState>,
@@ -6749,6 +6757,11 @@ impl ProviderSettingsWidget {
                 ctx.dispatch_typed_action(AISettingsPageAction::EditBedrockProvider);
             })
         });
+        let bedrock_refresh_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Refresh models", SecondaryTheme).on_click(|ctx| {
+                ctx.dispatch_typed_action(AISettingsPageAction::RefreshBedrockModels);
+            })
+        });
         let bedrock_remove_button = ctx.add_typed_action_view(|_| {
             ActionButton::new("Delete", DangerSecondaryTheme).on_click(|ctx| {
                 ctx.dispatch_typed_action(AISettingsPageAction::RemoveBedrockProvider);
@@ -6766,6 +6779,7 @@ impl ProviderSettingsWidget {
             bedrock_add_button,
             acp_add_button,
             bedrock_edit_button,
+            bedrock_refresh_button,
             bedrock_remove_button,
             provider_cards,
             acp_provider_cards,
@@ -7275,6 +7289,7 @@ impl ProviderSettingsWidget {
             .with_child(
                 Flex::row()
                     .with_spacing(8.)
+                    .with_child(ChildView::new(&self.bedrock_refresh_button).finish())
                     .with_child(ChildView::new(&self.bedrock_edit_button).finish())
                     .with_child(ChildView::new(&self.bedrock_remove_button).finish())
                     .finish(),

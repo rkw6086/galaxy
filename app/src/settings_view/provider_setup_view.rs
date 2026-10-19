@@ -687,10 +687,8 @@ impl ProviderSetupView {
         self.draft_bedrock = draft;
         self.draft_models.clear();
         self.discovery_state = DiscoveryState::Idle;
+        self.bedrock_region_request += 1;
         self.sync_editors(ctx);
-        if self.draft_bedrock.region.is_empty() {
-            self.load_bedrock_profile_region(ctx);
-        }
         self.sync_provider_type_buttons(ctx);
         self.sync_bedrock_auth_buttons(ctx);
         self.sync_model_switches(ctx);
@@ -1146,6 +1144,7 @@ impl ProviderSetupView {
 
     fn begin_discovery(&mut self, ctx: &mut ViewContext<Self>) {
         self.cancel_acp_setup();
+        self.bedrock_region_request += 1;
         self.step = ProviderSetupStep::Discover;
         self.discovery_state = DiscoveryState::Loading;
         self.acp_setup_status.clear();
