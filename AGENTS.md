@@ -5,6 +5,7 @@ This file provides guidance when working with code in this repository.
 ## Development Commands
 
 ### Build and Run
+- `cargo build` - Build Galaxy and verify feature and bug-fix changes
 - `cargo run` - Build and run Warp locally
 - `cargo bundle --bin warp` - Bundle the main app
 - `make run` - Build and run `galaxy-oss`
@@ -28,8 +29,9 @@ Environment variables:
 - `WS_SERVER_URL` - WebSocket endpoint (default: `ws://localhost:8080/graphql/v2`)
 
 ### Testing
-- Before launching `galaxy-oss`, check for existing app instances and close the prior development instance so only one app instance runs at a time. Distinguish the app process from its `terminal-server` helper; do not count the helper as a duplicate app. Leave the newly launched instance running for the user.
-- During interactive feature and bug-fix verification, make the requested code changes first and run only `cargo run --bin galaxy-oss` for the user to verify. Leave the app running for the user; do not stop it or treat the command timeout as a failure. Do not run `cargo fmt`, `cargo check`, `cargo test`, `cargo clippy`, presubmit, or other validation commands until the user confirms the behavior. Run formatting, tests, and linting only as the final cleanup step after interactive approval.
+- This development machine is CLI-only and has no GUI. The user performs GUI and most behavioral testing on a remote machine.
+- Verify feature and bug-fix changes with `cargo build` only. Do not use `cargo run`, `make run`, or launch the app to verify results, and do not wait for interactive approval before completing the work.
+- After `cargo build` succeeds and all requested work and final review are complete, commit the changes and push the current branch to both configured remotes, `origin` and `samsung`, using ordinary non-force pushes. If the build fails, report the blocker and do not push.
 - `cargo nextest run --no-fail-fast --workspace --exclude command-signatures-v2` - Run tests with nextest
 - `cargo nextest run -p galaxy_completer --features v2` - Run completer tests with v2 features
 - `cargo test --doc` - Run doc tests

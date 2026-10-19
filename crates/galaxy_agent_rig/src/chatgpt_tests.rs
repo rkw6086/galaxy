@@ -1,13 +1,14 @@
+use galaxy_agent_core::StopReason;
 use rig_core::client::CompletionClient;
 use rig_core::completion::{AssistantContent, CompletionModel, Message};
 use rig_core::message::{ToolResultContent, UserContent};
 use rig_core::providers::chatgpt::ChatGPTAuth;
-use rig_core::test_utils::RecordingHttpClient;
+use rig_core::test_utils::{RecordingHttpClient, SequencedStreamingHttpClient};
 
 use super::*;
 
 const COMPLETED_RESPONSE: &str = r#"data: {"type":"response.output_text.delta","delta":"ok"}
-data: {"type":"response.completed","response":{"id":"resp_test","object":"response","created_at":1,"status":"completed","error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":null,"model":"gpt-5.3-codex","usage":{"input_tokens":1,"input_tokens_details":{"cached_tokens":0},"output_tokens":1,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":2},"output":[{"type":"message","id":"msg_test","status":"completed","role":"assistant","content":[{"type":"output_text","annotations":[],"text":"ok"}]}],"tools":[]}}
+data: {"type":"response.completed","sequence_number":54,"response":{"id":"resp_test","object":"response","created_at":1,"status":"completed","error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":null,"model":"gpt-5.3-codex","usage":{"input_tokens":1,"input_tokens_details":{"cached_tokens":0},"output_tokens":1,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":2},"output":[{"type":"message","id":"msg_test","status":"completed","role":"assistant","content":[{"type":"output_text","annotations":[],"text":"ok"}]}],"tools":[]}}
 data: [DONE]"#;
 
 #[test]
@@ -150,4 +151,72 @@ async fn chatgpt_follow_up_request_preserves_responses_call_ids() {
     let input = body["input"].as_array().expect("input should be an array");
     assert_eq!(input[0]["call_id"], "call_native_1");
     assert_eq!(input[1]["call_id"], "call_native_1");
+}
+
+#[tokio::test]
+async fn chatgpt_metadata_does_not_interrupt_text_or_completion() {
+    let metadata = r#"data: {"type":"response.metadata","response_id":"resp_test","sequence_number":51,"metadata":{"openai_chatgpt_moderation_metadata":{"prompt":{},"generation":{},"tool_call":{},"tool_response":{}}}}"#;
+    let delta = serde_json::json!({
+        "type": "response.output_text.delta",
+        "item_id": "msg_test",
+        "output_index": 0,
+        "content_index": 0,
+        "sequence_number": 52,
+        "delta": "ok",
+    });
+    let completed = COMPLETED_RESPONSE
+        .lines()
+        .find(|line| line.starts_with("data: {\"type\":\"response.completed\""))
+        .expect("fixture should contain a completed response");
+    let response =
+        format!("{metadata}\n\ndata: {delta}\n\n{metadata}\n\n{completed}\n\ndata: [DONE]\n\n");
+    let client = chatgpt::Client::builder()
+        .api_key(ChatGPTAuth::AccessToken {
+            access_token: "test-token".to_string(),
+            account_id: None,
+        })
+        .http_client(SequencedStreamingHttpClient::new(vec![Ok(response.into())]))
+        .build()
+        .expect("client should build");
+    let request = build_completion_request(
+        TurnRequest::new(
+            "gpt-5.3-codex".to_string(),
+            vec![ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text("hello".to_string()),
+            }],
+        ),
+        None,
+        true,
+        true,
+        None,
+    )
+    .expect("request should convert");
+    let (_sender, control) = turn_control();
+    let mut stream = start_model_turn(
+        client.completion_model("gpt-5.3-codex"),
+        request,
+        control,
+        None,
+    )
+    .await
+    .expect("request should reach the mocked provider");
+    let mut text = String::new();
+    let mut usage = None;
+    let mut stop_reason = None;
+    while let Some(event) = stream.next().await {
+        match event.expect("metadata should not fail the turn") {
+            AgentEvent::TextDelta { text: delta } => text.push_str(&delta),
+            AgentEvent::UsageUpdated { usage: updated } => usage = Some(updated),
+            AgentEvent::TurnStopped { reason } => stop_reason = Some(reason),
+            _ => {}
+        }
+    }
+
+    assert_eq!(text, "ok");
+    assert_eq!(
+        usage.expect("completion should report usage").output_tokens,
+        1
+    );
+    assert_eq!(stop_reason, Some(StopReason::Completed));
 }
