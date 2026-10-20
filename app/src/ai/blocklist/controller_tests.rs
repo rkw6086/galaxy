@@ -4,16 +4,16 @@ use std::sync::{Arc, Mutex};
 use ai::agent::action::{AskUserQuestionItem, AskUserQuestionType};
 use chrono::Local;
 use galaxy_agent_core::{
-    AgentError, AgentErrorKind, CompletedModelTurn, ContentPart, ConversationMessage,
+    turn_control, AgentError, AgentErrorKind, CompletedModelTurn, ContentPart, ConversationMessage,
     ExternalWorkId, MessageContent, MessageRole, PermissionKind, PermissionRequest, ProviderRun,
     ProviderRunFailure, ProviderRunFailureKind, ProviderRunId, ProviderRunLimits,
     ProviderRunOutcome, ProviderRunState, ProviderRunStep, RunEpoch, RuntimeCapabilities,
-    StopReason, ToolCall, TurnRequest, Usage,
+    StopReason, ToolCall, TurnCommand, TurnRequest, Usage,
 };
 use galaxy_core::command::ExitCode;
 use uuid::Uuid;
 use warp_multi_agent_api::response_event;
-use warpui::{App, EntityId, SingletonEntity};
+use warpui::{App, EntityId, ModelHandle, SingletonEntity};
 
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::agent::task::TaskId;
@@ -3913,6 +3913,387 @@ fn optimistic_cli_subagent_completion_with_in_flight_stream_reports_success() {
             );
         });
     });
+}
+
+#[test]
+fn progressive_summary_completion_preserves_an_in_flight_model_turn() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |terminal, ctx| {
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    let conversation_id =
+                        history.start_new_conversation(terminal.id(), false, false, false, ctx);
+                    history
+                        .conversation_mut(&conversation_id)
+                        .unwrap()
+                        .set_has_pending_progressive_summary(true);
+                    conversation_id
+                });
+            let stream_id = ResponseStreamId::new_for_test();
+            let response_stream =
+                ctx.add_model(|_| ResponseStream::new_for_test(stream_id.clone()));
+            let mut slot = progressive_summary_test_slot(conversation_id, stream_id, response_stream);
+            let identity = super::ActiveProviderRunIdentity {
+                conversation_id,
+                stream_id: slot.stream_id.clone(),
+                run_id: slot.run_id.clone(),
+            };
+            let (sender, foreground_control) = turn_control();
+            slot.turn_control = Some(sender);
+            let prefix = vec![ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text("old project details".repeat(1_000)),
+            }];
+
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.active_provider_runs.insert(conversation_id, slot);
+                controller.active_provider_progressive_summaries.insert(
+                    conversation_id,
+                    super::ActiveProviderProgressiveSummaryState::InFlight {
+                        identity: identity.clone(),
+                        waiting_for_context: true,
+                    },
+                );
+
+                controller.finish_active_provider_progressive_summary(
+                    identity.clone(),
+                    progressive_summary_test_plan(prefix),
+                    Ok((
+                        "checkpoint".to_owned(),
+                        Usage::default(),
+                        "summary-model".to_owned(),
+                    )),
+                    ctx,
+                );
+
+                let active = &controller.active_provider_runs[&conversation_id];
+                assert_eq!(active.stream_id, identity.stream_id);
+                assert_eq!(active.run_id, identity.run_id);
+                assert!(active.run.is_none());
+                assert!(active.checkpoint.is_none());
+                assert!(active.cancellation_reason.is_none());
+                let steer = TurnCommand::Steer {
+                    display_text: "continue".to_owned(),
+                    model_text: "continue".to_owned(),
+                };
+                assert!(foreground_control.try_receive().is_err());
+                active
+                    .turn_control
+                    .as_ref()
+                    .unwrap()
+                    .try_send(steer.clone())
+                    .unwrap();
+                assert_eq!(foreground_control.try_receive().unwrap(), steer);
+                match &controller.active_provider_progressive_summaries[&conversation_id] {
+                    super::ActiveProviderProgressiveSummaryState::Ready {
+                        identity: ready_identity,
+                        waiting_for_context,
+                        result,
+                        ..
+                    } => {
+                        assert_eq!(ready_identity.run_id, identity.run_id);
+                        assert!(*waiting_for_context);
+                        assert_eq!(result.as_ref().unwrap().0, "checkpoint");
+                    }
+                    super::ActiveProviderProgressiveSummaryState::InFlight { .. } => {
+                        panic!("completed summary must remain ready until the next model boundary");
+                    }
+                }
+            });
+            let conversation = BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&conversation_id)
+                .unwrap();
+            assert!(conversation.has_pending_progressive_summary());
+            assert_eq!(conversation.progressive_summary(), None);
+        });
+    });
+}
+
+#[test]
+fn stale_progressive_summary_completion_preserves_a_successor_generation() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |terminal, ctx| {
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    let conversation_id =
+                        history.start_new_conversation(terminal.id(), false, false, false, ctx);
+                    history
+                        .conversation_mut(&conversation_id)
+                        .unwrap()
+                        .set_has_pending_progressive_summary(true);
+                    conversation_id
+                });
+            let stream_id = ResponseStreamId::new_for_test();
+            let response_stream =
+                ctx.add_model(|_| ResponseStream::new_for_test(stream_id.clone()));
+            let slot = progressive_summary_test_slot(conversation_id, stream_id, response_stream);
+            let identity = super::ActiveProviderRunIdentity {
+                conversation_id,
+                stream_id: slot.stream_id.clone(),
+                run_id: slot.run_id.clone(),
+            };
+            let stale_identity = super::ActiveProviderRunIdentity {
+                conversation_id,
+                stream_id: ResponseStreamId::new_for_test(),
+                run_id: ProviderRunId::new("previous-generation"),
+            };
+
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.active_provider_runs.insert(conversation_id, slot);
+                controller.active_provider_progressive_summaries.insert(
+                    conversation_id,
+                    super::ActiveProviderProgressiveSummaryState::InFlight {
+                        identity: identity.clone(),
+                        waiting_for_context: false,
+                    },
+                );
+
+                controller.finish_active_provider_progressive_summary(
+                    stale_identity,
+                    progressive_summary_test_plan(Vec::new()),
+                    Ok((
+                        "stale checkpoint".to_owned(),
+                        Usage::default(),
+                        "summary-model".to_owned(),
+                    )),
+                    ctx,
+                );
+
+                let active = &controller.active_provider_runs[&conversation_id];
+                assert_eq!(active.run_id, identity.run_id);
+                assert_eq!(active.stream_id, identity.stream_id);
+                match &controller.active_provider_progressive_summaries[&conversation_id] {
+                    super::ActiveProviderProgressiveSummaryState::InFlight {
+                        identity: pending_identity,
+                        waiting_for_context,
+                    } => {
+                        assert_eq!(pending_identity.run_id, identity.run_id);
+                        assert_eq!(pending_identity.stream_id, identity.stream_id);
+                        assert!(!*waiting_for_context);
+                    }
+                    super::ActiveProviderProgressiveSummaryState::Ready { .. } => {
+                        panic!("stale completion must not replace the successor summary");
+                    }
+                }
+            });
+            let conversation = BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&conversation_id)
+                .unwrap();
+            assert!(conversation.has_pending_progressive_summary());
+            assert_eq!(conversation.progressive_summary(), None);
+        });
+    });
+}
+
+#[test]
+fn idle_progressive_summary_preserves_appended_messages_and_archives_tool_results() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |terminal, ctx| {
+            let prefix = vec![
+                ConversationMessage {
+                    role: MessageRole::Assistant,
+                    content: MessageContent::ToolUse {
+                        tool_use_id: "read-original".to_owned(),
+                        name: "read_file".to_owned(),
+                        input: serde_json::json!({"path": "src/original.rs"}),
+                    },
+                },
+                ConversationMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::ToolResult {
+                        tool_use_id: "read-original".to_owned(),
+                        content: "original file contents".repeat(1_000),
+                        is_error: false,
+                    },
+                },
+            ];
+            let tail = vec![
+                ConversationMessage {
+                    role: MessageRole::Assistant,
+                    content: MessageContent::Text("The change is ready".to_owned()),
+                },
+                ConversationMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::Text("Appended while the summary was running".to_owned()),
+                },
+            ];
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    let conversation_id =
+                        history.start_new_conversation(terminal.id(), false, false, false, ctx);
+                    let conversation = history.conversation_mut(&conversation_id).unwrap();
+                    conversation.append_to_bedrock_history(prefix.clone());
+                    conversation.append_to_bedrock_history(tail.clone());
+                    conversation.set_has_pending_progressive_summary(true);
+                    conversation.set_status_for_test(ConversationStatus::Success);
+                    conversation_id
+                });
+            let identity = super::ActiveProviderRunIdentity {
+                conversation_id,
+                stream_id: ResponseStreamId::new_for_test(),
+                run_id: ProviderRunId::new("finished-generation"),
+            };
+
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.active_provider_progressive_summaries.insert(
+                    conversation_id,
+                    super::ActiveProviderProgressiveSummaryState::InFlight {
+                        identity: identity.clone(),
+                        waiting_for_context: false,
+                    },
+                );
+                controller.finish_active_provider_progressive_summary(
+                    identity,
+                    progressive_summary_test_plan(prefix.clone()),
+                    Ok((
+                        "checkpoint".to_owned(),
+                        Usage::default(),
+                        "summary-model".to_owned(),
+                    )),
+                    ctx,
+                );
+                assert!(!controller.active_provider_runs.contains_key(&conversation_id));
+                assert!(!controller
+                    .active_provider_progressive_summaries
+                    .contains_key(&conversation_id));
+            });
+
+            let conversation = BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&conversation_id)
+                .unwrap();
+            assert_eq!(conversation.progressive_summary(), Some("checkpoint"));
+            assert_eq!(conversation.bedrock_message_history(), tail.as_slice());
+            assert_eq!(conversation.tool_result_archive(), prefix.as_slice());
+            assert!(!conversation.has_pending_progressive_summary());
+            assert_eq!(conversation.status(), &ConversationStatus::Success);
+            assert_eq!(
+                conversation.current_context_tokens(),
+                100 + super::estimated_history_tokens(&super::progressive_summary_messages(
+                    "checkpoint".to_owned()
+                )) + super::estimated_history_tokens(&tail)
+            );
+        });
+    });
+}
+
+#[test]
+fn idle_progressive_summary_rejects_a_changed_prefix() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |terminal, ctx| {
+            let prefix = vec![ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text("original project context".repeat(1_000)),
+            }];
+            let replacement = vec![ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text("replacement context that must survive".repeat(1_000)),
+            }];
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    let conversation_id =
+                        history.start_new_conversation(terminal.id(), false, false, false, ctx);
+                    let conversation = history.conversation_mut(&conversation_id).unwrap();
+                    conversation.append_to_bedrock_history(replacement.clone());
+                    conversation.set_has_pending_progressive_summary(true);
+                    conversation.set_status_for_test(ConversationStatus::Success);
+                    conversation_id
+                });
+            let identity = super::ActiveProviderRunIdentity {
+                conversation_id,
+                stream_id: ResponseStreamId::new_for_test(),
+                run_id: ProviderRunId::new("finished-generation"),
+            };
+
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.active_provider_progressive_summaries.insert(
+                    conversation_id,
+                    super::ActiveProviderProgressiveSummaryState::InFlight {
+                        identity: identity.clone(),
+                        waiting_for_context: false,
+                    },
+                );
+                controller.finish_active_provider_progressive_summary(
+                    identity,
+                    progressive_summary_test_plan(prefix),
+                    Ok((
+                        "stale checkpoint".to_owned(),
+                        Usage::default(),
+                        "summary-model".to_owned(),
+                    )),
+                    ctx,
+                );
+                assert!(!controller
+                    .active_provider_progressive_summaries
+                    .contains_key(&conversation_id));
+            });
+
+            let conversation = BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&conversation_id)
+                .unwrap();
+            assert_eq!(conversation.progressive_summary(), None);
+            assert_eq!(conversation.bedrock_message_history(), replacement.as_slice());
+            assert!(conversation.tool_result_archive().is_empty());
+            assert!(!conversation.has_pending_progressive_summary());
+        });
+    });
+}
+
+fn progressive_summary_test_plan(
+    summarized_prefix: Vec<ConversationMessage>,
+) -> super::ActiveProgressiveSummaryPlan {
+    super::ActiveProgressiveSummaryPlan {
+        split_point: summarized_prefix.len(),
+        retained_messages_count: 1,
+        trigger_context_tokens: 10_000,
+        active_context_limit: 128_000,
+        persistent_context_tokens: 100,
+        candidates: Vec::new(),
+        summarize_messages: summarized_prefix.clone(),
+        summarized_prefix,
+    }
+}
+
+fn progressive_summary_test_slot(
+    conversation_id: AIConversationId,
+    stream_id: ResponseStreamId,
+    response_stream: ModelHandle<ResponseStream>,
+) -> super::ActiveProviderRunSlot {
+    let snapshot = provider_snapshot(conversation_id);
+    super::ActiveProviderRunSlot {
+        stream_id,
+        response_stream,
+        did_input_contain_user_query: true,
+        run_id: snapshot.run.id().clone(),
+        root_task_id: snapshot.root_task_id,
+        projection_target: snapshot.projection_target,
+        run: None,
+        checkpoint: None,
+        turn_control: None,
+        cancellation_reason: None,
+        committed_provider_batch: None,
+        finished_provider_batch: None,
+        command_action_refs: HashMap::new(),
+        command_monitor: None,
+        pending_monitor_observation: None,
+        pending_command_completion: None,
+        monitor_prose_continuations: 0,
+        live_command_output_tokens: 0,
+        command_output_poll_scheduled: false,
+        retry_status: None,
+        tool_call_progress: Vec::new(),
+    }
 }
 
 #[test]

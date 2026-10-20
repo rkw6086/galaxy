@@ -1608,6 +1608,118 @@ async fn compaction_boundary_keeps_the_monitor_context_limit() {
     assert_eq!(coordinator.current_context_limit(), Some(100_000));
 }
 
+#[test]
+fn progressive_summary_budget_anticipates_switching_to_a_smaller_monitor() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let mut coordinator = coordinator(runtime.clone());
+    coordinator.set_max_context_tokens(Some(500_000));
+    coordinator
+        .insert_profile(
+            CLI_MONITOR_PROVIDER_PROFILE,
+            ProviderRunProfile::new(runtime, request()).with_max_context_tokens(Some(275_000)),
+        )
+        .unwrap();
+
+    assert_eq!(coordinator.current_context_limit(), Some(500_000));
+    assert_eq!(
+        coordinator
+            .progressive_summary_context_budget()
+            .map(|(limit, _)| limit),
+        Some(275_000)
+    );
+
+    coordinator
+        .run_mut()
+        .set_ready_profile(CLI_MONITOR_PROVIDER_PROFILE)
+        .unwrap();
+    assert_eq!(coordinator.current_context_limit(), Some(275_000));
+    assert_eq!(
+        coordinator
+            .progressive_summary_context_budget()
+            .map(|(limit, _)| limit),
+        Some(275_000)
+    );
+
+    coordinator
+        .run_mut()
+        .set_ready_profile(BASE_PROVIDER_PROFILE)
+        .unwrap();
+    assert_eq!(coordinator.current_context_limit(), Some(500_000));
+    assert_eq!(
+        coordinator
+            .progressive_summary_context_budget()
+            .map(|(limit, _)| limit),
+        Some(275_000)
+    );
+}
+
+#[test]
+fn progressive_summary_budget_respects_smaller_active_limits_and_profile_fallbacks() {
+    for (base_limit, monitor_limit, fallback_limit, expected) in [
+        (
+            Some(200_000),
+            Some(Some(275_000)),
+            Some(500_000),
+            Some(200_000),
+        ),
+        (Some(500_000), Some(None), Some(275_000), Some(275_000)),
+        (Some(500_000), None, Some(275_000), Some(500_000)),
+        (None, None, None, None),
+    ] {
+        let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+        let mut coordinator = ProviderRunCoordinator::from_request(
+            "progressive-summary-budget",
+            ProviderRunProfile::new(runtime.clone(), request()).with_max_context_tokens(base_limit),
+            Vec::new(),
+            ProviderRunLimits::default(),
+        )
+        .unwrap();
+        coordinator.set_max_context_tokens(fallback_limit);
+        if let Some(monitor_limit) = monitor_limit {
+            coordinator
+                .insert_profile(
+                    CLI_MONITOR_PROVIDER_PROFILE,
+                    ProviderRunProfile::new(runtime, request())
+                        .with_max_context_tokens(monitor_limit),
+                )
+                .unwrap();
+        }
+
+        assert_eq!(
+            coordinator.current_context_limit(),
+            base_limit.or(fallback_limit)
+        );
+        assert_eq!(
+            coordinator
+                .progressive_summary_context_budget()
+                .map(|(limit, _)| limit),
+            expected
+        );
+    }
+}
+
+#[test]
+fn progressive_summary_budget_accounts_for_output_reservations_when_selecting_a_profile() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let mut coordinator = coordinator(runtime.clone());
+    coordinator.set_max_context_tokens(Some(275_000));
+    let mut monitor_request = request();
+    monitor_request.max_output_tokens = Some(300_000);
+    coordinator
+        .insert_profile(
+            CLI_MONITOR_PROVIDER_PROFILE,
+            ProviderRunProfile::new(runtime, monitor_request)
+                .with_max_context_tokens(Some(500_000)),
+        )
+        .unwrap();
+
+    let (limit, persistent_tokens) = coordinator.progressive_summary_context_budget().unwrap();
+
+    assert_eq!(coordinator.current_context_limit(), Some(275_000));
+    assert_eq!(limit, 500_000);
+    assert!(persistent_tokens > 300_000);
+}
+
 #[tokio::test]
 async fn monitor_request_uses_its_profile_context_limit() {
     let base_runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));

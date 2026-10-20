@@ -260,6 +260,24 @@ impl ProviderRunCoordinator {
             .or(self.max_context_tokens)
     }
 
+    /// Leave enough history space for a command-monitor turn before switching
+    /// profiles, accounting for each profile's own fixed prompt and output budget.
+    pub(crate) fn progressive_summary_context_budget(&self) -> Option<(u32, u32)> {
+        [self.run.profile().as_str(), CLI_MONITOR_PROVIDER_PROFILE]
+            .into_iter()
+            .filter_map(|name| {
+                let profile = self.profiles.get(name)?;
+                let limit = profile.max_context_tokens.or(self.max_context_tokens)?;
+                let mut request = profile.request.clone();
+                request.prompt = None;
+                request.messages.clear();
+                let fixed = u32::try_from(estimate_turn_request_tokens(&request))
+                    .unwrap_or(u32::MAX);
+                Some((limit, fixed))
+            })
+            .min_by_key(|(limit, fixed)| limit.saturating_sub(*fixed))
+    }
+
     /// Includes the current transcript, fixed request context, tools, and output reservation.
     /// Read at the model boundary so newly committed tool output is included.
     pub(crate) fn estimated_context_tokens(&self) -> Option<(u32, u32)> {
