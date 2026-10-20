@@ -59,6 +59,62 @@ fn executes_only_tools_advertised_for_this_turn() {
 }
 
 #[test]
+fn task_updates_are_inline_only_when_advertised_and_keep_the_call_identity() {
+    let call = ToolCall {
+        id: "task-update-1".to_string(),
+        name: UPDATE_TASK_LIST_NAME.to_string(),
+        arguments: serde_json::json!({"tasks": [
+            {"id": "fix", "title": "Fix the failure", "status": "in_progress"},
+            {"id": "review", "title": "Review the fix", "status": "pending"},
+        ]}),
+    };
+    let unadvertised = ToolPolicy::new(&[definition("read_files")]);
+    let ToolCallDecision::Reject(result) = unadvertised.decide(&call, &[], &[]) else {
+        panic!("task updates cannot bypass advertised capabilities");
+    };
+    assert_eq!(result.call_id, call.id);
+    assert_eq!(result.status, ToolResultStatus::Error);
+
+    let policy = ToolPolicy::new(&[definition(UPDATE_TASK_LIST_NAME)]);
+    let ToolCallDecision::Inline(result) = policy.decide(&call, &[], &[]) else {
+        panic!("valid task updates must not dispatch external actions");
+    };
+    assert_eq!(result.call_id, call.id);
+    assert_eq!(result.status, ToolResultStatus::Success);
+    let snapshot = crate::task_list_from_tool_result(&result.content).unwrap();
+    assert_eq!(snapshot.tasks[0].id, "fix");
+    assert_eq!(snapshot.tasks[1].id, "review");
+}
+
+#[test]
+fn malformed_task_updates_return_one_correlated_error_instead_of_executing() {
+    let policy = ToolPolicy::new(&[definition(UPDATE_TASK_LIST_NAME)]);
+    for arguments in [
+        serde_json::json!({"tasks": []}),
+        serde_json::json!({"tasks": [
+            {"id": "same", "title": "First", "status": "completed"},
+            {"id": "same", "title": "Second", "status": "pending"},
+        ]}),
+        serde_json::json!({"tasks": [
+            {"id": "one", "title": "First", "status": "invented"},
+        ]}),
+    ] {
+        let call = ToolCall {
+            id: "invalid-task-update".to_string(),
+            name: UPDATE_TASK_LIST_NAME.to_string(),
+            arguments,
+        };
+        let ToolCallDecision::Reject(result) = policy.decide(&call, &[], &[]) else {
+            panic!("invalid task updates must not execute or succeed");
+        };
+        assert_eq!(result.call_id, call.id);
+        assert_eq!(result.status, ToolResultStatus::Error);
+        assert!(result.content.starts_with("Error: "));
+        assert_eq!(crate::task_list_from_tool_result(&result.content), None);
+    }
+}
+
+#[test]
 fn recall_searches_archived_and_live_results_with_live_results_most_recent() {
     let policy = ToolPolicy::new(&[definition(RECALL_TOOL_HISTORY_NAME)]);
     let archive = tool_exchange(

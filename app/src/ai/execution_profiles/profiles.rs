@@ -1377,6 +1377,7 @@ impl AIExecutionProfilesModel {
             }
             LocalObjectRepositoryEvent::Rules
             | LocalObjectRepositoryEvent::Notebooks { .. }
+            | LocalObjectRepositoryEvent::NotebookContentEdited { .. }
             | LocalObjectRepositoryEvent::Workflows { .. } => {}
         }
     }

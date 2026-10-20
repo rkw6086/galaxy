@@ -4,6 +4,7 @@ mod provider_run_coordinator;
 mod rig;
 mod rig_request;
 mod rig_tool;
+mod task_progress;
 
 pub(crate) use child_context::add_parent_context;
 pub(crate) use event_translator::{
@@ -19,3 +20,4 @@ pub(crate) use rig::{
     PreparedProviderRun, ProviderActionContext,
 };
 pub(crate) use rig_request::OrchestrationModelOption;
+pub(crate) use task_progress::{restored_task_list, task_list_from_api_tasks};

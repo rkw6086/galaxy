@@ -27,6 +27,7 @@ use crate::drive::index::{
 use crate::drive::items::WarpDriveItem;
 use crate::drive::panel::WARP_DRIVE_POSITION_ID;
 use crate::drive::CloudObjectTypeAndId;
+use crate::local_object_repository::{local_owner, LocalObjectRepository};
 use crate::menu::Menu;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::{Icon, ICON_DIMENSIONS};
@@ -826,11 +827,24 @@ impl UiComponent for WarpDriveRow<'_> {
                                     return AcceptedByDropTarget::No;
                                 };
                                 let cloud_model = CloudModel::handle(app);
-                                if cloud_model.as_ref(app).can_move_object_to_location(
-                                    &item.uid(),
-                                    *location,
-                                    app,
-                                ) {
+                                let is_local = cloud_model
+                                    .as_ref(app)
+                                    .get_by_uid(&item.uid())
+                                    .is_some_and(|object| {
+                                        object.permissions().owner == local_owner()
+                                    });
+                                let can_move = if is_local {
+                                    LocalObjectRepository::can_move_object_to_location(
+                                        item, *location, app,
+                                    )
+                                } else {
+                                    cloud_model.as_ref(app).can_move_object_to_location(
+                                        &item.uid(),
+                                        *location,
+                                        app,
+                                    )
+                                };
+                                if can_move {
                                     AcceptedByDropTarget::Yes
                                 } else {
                                     AcceptedByDropTarget::No

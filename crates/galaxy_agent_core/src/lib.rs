@@ -6,10 +6,12 @@
 
 mod provider_run;
 mod runtime;
+mod task_list;
 mod tool_policy;
 mod types;
 
 pub use provider_run::*;
 pub use runtime::*;
+pub use task_list::*;
 pub use tool_policy::*;
 pub use types::*;

@@ -1625,6 +1625,7 @@ const KNOWN_TOOLS: &[&str] = &[
     "read_skill",
     "fetch_conversation",
     "recall_tool_history",
+    "update_task_list",
 ];
 
 pub(super) fn is_known_tool(name: &str) -> bool {

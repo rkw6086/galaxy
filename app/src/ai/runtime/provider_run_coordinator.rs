@@ -12,11 +12,12 @@ use galaxy_agent_core::{
     ModelFailureDisposition, PendingToolBatch, ProviderModelCall, ProviderRequestProfile,
     ProviderRun, ProviderRunFailureKind, ProviderRunId, ProviderRunLimits, ProviderRunOutcome,
     ProviderRunPhase, ProviderRunProtocolError, ProviderRunState, ProviderRunStep, RunEpoch,
-    RuntimeKind, StopReason, ToolEvent, TurnCommand, TurnControl, TurnRequest, Usage,
+    RuntimeKind, StopReason, TaskListSnapshot, ToolEvent, TurnCommand, TurnControl, TurnRequest, Usage,
 };
 use instant::Instant;
 use warpui::r#async::Timer;
 
+use super::task_progress::{add_task_list_context, initial_task_list, task_list_from_plan_batch};
 use crate::ai::agent::conversation::AIConversationId;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::model_output_logging;
@@ -205,6 +206,7 @@ impl ProviderRunCoordinator {
             limits,
         );
         run.replace_tool_result_archive(tool_result_archive);
+        run.set_task_list(initial_task_list(&base_profile.request))?;
         let mut profiles = BTreeMap::new();
         profiles.insert(BASE_PROVIDER_PROFILE.to_string(), base_profile);
         Self::new(run, profiles)
@@ -271,6 +273,7 @@ impl ProviderRunCoordinator {
                 let mut request = profile.request.clone();
                 request.prompt = None;
                 request.messages.clear();
+                add_task_list_context(&mut request, self.run.task_list());
                 let fixed = u32::try_from(estimate_turn_request_tokens(&request))
                     .unwrap_or(u32::MAX);
                 Some((limit, fixed))
@@ -285,6 +288,7 @@ impl ProviderRunCoordinator {
         let mut request = profile.request.clone();
         request.prompt = None;
         request.messages.clear();
+        add_task_list_context(&mut request, self.run.task_list());
         let persistent_tokens = estimate_turn_request_tokens(&request);
         request.messages = self.run.transcript().to_vec();
         Some((
@@ -432,6 +436,9 @@ impl ProviderRunCoordinator {
                     }
                 }
                 Some(ProviderRunStep::DispatchTools(batch)) => {
+                    if self.run.task_list().is_none() {
+                        self.run.set_task_list(task_list_from_plan_batch(&batch))?;
+                    }
                     if !self.checkpoint_or_fail(&mut checkpoint).await? {
                         return self.terminal_block();
                     }
@@ -500,8 +507,12 @@ impl ProviderRunCoordinator {
         else {
             return false;
         };
-        let request =
-            request_for_model_call(profile.request.clone(), call, Some(max_context_tokens));
+        let request = request_for_model_call(
+            profile.request.clone(),
+            call,
+            Some(max_context_tokens),
+            self.run.task_list(),
+        );
         // Provider tokenizers and request envelopes differ. Compact before the
         // estimate reaches the advertised limit, leaving room for that uncertainty.
         let safe_context_tokens = u64::from(max_context_tokens) * 9 / 10;
@@ -585,6 +596,7 @@ impl ProviderRunCoordinator {
             profile.request.clone(),
             &call,
             profile.max_context_tokens.or(self.max_context_tokens),
+            self.run.task_list(),
         );
         let started_at = Instant::now();
         let (attempt_sender, attempt_control) = turn_control();
@@ -1176,6 +1188,7 @@ fn request_for_model_call(
     mut template: TurnRequest,
     call: &ProviderModelCall,
     max_context_tokens: Option<u32>,
+    task_list: Option<&TaskListSnapshot>,
 ) -> TurnRequest {
     template.prompt = None;
     template.messages = call.messages.clone();
@@ -1184,6 +1197,7 @@ fn request_for_model_call(
         message
             .truncate_tagged_terminal_output_for_provider_request_with_context(max_context_tokens);
     }
+    add_task_list_context(&mut template, task_list);
     add_exploration_reminder(&mut template);
     template
 }

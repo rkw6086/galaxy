@@ -3,8 +3,8 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 use serde_json::Value as JsonValue;
 
 use crate::{
-    ContentPart, ConversationMessage, MessageContent, ToolCall, ToolDefinition, ToolResult,
-    ToolResultStatus,
+    ContentPart, ConversationMessage, MessageContent, TaskListSnapshot, ToolCall, ToolDefinition,
+    ToolResult, ToolResultStatus, UPDATE_TASK_LIST_NAME,
 };
 
 pub const RECALL_TOOL_HISTORY_NAME: &str = "recall_tool_history";
@@ -143,6 +143,21 @@ impl ToolPolicy {
                 ),
                 status: ToolResultStatus::Success,
             });
+        }
+
+        if call.name == UPDATE_TASK_LIST_NAME {
+            return match TaskListSnapshot::from_arguments(&call.arguments) {
+                Ok(snapshot) => ToolCallDecision::Inline(ToolResult {
+                    call_id: call.id.clone(),
+                    content: snapshot.to_tool_result_content(),
+                    status: ToolResultStatus::Success,
+                }),
+                Err(error) => ToolCallDecision::Reject(ToolResult {
+                    call_id: call.id.clone(),
+                    content: format!("Error: {error}"),
+                    status: ToolResultStatus::Error,
+                }),
+            };
         }
 
         ToolCallDecision::Execute

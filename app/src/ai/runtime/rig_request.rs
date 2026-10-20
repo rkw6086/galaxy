@@ -15,6 +15,9 @@ use uuid::Uuid;
 use warp_multi_agent_api as api;
 use warp_multi_agent_api::ToolType;
 
+use super::task_progress::{
+    add_task_list_context, task_list_from_api_tasks, task_list_tool, TASK_PROGRESS_GUIDANCE,
+};
 use crate::ai::agent::api::RequestParams;
 use crate::ai::agent::{AIAgentContext, AIAgentInput, MCPContext, UserQueryMode};
 use crate::ai::openai::client::OpenAIClientConfig;
@@ -277,7 +280,9 @@ fn prepare_rig_turn_for_provider(
             // History recall cannot advance a running command. Keeping it in the CLI tool list lets
             // the model spend its monitor turn recalling a prior snapshot instead of scheduling
             // `read_shell_command_output`, so make polling the only inspection path here.
-            tools.retain(|tool| tool.name != "recall_tool_history");
+            tools.retain(|tool| {
+                !matches!(tool.name.as_str(), "recall_tool_history" | "update_task_list")
+            });
         }
         RigRequestMode::CompletedCommandAssessment => {
             // The caller deliberately disables tools for the final assessment. The inline history
@@ -348,6 +353,8 @@ fn prepare_rig_turn_for_provider(
     request.system_prompt = Some(system_prompt);
     request.tools = tools;
     request.max_output_tokens = max_output_tokens;
+    let task_list = task_list_from_api_tasks(&tasks, &task_id);
+    add_task_list_context(&mut request, task_list.as_ref());
 
     PreparedRigTurn {
         max_context_tokens,
@@ -692,6 +699,7 @@ fn tool_definitions(
         .into_iter()
         .filter(|tool| tool_name_is_supported(&tool.name, &supported))
         .collect::<Vec<_>>();
+    tools.push(task_list_tool());
     let mut mcp_tool_aliases = HashMap::new();
 
     if !supported.contains(&ToolType::CallMcpTool) {
@@ -782,7 +790,9 @@ fn add_tool_title_parameter(schema: &mut serde_json::Value) -> String {
 }
 
 fn tools_are_inline_only(tools: &[ToolDefinition]) -> bool {
-    tools.iter().all(|tool| tool.name == "recall_tool_history")
+    tools.iter().all(|tool| {
+        matches!(tool.name.as_str(), "recall_tool_history" | "update_task_list")
+    })
 }
 
 const MAX_PROVIDER_TOOL_NAME_BYTES: usize = 64;
@@ -850,6 +860,9 @@ fn build_system_prompt(
     );
     prompt.push_str(SHELL_EXECUTION_GUIDANCE);
     prompt.push_str(PROGRESS_COMMUNICATION_GUIDANCE);
+    if tools.iter().any(|tool| tool.name == "update_task_list") {
+        prompt.push_str(TASK_PROGRESS_GUIDANCE);
+    }
     let contexts = inputs.iter().filter_map(AIAgentInput::context).flatten();
     let mut environment = Vec::new();
     let mut request_time = None;

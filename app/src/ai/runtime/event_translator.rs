@@ -2,13 +2,14 @@ use std::collections::HashMap;
 
 use galaxy_agent_core::{
     AgentEvent, ProviderRunOutcome, RuntimeActivity, RuntimeActivityStatus, RuntimeCapabilities,
-    StopReason, Usage,
+    StopReason, TaskListSnapshot, Usage,
 };
 use uuid::Uuid;
 use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 
 use super::provider_run_coordinator::ProviderRunProjection;
+use super::task_progress::{explicit_task_updates, task_list_from_plan_batch, todo_operations};
 use crate::ai::agent::runtime_activity;
 use crate::ai::openai::response_translator::{build_stream_finished, StreamUsage};
 use crate::ai::provider::response_translator::{
@@ -54,6 +55,8 @@ pub(crate) struct ProviderRunResponseProjector {
     translator: RuntimeResponseTranslator,
     has_started_model_turn: bool,
     plan_tasks_projected: bool,
+    task_list: Option<TaskListSnapshot>,
+    pending_task_list: Option<TaskListSnapshot>,
     finished: bool,
 }
 
@@ -63,6 +66,8 @@ impl ProviderRunResponseProjector {
             translator: RuntimeResponseTranslator::new(config),
             has_started_model_turn: false,
             plan_tasks_projected: false,
+            task_list: None,
+            pending_task_list: None,
             finished: false,
         }
     }
@@ -75,8 +80,43 @@ impl ProviderRunResponseProjector {
             translator: RuntimeResponseTranslator::restored(config, projection_was_initialized),
             has_started_model_turn: false,
             plan_tasks_projected: true,
+            task_list: None,
+            pending_task_list: None,
             finished: false,
         }
+    }
+
+    pub(crate) fn with_task_list(mut self, task_list: Option<TaskListSnapshot>) -> Self {
+        self.plan_tasks_projected |= task_list.is_some();
+        self.task_list = task_list;
+        self
+    }
+
+    pub(crate) fn with_restored_task_lists(
+        mut self,
+        visible: Option<TaskListSnapshot>,
+        desired: Option<TaskListSnapshot>,
+    ) -> Self {
+        self.plan_tasks_projected = visible.is_some() || desired.is_some();
+        self.task_list = visible;
+        self.pending_task_list =
+            desired.filter(|snapshot| self.task_list.as_ref() != Some(snapshot));
+        self
+    }
+
+    fn reconcile_restored_tasks(&mut self) -> Vec<ResponseEvent> {
+        let Some(snapshot) = self.pending_task_list.take() else {
+            return Vec::new();
+        };
+        let mut events = Vec::new();
+        self.translator.initialize(&mut events);
+        events.extend(
+            todo_operations(self.task_list.as_ref(), &snapshot)
+                .into_iter()
+                .map(|operation| build_todo_update(&self.translator.config.task_id, operation)),
+        );
+        self.task_list = Some(snapshot);
+        events
     }
 
     pub(crate) fn project(
@@ -86,7 +126,8 @@ impl ProviderRunResponseProjector {
         if self.finished {
             return Err("provider run projection is already finished".to_string());
         }
-        match projection {
+        let mut events = self.reconcile_restored_tasks();
+        let projected = match projection {
             ProviderRunProjection::ModelTurnStarted { .. } => {
                 if self.has_started_model_turn {
                     self.translator.begin_followup_turn();
@@ -111,23 +152,28 @@ impl ProviderRunResponseProjector {
             }
             ProviderRunProjection::ModelTurnFinished { .. } => Ok(Vec::new()),
             ProviderRunProjection::ToolBatchReady { batch } => {
-                if !self.plan_tasks_projected {
-                    if let Some(todos) = todos_from_plan_batch(&batch) {
-                        self.plan_tasks_projected = true;
-                        return Ok(vec![build_todo_update(
-                            &self.translator.config.task_id,
-                            api::message::update_todos::Operation::CreateTodoList(
-                                api::CreateTodoList {
-                                    initial_todos: todos,
-                                },
-                            ),
-                        )]);
-                    }
+                let mut snapshots = explicit_task_updates(&batch);
+                if snapshots.is_empty() && !self.plan_tasks_projected {
+                    snapshots.extend(task_list_from_plan_batch(&batch));
+                }
+                let mut events = Vec::new();
+                for snapshot in snapshots {
+                    events.extend(
+                        todo_operations(self.task_list.as_ref(), &snapshot)
+                            .into_iter()
+                            .map(|operation| {
+                                build_todo_update(&self.translator.config.task_id, operation)
+                            }),
+                    );
+                    self.task_list = Some(snapshot);
+                    self.plan_tasks_projected = true;
                 }
                 // Tool batches indicate runtime activity, not completion of planned work.
-                Ok(Vec::new())
+                Ok(events)
             }
-        }
+        }?;
+        events.extend(projected);
+        Ok(events)
     }
 
     pub(crate) fn set_task_id(&mut self, task_id: impl Into<String>) {
@@ -143,19 +189,22 @@ impl ProviderRunResponseProjector {
             return Err("provider run projection is already finished".to_string());
         }
         self.finished = true;
-        match outcome {
-            ProviderRunOutcome::Completed(completion) => Ok(self
+        let mut events = self.reconcile_restored_tasks();
+        let terminal = match outcome {
+            ProviderRunOutcome::Completed(completion) => self
                 .translator
-                .finish_provider_run(completion.stop_reason.clone(), aggregate_usage)),
-            ProviderRunOutcome::Failed(failure) => Ok(self.translator.provider_failure(
+                .finish_provider_run(completion.stop_reason.clone(), aggregate_usage),
+            ProviderRunOutcome::Failed(failure) => self.translator.provider_failure(
                 &failure.message,
                 failure.source.as_ref(),
                 aggregate_usage,
-            )),
-            ProviderRunOutcome::Cancelled { .. } => Ok(self
+            ),
+            ProviderRunOutcome::Cancelled { .. } => self
                 .translator
-                .finish_provider_run(StopReason::Cancelled, aggregate_usage)),
-        }
+                .finish_provider_run(StopReason::Cancelled, aggregate_usage),
+        };
+        events.extend(terminal);
+        Ok(events)
     }
 }
 
@@ -174,42 +223,21 @@ fn authentication_provider_for_runtime(runtime_id: &str) -> api::LlmProvider {
 
 // Only explicit multi-step checklists in a plan become tasks. Other document bullets
 // (risks, examples, requirements) are not executable tasks.
+#[cfg(test)]
 fn todos_from_plan_batch(
     batch: &galaxy_agent_core::PendingToolBatch,
 ) -> Option<Vec<api::TodoItem>> {
-    let plan_call = batch.calls.iter().find(|pending| {
-        matches!(
-            pending.call.name.as_str(),
-            "create_plan" | "create_documents"
-        )
-    })?;
-    let content = plan_call
-        .call
-        .arguments
-        .get("documents")?
-        .as_array()?
-        .first()?
-        .get("content")?
-        .as_str()?;
-    let mut lines = content.lines();
-    lines.find(|line| matches!(line.trim(), "## Tasks" | "## Implementation Tasks"))?;
-    let todos = lines
-        .take_while(|line| !line.trim().starts_with("## "))
-        .filter_map(|line| line.trim().strip_prefix("- [ ]").map(str::trim))
-        .filter(|item| !item.is_empty())
-        .take(50)
-        .enumerate()
-        .map(|(index, item)| api::TodoItem {
-            id: format!("plan-{}-{index}", plan_call.call.id),
-            title: item
-                .split_once(" - ")
-                .map_or(item, |(title, _)| title)
-                .trim()
-                .to_owned(),
-            description: item.to_owned(),
-        })
-        .collect::<Vec<_>>();
-    (todos.len() > 1).then_some(todos)
+    task_list_from_plan_batch(batch).map(|snapshot| {
+        snapshot
+            .tasks
+            .into_iter()
+            .map(|task| api::TodoItem {
+                id: task.id,
+                description: task.title.clone(),
+                title: task.title,
+            })
+            .collect()
+    })
 }
 
 fn build_todo_update(

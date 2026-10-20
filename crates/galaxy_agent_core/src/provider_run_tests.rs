@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::*;
-use crate::{AgentErrorKind, PermissionKind};
+use crate::{AgentErrorKind, PermissionKind, TaskListItem, TaskListStatus};
 
 fn initial_messages() -> Vec<ConversationMessage> {
     vec![ConversationMessage {
@@ -352,6 +352,201 @@ fn unknown_malformed_and_inline_tools_are_pre_resolved_in_the_same_batch() {
     let recall_result = batch.calls[3].state.result().unwrap();
     assert!(recall_result.content.contains("old contents"));
     assert_eq!(batch.unresolved_call_ids(), vec!["external"]);
+}
+
+fn task_snapshot(status: TaskListStatus) -> TaskListSnapshot {
+    TaskListSnapshot {
+        tasks: vec![TaskListItem {
+            id: "fix".to_string(),
+            title: "Fix the failure".to_string(),
+            status,
+        }],
+    }
+}
+
+fn update_task_call(id: &str, snapshot: &TaskListSnapshot) -> ToolCall {
+    ToolCall {
+        id: id.to_string(),
+        name: UPDATE_TASK_LIST_NAME.to_string(),
+        arguments: serde_json::to_value(snapshot).unwrap(),
+    }
+}
+
+#[test]
+fn inline_task_updates_commit_atomically_in_call_order_with_other_tools() {
+    let mut run = run();
+    let initial = task_snapshot(TaskListStatus::Pending);
+    let working = task_snapshot(TaskListStatus::InProgress);
+    let completed = task_snapshot(TaskListStatus::Completed);
+    run.set_task_list(Some(initial.clone())).unwrap();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![
+                update_task_call("tasks-start", &working),
+                tool_call("external", "read_files"),
+                update_task_call("tasks-finish", &completed),
+            ],
+            &[UPDATE_TASK_LIST_NAME, "read_files"],
+        ),
+    );
+
+    assert_eq!(batch.unresolved_call_ids(), vec!["external"]);
+    assert_eq!(run.task_list(), Some(&initial));
+    assert!(matches!(
+        run.commit_tool_batch(&batch.work_id),
+        Err(ProviderRunProtocolError::IncompleteToolBatch { .. }),
+    ));
+    assert_eq!(run.task_list(), Some(&initial));
+
+    run.complete_tool(&batch.work_id, successful_result("external", "contents"))
+        .unwrap();
+    run.commit_tool_batch(&batch.work_id).unwrap();
+
+    assert_eq!(run.task_list(), Some(&completed));
+    assert_eq!(run.state().phase(), ProviderRunPhase::ReadyToCallModel);
+    assert_serialization_round_trip(&run);
+    let committed = run.clone();
+    assert!(run.commit_tool_batch(&batch.work_id).is_err());
+    assert_eq!(run, committed);
+}
+
+#[test]
+fn rejected_task_updates_do_not_replace_durable_progress() {
+    let mut run = run();
+    let initial = task_snapshot(TaskListStatus::InProgress);
+    run.set_task_list(Some(initial.clone())).unwrap();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![ToolCall {
+                id: "invalid-task-update".to_string(),
+                name: UPDATE_TASK_LIST_NAME.to_string(),
+                arguments: json!({"tasks": []}),
+            }],
+            &[UPDATE_TASK_LIST_NAME],
+        ),
+    );
+    assert_eq!(
+        batch.calls[0].state.result().unwrap().status,
+        ToolResultStatus::Error,
+    );
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    assert_eq!(run.task_list(), Some(&initial));
+
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![update_task_call(
+                "unadvertised-update",
+                &task_snapshot(TaskListStatus::Completed),
+            )],
+            &[],
+        ),
+    );
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    assert_eq!(run.task_list(), Some(&initial));
+}
+
+#[test]
+fn task_progress_survives_compaction_archive_eviction_and_restore() {
+    let mut run = run();
+    let snapshot = task_snapshot(TaskListStatus::InProgress);
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![update_task_call("tasks", &snapshot)],
+            &[UPDATE_TASK_LIST_NAME],
+        ),
+    );
+    assert!(batch.is_complete());
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    run.compact_transcript_at_model_boundary(
+        run.transcript().len(),
+        vec![ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("Earlier conversation summary".to_string()),
+        }],
+    )
+    .unwrap();
+
+    let mut archive = run.tool_result_archive().to_vec();
+    for index in 0..450 {
+        archive.extend([
+            ConversationMessage {
+                role: MessageRole::Assistant,
+                content: MessageContent::ToolUse {
+                    tool_use_id: format!("read-{index}"),
+                    name: "read_files".to_string(),
+                    input: json!({}),
+                },
+            },
+            ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::ToolResult {
+                    tool_use_id: format!("read-{index}"),
+                    content: "contents".to_string(),
+                    is_error: false,
+                },
+            },
+        ]);
+    }
+    run.replace_tool_result_archive(archive);
+    assert!(!serde_json::to_string(run.tool_result_archive())
+        .unwrap()
+        .contains("task_list_snapshot"));
+    assert_eq!(run.task_list(), Some(&snapshot));
+    assert_serialization_round_trip(&run);
+    run.validate_restored_state().unwrap();
+}
+
+#[test]
+fn task_list_setter_and_restored_snapshots_validate_before_mutation() {
+    let mut run = run();
+    let initial = task_snapshot(TaskListStatus::InProgress);
+    run.set_task_list(Some(initial.clone())).unwrap();
+    assert!(matches!(
+        run.set_task_list(Some(TaskListSnapshot { tasks: Vec::new() })),
+        Err(ProviderRunProtocolError::InvalidTaskList { .. }),
+    ));
+    assert_eq!(run.task_list(), Some(&initial));
+
+    let invalid = mutate_run_json(&run, |value| value["task_list"] = json!({"tasks": []}));
+    assert!(restored_state_error(&invalid).contains("invalid task list"));
+
+    let legacy = mutate_run_json(&run, |value| {
+        value.as_object_mut().unwrap().remove("task_list");
+    });
+    assert_eq!(legacy.task_list(), None);
+    legacy.validate_restored_state().unwrap();
+    run.set_task_list(None).unwrap();
+    assert_eq!(run.task_list(), None);
+}
+
+#[test]
+fn restoring_a_completed_inline_task_batch_commits_once_without_external_work() {
+    let mut run = run();
+    let snapshot = task_snapshot(TaskListStatus::InProgress);
+    accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![update_task_call("tasks", &snapshot)],
+            &[UPDATE_TASK_LIST_NAME],
+        ),
+    );
+    let mut restored: ProviderRun = serde_json::from_str(&serde_json::to_string(&run).unwrap()).unwrap();
+    restored.validate_restored_state().unwrap();
+    assert_eq!(restored.task_list(), None);
+    assert!(restored.normalize_after_restore().unwrap().committed_tool_batch);
+    assert_eq!(restored.task_list(), Some(&snapshot));
+    assert!(!restored.normalize_after_restore().unwrap().committed_tool_batch);
+    assert_eq!(restored.task_list(), Some(&snapshot));
+
+    let corrupted = mutate_run_json(&run, |value| {
+        value["state"]["AwaitingTools"]["batch"]["calls"][0]["state"]["Resolved"]["result"]["content"] =
+            json!(task_snapshot(TaskListStatus::Completed).to_tool_result_content());
+    });
+    assert!(restored_state_error(&corrupted).contains("does not match its arguments"));
 }
 
 #[test]

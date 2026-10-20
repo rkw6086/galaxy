@@ -83,7 +83,17 @@ impl AIAgentTodoList {
                 .position(|item| item.id == completed_todo_id.clone().into())
                 .map(|i| self.pending_items.remove(i))
             {
-                self.completed_items.push(item);
+                // Restored provider batches can redeliver a pending update and
+                // its completion. Keep one completed item per stable task ID.
+                if let Some(previous) = self
+                    .completed_items
+                    .iter_mut()
+                    .find(|old| old.id == item.id)
+                {
+                    *previous = item;
+                } else {
+                    self.completed_items.push(item);
+                }
             }
         }
     }

@@ -6212,6 +6212,24 @@ impl BlocklistAIController {
             },
             ctx,
         );
+        // Projection can be persisted before a mixed tool batch commits. Seed
+        // from the actual visible list so replaying its inline update is a no-op.
+        let projected_task_list = BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .and_then(|conversation| {
+                crate::ai::runtime::task_list_from_api_tasks(
+                    &conversation.compute_active_tasks(),
+                    &root_task_id.to_string(),
+                )
+            });
+        let projector = ProviderRunResponseProjector::restored(
+            response_config.clone(),
+            projection_was_initialized,
+        )
+        .with_restored_task_lists(
+            projected_task_list,
+            crate::ai::runtime::restored_task_list(coordinator.run()),
+        );
         self.active_provider_runs.insert(
             conversation_id,
             ActiveProviderRunSlot {
@@ -6223,10 +6241,7 @@ impl BlocklistAIController {
                 projection_target,
                 run: Some(ActiveProviderRun {
                     coordinator,
-                    projector: ProviderRunResponseProjector::restored(
-                        response_config.clone(),
-                        projection_was_initialized,
-                    ),
+                    projector,
                     response_config,
                     action_context,
                     messages_sent,
@@ -6681,9 +6696,11 @@ impl BlocklistAIController {
             .active_provider_runs
             .get(&conversation_id)
             .and_then(|slot| slot.cancellation_reason);
+        let projector = ProviderRunResponseProjector::new(response_config.clone())
+            .with_task_list(coordinator.run().task_list().cloned());
         let mut run = ActiveProviderRun {
             coordinator,
-            projector: ProviderRunResponseProjector::new(response_config.clone()),
+            projector,
             response_config,
             action_context,
             messages_sent,

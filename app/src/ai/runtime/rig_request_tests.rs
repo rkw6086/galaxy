@@ -270,8 +270,9 @@ fn no_tools_turn_flattens_historical_tool_protocol_messages() {
 
     let prepared = prepare_rig_turn(&config(), params, Vec::new(), Vec::new());
 
-    assert_eq!(prepared.request.tools.len(), 1);
-    assert_eq!(prepared.request.tools[0].name, "recall_tool_history");
+    assert_eq!(prepared.request.tools.len(), 2);
+    assert!(prepared.request.tools.iter().any(|tool| tool.name == "recall_tool_history"));
+    assert!(prepared.request.tools.iter().any(|tool| tool.name == "update_task_list"));
     assert!(prepared
         .request
         .messages
@@ -499,6 +500,20 @@ fn forced_cli_profile_uses_monitor_prompt_and_tools_for_an_initial_query() {
         .tools
         .iter()
         .any(|tool| tool.name == "recall_tool_history"));
+    assert!(!prepared.request.tools.iter().any(|tool| tool.name == "update_task_list"));
+}
+
+#[test]
+fn task_progress_is_available_with_explicit_status_guidance_and_ui_title() {
+    let mut params = RequestParams::new_for_test();
+    params.input = vec![user_query("Implement and verify the fix")];
+    let prepared = prepare_rig_turn(&config(), params, vec![ToolType::ReadFiles], Vec::new());
+    let tool = prepared.request.tools.iter().find(|tool| tool.name == "update_task_list").unwrap();
+    assert!(tool.input_schema["required"].as_array().unwrap().iter().any(|value| value == "_galaxy_tool_title"));
+    let prompt = prepared.request.system_prompt.unwrap();
+    assert!(prompt.contains("## Task List Progress"));
+    assert!(prompt.contains("reconcile the list before the final response"));
+    assert!(prompt.contains("Planning or returning a draft does not complete"));
 }
 
 #[test]

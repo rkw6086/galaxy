@@ -41,7 +41,7 @@ use super::drive_helpers::{
 use super::empty_trash_confirmation_dialog::{
     EmptyTrashConfirmationDialog, EmptyTrashConfirmationEvent,
 };
-use super::folders::CloudFolder;
+use super::folders::{CloudFolder, CloudFolderModel, FolderId};
 use super::items::ai_fact_collection::WarpDriveAIFactCollection;
 use super::items::item::{tools_panel_menu_direction, ItemStates, WarpDriveRow};
 use super::items::mcp_server_collection::WarpDriveMCPServerCollection;
@@ -69,7 +69,7 @@ use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions};
 use crate::env_vars::CloudEnvVarCollection;
 use crate::features::FeatureFlag;
 use crate::local_object_repository::{local_owner, LocalObjectRepository};
-use crate::menu::{Event, Menu, MenuItem, MenuItemFields};
+use crate::menu::{Event, Menu, MenuItem, MenuItemFields, SubMenu};
 use crate::network::NetworkStatus;
 use crate::notebooks::CloudNotebookModel;
 use crate::server::cloud_objects::update_manager::{
@@ -1058,6 +1058,21 @@ impl DriveIndex {
             }
         }
         false
+    }
+
+    fn move_operation_allowed(
+        &self,
+        cloud_object_type_and_id: &CloudObjectTypeAndId,
+        app: &AppContext,
+    ) -> bool {
+        let cloud_model = CloudModel::as_ref(app);
+        if let Some(object) = cloud_model.get_by_uid(&cloud_object_type_and_id.uid()) {
+            if object.permissions().owner == local_owner() {
+                return !object.is_trashed(cloud_model)
+                    && !object.metadata().has_pending_online_only_change();
+            }
+        }
+        self.online_only_operation_allowed(cloud_object_type_and_id, app)
     }
 
     fn is_online(&self, app: &AppContext) -> bool {
@@ -2685,7 +2700,7 @@ impl DriveIndex {
         // If the share dialog is open, we don't want to open the menu for the same object.
         let menu_open =
             self.menu_object_id_if_open == Some(warp_drive_item_id) && !share_dialog_open;
-        let can_move = self.online_only_operation_allowed(&row_object_id, app)
+        let can_move = self.move_operation_allowed(&row_object_id, app)
             && matches!(self.index_variant, DriveIndexVariant::MainIndex)
             && access_level.can_move_drive();
         let mut is_focused = false;
@@ -3239,12 +3254,15 @@ impl DriveIndex {
     ) {
         // TODO: we need to tell the user why 'move' is not working.
         let is_drop_target_valid = match new_location {
-            CloudObjectLocation::Folder(folder_id) => self.online_only_operation_allowed(
-                &CloudObjectTypeAndId::from_id_and_type(folder_id, ObjectType::Folder),
-                ctx,
-            ),
-            CloudObjectLocation::Space(_) => self.is_online(ctx),
-            CloudObjectLocation::Trash => self.is_online(ctx),
+            CloudObjectLocation::Folder(folder_id) => {
+                Self::is_local_folder(&folder_id, ctx)
+                    || self.online_only_operation_allowed(
+                        &CloudObjectTypeAndId::from_id_and_type(folder_id, ObjectType::Folder),
+                        ctx,
+                    )
+            }
+            CloudObjectLocation::Space(space) => space == Space::Personal || self.is_online(ctx),
+            CloudObjectLocation::Trash => true,
         };
 
         if is_drop_target_valid {
@@ -3275,23 +3293,37 @@ impl DriveIndex {
         self.current_drop_target = None;
         ctx.notify();
 
-        if !self.online_only_operation_allowed(cloud_object_type_and_id, ctx) {
+        if !self.move_operation_allowed(cloud_object_type_and_id, ctx) {
             return;
         }
 
         let cloud_model = CloudModel::handle(ctx);
+        let is_local = cloud_model
+            .as_ref(ctx)
+            .get_by_uid(&cloud_object_type_and_id.uid())
+            .is_some_and(|object| object.permissions().owner == local_owner());
+        let can_move = if is_local {
+            LocalObjectRepository::can_move_object_to_location(
+                *cloud_object_type_and_id,
+                new_location,
+                ctx,
+            )
+        } else {
+            cloud_model.as_ref(ctx).can_move_object_to_location(
+                &cloud_object_type_and_id.uid(),
+                new_location,
+                ctx,
+            )
+        };
 
         // Only proceed if we can move the object to this location AND the operation results in a change.
         // Even though an object technically can be moved to its current location (can_move_object_to_location returns true)
         // we do not need to do any of the update logic that follows.
-        if !cloud_model.as_ref(ctx).can_move_object_to_location(
-            &cloud_object_type_and_id.uid(),
-            new_location,
-            ctx,
-        ) || cloud_model
-            .as_ref(ctx)
-            .object_location(&cloud_object_type_and_id.uid(), ctx)
-            .is_none_or(|location| location == new_location)
+        if !can_move
+            || cloud_model
+                .as_ref(ctx)
+                .object_location(&cloud_object_type_and_id.uid(), ctx)
+                .is_none_or(|location| location == new_location)
         {
             return;
         }
@@ -3329,9 +3361,15 @@ impl DriveIndex {
         }
 
         // Otherwise allow object move to go through.
-        UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-            update_manager.move_object_to_location(*cloud_object_type_and_id, new_location, ctx);
-        });
+        if is_local {
+            LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                repository.move_object_to_location(*cloud_object_type_and_id, new_location, ctx);
+            });
+        } else {
+            UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
+                update_manager.move_object_to_location(*cloud_object_type_and_id, new_location, ctx);
+            });
+        }
 
         match new_location {
             CloudObjectLocation::Space(space) => self.open_section_of_space(space),
@@ -4873,6 +4911,13 @@ impl DriveIndex {
             }
         }
 
+        if self.move_operation_allowed(cloud_object_type_and_id, app) && access_level.can_move_drive()
+        {
+            if let Some(move_menu) = self.local_move_menu_item(*cloud_object_type_and_id, app) {
+                menu_items.push(move_menu);
+            }
+        }
+
         if can_trash && (!FeatureFlag::SharedWithMe.is_enabled() || access_level.can_trash()) {
             menu_items.push(
                 MenuItemFields::new("Trash")
@@ -4885,6 +4930,65 @@ impl DriveIndex {
         }
 
         menu_items
+    }
+
+    fn local_move_menu_item(
+        &self,
+        object_id: CloudObjectTypeAndId,
+        app: &AppContext,
+    ) -> Option<MenuItem<DriveIndexAction>> {
+        let cloud_model = CloudModel::as_ref(app);
+        let object = cloud_model.get_by_uid(&object_id.uid())?;
+        if object.permissions().owner != local_owner() {
+            return None;
+        }
+
+        let mut destinations = Vec::new();
+        if object.metadata().folder_id.is_some() {
+            destinations.push((
+                "Personal (top level)".to_string(),
+                CloudObjectLocation::Space(Space::Personal),
+            ));
+        }
+        destinations.extend(
+            cloud_model
+                .get_all_objects_of_type::<FolderId, CloudFolderModel>()
+                .filter(|folder| object.metadata().folder_id != Some(folder.id))
+                .filter(|folder| {
+                    LocalObjectRepository::can_move_object_to_location(
+                        object_id,
+                        CloudObjectLocation::Folder(folder.id),
+                        app,
+                    )
+                })
+                .map(|folder| {
+                    (
+                        format!("{} / {}", folder.breadcrumbs(app), folder.model().name),
+                        CloudObjectLocation::Folder(folder.id),
+                    )
+                })
+                .sorted_by(|(left, _), (right, _)| left.cmp(right)),
+        );
+        if destinations.is_empty() {
+            return None;
+        }
+
+        let items = destinations
+            .into_iter()
+            .map(|(label, location)| {
+                MenuItemFields::new(label)
+                    .with_on_select_action(DriveIndexAction::DropIndexItem {
+                        cloud_object_type_and_id: object_id,
+                        drop_target_location: location,
+                    })
+                    .with_icon(Icon::Folder)
+                    .into_item()
+            })
+            .collect();
+        Some(MenuItem::Submenu {
+            fields: MenuItemFields::new_submenu("Move to").with_icon(Icon::Move),
+            menu: SubMenu::new(items),
+        })
     }
 
     /// Builder for a menu item to open a Warp Drive object in a pane. The icon and label depend

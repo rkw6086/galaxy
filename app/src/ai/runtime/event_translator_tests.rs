@@ -83,6 +83,64 @@ fn restored_provider_projection_skips_stream_initialization() {
 }
 
 #[test]
+fn restored_task_progress_replay_does_not_duplicate_the_persisted_checklist() {
+    use galaxy_agent_core::{TaskListItem, TaskListSnapshot, TaskListStatus};
+    let snapshot = TaskListSnapshot { tasks: vec![
+        TaskListItem { id: "inspect".to_owned(), title: "Inspect".to_owned(), status: TaskListStatus::Completed },
+        TaskListItem { id: "verify".to_owned(), title: "Verify".to_owned(), status: TaskListStatus::InProgress },
+    ] };
+    let mut projector = ProviderRunResponseProjector::restored(RuntimeResponseConfig {
+        task_id: "task".to_owned(), conversation_id: "conversation".to_owned(), needs_create_task: false,
+        user_query: None, model_id: "model".to_owned(), max_context_tokens: Some(1000),
+        capabilities: RuntimeCapabilities::provider(), empty_output_message: None,
+    }, true).with_task_list(Some(snapshot.clone()));
+    let batch = galaxy_agent_core::PendingToolBatch {
+        work_id: galaxy_agent_core::ExternalWorkId {
+            run_id: galaxy_agent_core::ProviderRunId::new("run"), epoch: galaxy_agent_core::RunEpoch::new(1),
+        },
+        calls: vec![galaxy_agent_core::PendingToolCall {
+            call: galaxy_agent_core::ToolCall {
+                id: "progress".to_owned(), name: galaxy_agent_core::UPDATE_TASK_LIST_NAME.to_owned(),
+                arguments: serde_json::to_value(&snapshot).unwrap(),
+            },
+            state: galaxy_agent_core::PendingToolCallState::Resolved { result: galaxy_agent_core::ToolResult {
+                call_id: "progress".to_owned(), status: galaxy_agent_core::ToolResultStatus::Success,
+                content: snapshot.to_tool_result_content(),
+            }},
+        }],
+    };
+    assert!(projector.project(ProviderRunProjection::ToolBatchReady { batch }).unwrap().is_empty());
+}
+
+#[test]
+fn restored_committed_task_snapshot_repairs_missing_projection_even_on_terminal_cleanup() {
+    use galaxy_agent_core::{TaskListItem, TaskListSnapshot, TaskListStatus};
+    let snapshot = TaskListSnapshot { tasks: vec![TaskListItem {
+        id: "verify".to_owned(), title: "Verify".to_owned(), status: TaskListStatus::Completed,
+    }] };
+    let mut projector = ProviderRunResponseProjector::restored(RuntimeResponseConfig {
+        task_id: "task".to_owned(), conversation_id: "conversation".to_owned(), needs_create_task: false,
+        user_query: None, model_id: "model".to_owned(), max_context_tokens: Some(1000),
+        capabilities: RuntimeCapabilities::provider(), empty_output_message: None,
+    }, true).with_restored_task_lists(None, Some(snapshot));
+    let events = projector.finish(&galaxy_agent_core::ProviderRunOutcome::Cancelled {
+        reason: "restored cancellation".to_owned(),
+    }, &Usage::default()).unwrap();
+    let operations = events.into_iter().filter_map(|event| {
+        let Some(response_event::Type::ClientActions(actions)) = event.r#type else { return None };
+        Some(actions.actions.into_iter().filter_map(|action| {
+            let Some(client_action::Action::AddMessagesToTask(add)) = action.action else { return None };
+            Some(add.messages.into_iter().filter_map(|message| {
+                let Some(message::Message::UpdateTodos(update)) = message.message else { return None };
+                update.operation
+            }).collect::<Vec<_>>())
+        }).flatten().collect::<Vec<_>>())
+    }).flatten().collect::<Vec<_>>();
+    assert!(matches!(&operations[0], message::update_todos::Operation::CreateTodoList(_)));
+    assert!(matches!(&operations[1], message::update_todos::Operation::MarkTodosCompleted(mark) if mark.todo_ids == ["verify"]));
+}
+
+#[test]
 fn provider_activity_does_not_create_or_complete_task_lists() {
     let mut projector = ProviderRunResponseProjector::new(RuntimeResponseConfig {
         task_id: "task".to_owned(),

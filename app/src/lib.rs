@@ -2079,6 +2079,7 @@ pub(crate) fn initialize_app(
 
     // AIDocumentModel subscribes to UpdateManager so that it can be notified when notebooks are created on the server.
     ctx.add_singleton_model(AIDocumentModel::new);
+    ctx.add_singleton_model(ai::document::plan_archival::PlanArchivalModel::new);
 
     // AgentConversationsModel subscribes to UpdateManager for RTC task updates.
     ctx.add_singleton_model(AgentConversationsModel::new);

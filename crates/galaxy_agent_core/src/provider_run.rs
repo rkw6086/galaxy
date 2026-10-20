@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AgentError, ContentPart, ConversationMessage, MessageContent, MessageRole, PermissionDecision,
-    PermissionRequest, StopReason, ToolCall, ToolCallDecision, ToolPolicy, ToolResult,
-    ToolResultStatus, Usage,
+    PermissionRequest, StopReason, TaskListSnapshot, ToolCall, ToolCallDecision, ToolPolicy,
+    ToolResult, ToolResultStatus, UPDATE_TASK_LIST_NAME, Usage, task_list_from_tool_result,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -357,6 +357,9 @@ pub enum ProviderRunProtocolError {
     InvalidTranscriptCompaction {
         message: String,
     },
+    InvalidTaskList {
+        message: String,
+    },
     InvalidRestoredState {
         message: String,
     },
@@ -422,6 +425,7 @@ impl fmt::Display for ProviderRunProtocolError {
             Self::InvalidTranscriptCompaction { message } => {
                 write!(f, "invalid transcript compaction: {message}")
             }
+            Self::InvalidTaskList { message } => write!(f, "invalid task list: {message}"),
             Self::InvalidRestoredState { message } => {
                 write!(f, "invalid restored provider run: {message}")
             }
@@ -439,6 +443,8 @@ pub struct ProviderRun {
     epoch: RunEpoch,
     transcript: Vec<ConversationMessage>,
     tool_result_archive: Vec<ConversationMessage>,
+    #[serde(default)]
+    task_list: Option<TaskListSnapshot>,
     usage: Usage,
     model_turns: u32,
     model_retries: u32,
@@ -460,6 +466,7 @@ impl ProviderRun {
             epoch: RunEpoch::default(),
             transcript,
             tool_result_archive: Vec::new(),
+            task_list: None,
             usage: Usage::default(),
             model_turns: 0,
             model_retries: 0,
@@ -487,6 +494,23 @@ impl ProviderRun {
 
     pub fn transcript(&self) -> &[ConversationMessage] {
         &self.transcript
+    }
+
+    pub fn task_list(&self) -> Option<&TaskListSnapshot> {
+        self.task_list.as_ref()
+    }
+
+    pub fn set_task_list(
+        &mut self,
+        task_list: Option<TaskListSnapshot>,
+    ) -> Result<(), ProviderRunProtocolError> {
+        if let Some(snapshot) = &task_list {
+            snapshot
+                .validate()
+                .map_err(|message| ProviderRunProtocolError::InvalidTaskList { message })?;
+        }
+        self.task_list = task_list;
+        Ok(())
     }
 
     pub fn tool_result_archive(&self) -> &[ConversationMessage] {
@@ -563,6 +587,11 @@ impl ProviderRun {
         }
         if self.profile.as_str().is_empty() {
             return Err(invalid("request profile must not be empty".to_string()));
+        }
+        if let Some(snapshot) = &self.task_list {
+            snapshot
+                .validate()
+                .map_err(|error| invalid(format!("invalid task list: {error}")))?;
         }
         if self.limits.max_model_turns == Some(0) {
             return Err(invalid("model-turn limit must be at least one".to_string()));
@@ -1273,6 +1302,20 @@ impl ProviderRun {
             });
         };
         let next_epoch = self.next_epoch()?;
+        let mut task_list = self.task_list.clone();
+        for pending in &batch.calls {
+            if pending.call.name != UPDATE_TASK_LIST_NAME {
+                continue;
+            }
+            let result = pending.state.result().expect("validated complete tool batch");
+            if result.status == ToolResultStatus::Success {
+                task_list = Some(task_list_from_tool_result(&result.content).ok_or_else(|| {
+                    ProviderRunProtocolError::InvalidTaskList {
+                        message: "successful task update has no valid snapshot result".to_string(),
+                    }
+                })?);
+            }
+        }
         let yielded_to_children = batch.calls.iter().any(|pending| {
             is_local_agent_launch(&pending.call)
                 && pending
@@ -1281,6 +1324,7 @@ impl ProviderRun {
                     .is_some_and(|result| result.status == ToolResultStatus::Success)
         });
         self.transcript.push(tool_result_message(results));
+        self.task_list = task_list;
         self.epoch = next_epoch;
         // Launch acknowledgement is a yield, not an invitation to issue more tools.
         // The client persists child membership and supplies a new input once the group finishes.
@@ -1633,6 +1677,18 @@ fn validate_pending_tool_state(pending: &PendingToolCall) -> Result<(), String> 
         | PendingToolCallState::Executing
         | PendingToolCallState::RecoveryPending
         | PendingToolCallState::Resolved { .. } => {}
+    }
+    if pending.call.name == UPDATE_TASK_LIST_NAME {
+        if let Some(result) = pending.state.result() {
+            if result.status == ToolResultStatus::Success {
+                let snapshot = task_list_from_tool_result(&result.content)
+                    .ok_or_else(|| "successful task update has no valid snapshot result".to_string())?;
+                let expected = TaskListSnapshot::from_arguments(&pending.call.arguments)?;
+                if snapshot != expected {
+                    return Err("task update result does not match its arguments".to_string());
+                }
+            }
+        }
     }
     Ok(())
 }
