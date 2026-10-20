@@ -251,6 +251,15 @@ impl ProviderRunCoordinator {
         self.profiles.get(profile).map(|profile| &profile.request)
     }
 
+    /// The pending model profile owns the context budget, including after a
+    /// preflight overflow has returned the run to its compaction boundary.
+    pub(crate) fn current_context_limit(&self) -> Option<u32> {
+        self.profiles
+            .get(self.run.profile().as_str())
+            .and_then(|profile| profile.max_context_tokens)
+            .or(self.max_context_tokens)
+    }
+
     /// Includes the current transcript, fixed request context, tools, and output reservation.
     /// Read at the model boundary so newly committed tool output is included.
     pub(crate) fn estimated_context_tokens(&self) -> Option<(u32, u32)> {

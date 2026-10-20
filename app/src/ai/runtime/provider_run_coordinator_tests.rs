@@ -1559,6 +1559,56 @@ fn context_estimate_tracks_live_transcript_and_reserves_fixed_context() {
 }
 
 #[tokio::test]
+async fn compaction_boundary_keeps_the_monitor_context_limit() {
+    let base_runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let cli_runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let run = ProviderRun::new(
+        "monitor-compaction-budget",
+        vec![ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("history".repeat(5_000)),
+        }],
+        CLI_MONITOR_PROVIDER_PROFILE,
+        ProviderRunLimits::default(),
+    );
+    let mut profiles = BTreeMap::new();
+    profiles.insert(
+        BASE_PROVIDER_PROFILE.to_string(),
+        ProviderRunProfile::new(base_runtime.clone(), request()),
+    );
+    profiles.insert(
+        CLI_MONITOR_PROVIDER_PROFILE.to_string(),
+        ProviderRunProfile::new(cli_runtime.clone(), request())
+            .with_max_context_tokens(Some(8_000)),
+    );
+    let mut coordinator = ProviderRunCoordinator::new(run, profiles).unwrap();
+    coordinator.set_max_context_tokens(Some(100_000));
+    let (_sender, control) = turn_control();
+
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+
+    assert_eq!(block, ProviderRunBlock::ContextWindowExceeded);
+    assert_eq!(coordinator.run().state(), &ProviderRunState::ReadyToCallModel);
+    assert_eq!(coordinator.current_context_limit(), Some(8_000));
+    assert!(base_runtime.requests().is_empty());
+    assert!(cli_runtime.requests().is_empty());
+
+    let work_id = coordinator.run().ready_work_id().unwrap();
+    coordinator
+        .run_mut()
+        .continue_ready_with_observation(
+            &work_id,
+            MessageContent::Text("Command finished".to_string()),
+            BASE_PROVIDER_PROFILE,
+        )
+        .unwrap();
+    assert_eq!(coordinator.current_context_limit(), Some(100_000));
+}
+
+#[tokio::test]
 async fn monitor_request_uses_its_profile_context_limit() {
     let base_runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
     let cli_runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));

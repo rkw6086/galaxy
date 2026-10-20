@@ -6935,8 +6935,9 @@ impl BlocklistAIController {
         }
 
         let active_context_limit = active_run
-            .response_config
-            .max_context_tokens
+            .coordinator
+            .current_context_limit()
+            .or(active_run.response_config.max_context_tokens)
             .unwrap_or_else(|| {
                 let preferences = LLMPreferences::as_ref(ctx);
                 configured_llm_context_limit(
