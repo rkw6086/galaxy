@@ -77,7 +77,7 @@ impl ConversationListViewModel {
     fn refresh_cached_items(&mut self, ctx: &mut ModelContext<Self>) {
         let model = self.conversations_model.as_ref(ctx);
         self.cached_entry_ids = model
-            .get_entries(
+            .get_local_entries(
                 &AgentManagementFilters {
                     owners: OwnerFilter::PersonalOnly,
                     status: StatusFilter::All,
@@ -127,7 +127,7 @@ impl ConversationListViewModel {
                 .cached_entry_ids
                 .iter()
                 .filter_map(|id| {
-                    let item = conversations_model.get_entry_by_id(id, ctx)?;
+                    let item = conversations_model.get_local_entry_by_id(id, ctx)?;
 
                     match_indices_case_insensitive(&item.display.title, &search_query).map(
                         |result| {
@@ -165,7 +165,7 @@ impl ConversationListViewModel {
         ctx: &AppContext,
     ) -> Option<AgentConversationEntry> {
         let model = self.conversations_model.as_ref(ctx);
-        model.get_entry_by_id(id, ctx)
+        model.get_local_entry_by_id(id, ctx)
     }
 
     pub fn current_ids(&self) -> impl Iterator<Item = &AgentConversationEntryId> {

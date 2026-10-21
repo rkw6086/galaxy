@@ -107,7 +107,7 @@ pub const WAITING_FOR_USER_INPUT_MESSAGE: &str = "Agent waiting for instructions
 const IMAGE_SOURCE_LINK_LINE_INDEX: usize = 1;
 
 const ERROR_APOLOGY_TEXT: &str = "I'm sorry, I couldn't complete that request.";
-const INTERNAL_WARP_ERROR: &str = "Internal Warp error.";
+const INTERNAL_WARP_ERROR: &str = "Internal Galaxy error.";
 
 const GALAXY_STATUS_MESSAGES: &[&str] = &[
     "Warping through the Galaxy...",
@@ -3133,7 +3133,7 @@ pub fn render_failed_output(props: FailedOutputProps, app: &AppContext) -> Box<d
 
     // While an automatic retry/resume is still in flight, don't surface the underlying
     // transport failure at all. These are typically transient and recover on their own,
-    // so showing the alarming "Warp lost connection" banner (plus debug info) for every
+    // so showing the alarming "Galaxy lost connection" banner (plus debug info) for every
     // blip is noisy and misleading. Render nothing during in-flight recovery; the full
     // error banner is only shown once recovery has actually failed. Dogfood builds
     // (Local/Dev) opt out so developers still see every transport failure aggressively.
@@ -3160,7 +3160,7 @@ pub fn render_failed_output(props: FailedOutputProps, app: &AppContext) -> Box<d
             }
         }
         RenderableAIError::ServerOverloaded => {
-            "Warp is currently overloaded. Please try again later.".to_string()
+            "The AI service is currently overloaded. Please try again later.".to_string()
         }
         RenderableAIError::InternalWarpError => {
             format!("{ERROR_APOLOGY_TEXT}\n\n{INTERNAL_WARP_ERROR}")

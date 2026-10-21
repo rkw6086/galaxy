@@ -284,6 +284,16 @@ pub struct AgentManagementFilters {
 }
 
 impl AgentManagementFilters {
+    /// Retain only filters supported by the local session history screen.
+    /// Older app state may still contain cloud-only filter selections.
+    pub fn for_local_history(&self) -> Self {
+        Self {
+            status: self.status,
+            created_on: self.created_on,
+            ..Default::default()
+        }
+    }
+
     pub fn reset_all_but_owner(&mut self) {
         self.status = StatusFilter::default();
         self.source = SourceFilter::default();
@@ -1204,6 +1214,98 @@ impl AgentConversationsModel {
         }
     }
 
+    /// Returns locally recoverable sessions without hosted run or server-only rows.
+    pub fn get_local_entries(
+        &self,
+        filters: &AgentManagementFilters,
+        app: &AppContext,
+    ) -> Vec<AgentConversationEntry> {
+        let history_model = BlocklistAIHistoryModel::as_ref(app);
+        let filters = filters.for_local_history();
+        let mut entries = HashMap::new();
+
+        for metadata in self.conversations.values() {
+            let entry = entry::entry_for_conversation(metadata, history_model, app);
+            // Metadata from a live local session can precede its first disk write.
+            if !entry.backing.has_ambient_run
+                && (entry.backing.has_loaded_conversation
+                    || entry.backing.has_local_persisted_data
+                    || !entry.backing.has_cloud_data)
+            {
+                entries.insert(entry.id, entry.for_local_history());
+            }
+        }
+
+        for metadata in history_model.get_local_conversations_metadata() {
+            if !metadata.has_local_data && history_model.conversation(&metadata.id).is_none() {
+                continue;
+            }
+            let id = AgentConversationEntryId::Conversation(metadata.id);
+            entries.entry(id).or_insert_with(|| {
+                let nav_data =
+                    ConversationNavigationData::from_historical_conversation_metadata(metadata);
+                entry::entry_for_historical_metadata(metadata, nav_data, history_model, app)
+                    .for_local_history()
+            });
+        }
+
+        entries
+            .into_values()
+            .filter(|entry| entry.matches_filters(&filters, app))
+            .sorted_by(|a, b| b.display.last_updated.cmp(&a.display.last_updated))
+            .collect()
+    }
+
+    pub fn get_local_entry_by_id(
+        &self,
+        id: &AgentConversationEntryId,
+        app: &AppContext,
+    ) -> Option<AgentConversationEntry> {
+        let AgentConversationEntryId::Conversation(conversation_id) = id else {
+            return None;
+        };
+        let entry = self.get_entry_by_id(id, app)?;
+        (!entry.backing.has_ambient_run
+            && (entry.backing.has_loaded_conversation
+                || entry.backing.has_local_persisted_data
+                || (!entry.backing.has_cloud_data
+                    && self.conversations.contains_key(conversation_id))))
+        .then(|| entry.for_local_history())
+    }
+
+    /// Resolve history navigation exclusively through an existing local pane or disk data.
+    pub fn resolve_local_open_action(
+        id: AgentConversationEntryId,
+        restore_layout: Option<RestoreConversationLayout>,
+        app: &AppContext,
+    ) -> Option<WorkspaceAction> {
+        let model = Self::as_ref(app);
+        let entry = model.get_local_entry_by_id(&id, app)?;
+        let conversation_id = entry.identity.local_conversation_id?;
+        let active_views = ActiveAgentViewsModel::as_ref(app);
+        let nav_data = model
+            .conversations
+            .get(&conversation_id)
+            .map(|metadata| &metadata.nav_data);
+
+        if active_views.is_conversation_open(conversation_id, app) && nav_data.is_none() {
+            return active_views
+                .get_terminal_view_id_for_conversation(conversation_id, app)
+                .map(|terminal_view_id| WorkspaceAction::FocusTerminalViewInWorkspace {
+                    terminal_view_id,
+                });
+        }
+
+        Some(WorkspaceAction::RestoreOrNavigateToConversation {
+            conversation_id,
+            window_id: nav_data.and_then(|data| data.window_id),
+            pane_view_locator: nav_data.and_then(|data| data.pane_view_locator),
+            terminal_view_id: nav_data.and_then(|data| data.terminal_view_id),
+            restore_layout,
+            local_only: true,
+        })
+    }
+
     /// Returns normalized, owned entries for agent management/navigation surfaces.
     pub fn get_entries(
         &self,
@@ -1380,6 +1482,7 @@ impl AgentConversationsModel {
                         pane_view_locator: nav_data.pane_view_locator,
                         terminal_view_id: nav_data.terminal_view_id,
                         restore_layout,
+                        local_only: false,
                     });
                 }
 
@@ -1409,6 +1512,7 @@ impl AgentConversationsModel {
                     pane_view_locator: None,
                     terminal_view_id: nav_data.and_then(|nav_data| nav_data.terminal_view_id),
                     restore_layout,
+                    local_only: false,
                 });
             }
         }

@@ -129,7 +129,7 @@ impl AgentToolbarItemKind {
             Self::NLDToggle => "Autodetection",
             Self::VoiceInput => "Voice Input",
             Self::FileAttach => "Attach File",
-            Self::ContextWindowUsage => "Warp Context Indicator",
+            Self::ContextWindowUsage => "Galaxy Context Indicator",
             Self::LLMContextUsage => "LLM Context Usage",
             Self::LLMCacheDetails => "LLM Cache Details",
             Self::FileExplorer => "File Explorer",

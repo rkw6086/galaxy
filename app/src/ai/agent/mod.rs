@@ -754,7 +754,7 @@ pub enum RenderableAIError {
 
 impl RenderableAIError {
     const TRANSIENT_NETWORK_ERROR_MESSAGE: &'static str =
-        "Warp lost connection while receiving the agent response. This is usually temporary.";
+        "Galaxy lost connection while receiving the agent response. This is usually temporary.";
     /// User-facing message shown when an agent-issued command exits the shell.
     pub const AGENT_EXITED_SHELL_MESSAGE: &'static str =
         "The shell exited while the agent was running a command, so the run could not continue. Ensure the agent is not asked to run commands or source scripts that can exit the shell.";
@@ -905,9 +905,9 @@ impl Display for RenderableAIError {
                 }
             }
             Self::ServerOverloaded => {
-                write!(f, "Warp is currently overloaded. Please try again later.")
+                write!(f, "The AI service is currently overloaded. Please try again later.")
             }
-            Self::InternalWarpError => write!(f, "Internal Warp error."),
+            Self::InternalWarpError => write!(f, "Internal Galaxy error."),
             Self::ContextWindowExceeded(message) => {
                 write!(f, "Context window exceeded: {message}")
             }

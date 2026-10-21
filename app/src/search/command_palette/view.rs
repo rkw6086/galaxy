@@ -853,6 +853,7 @@ impl View {
                     conversation_id,
                     terminal_view_id,
                     restore_layout: None,
+                    local_only: false,
                 });
                 send_telemetry_from_app_ctx!(TelemetryEvent::SelectNavigationPaletteItem, ctx);
             }

@@ -79,7 +79,7 @@ pub fn wormhole_description(
 
     let description = FormattedText::new(vec![FormattedTextLine::Line(vec![
         FormattedTextFragment::plain_text(
-            "Bring Galaxy's features to your remote session: blocks, full text editing, completions, Oz, and more."
+            "Bring Galaxy's features to your remote session: blocks, full text editing, completions, Galaxy Agent, and more."
         ),
     ])]);
     wormhole::render::build_description_row(description, theme, appearance, hyperlink_index.clone())

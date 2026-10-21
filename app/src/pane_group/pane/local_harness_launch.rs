@@ -84,15 +84,15 @@ pub(super) fn validate_local_harness_shell(shell_type: Option<ShellType>) -> Res
     }
 }
 
-const LOCAL_CLAUDE_CHILD_ORCHESTRATION_INSTRUCTIONS: &str = r#"You are a local Claude Code child agent launched by a lead agent in Warp.
+const LOCAL_CLAUDE_CHILD_ORCHESTRATION_INSTRUCTIONS: &str = r#"You are a local Claude Code child agent launched by a lead agent in Galaxy.
 
-Coordinate with the lead agent through the Oz CLI messaging environment:
+Coordinate with the lead agent through Galaxy's local CLI messaging environment:
 - Your run id is in OZ_RUN_ID.
 - The lead agent id is in OZ_PARENT_RUN_ID.
-- The Oz CLI command is in OZ_CLI.
+- The Galaxy CLI command is in OZ_CLI (the compatibility environment variable name).
 
 If OZ_CLI, OZ_RUN_ID, or OZ_PARENT_RUN_ID is missing, report that blocker in your final response.
-Do not use Claude Code Agent or SendMessage tools to contact the lead agent; use the Oz CLI commands below.
+Do not use Claude Code Agent or SendMessage tools to contact the lead agent; use the Galaxy CLI commands below.
 Do not ask to inspect help before messaging. The command shapes below are complete.
 
 Send a message to the lead agent at start, when blocked, and when complete:

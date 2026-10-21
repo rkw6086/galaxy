@@ -246,9 +246,20 @@ pub struct ConversationDetailsData {
     harness: Option<Harness>,
     /// Error details displayed when the API call to fetch run data failed.
     fetch_error: Option<TaskFetchError>,
+    /// Local history resumes the saved session instead of offering a hosted fork.
+    local_history: bool,
 }
 
 impl ConversationDetailsData {
+    pub fn for_local_history(mut self) -> Self {
+        self.local_history = true;
+        self
+    }
+
+    fn is_local_history(&self) -> bool {
+        self.local_history
+    }
+
     fn directory_for_task(task: &AmbientAgentTask, app: &AppContext) -> Option<String> {
         let history_model = BlocklistAIHistoryModel::as_ref(app);
         let conversation_id = history_model
@@ -358,6 +369,7 @@ impl ConversationDetailsData {
             skill_spec: None,
             harness,
             fetch_error: None,
+            local_history: false,
         }
     }
 
@@ -422,6 +434,7 @@ impl ConversationDetailsData {
             skill_spec,
             harness,
             fetch_error: None,
+            local_history: false,
         }
     }
 
@@ -494,6 +507,7 @@ impl ConversationDetailsData {
                 skill_spec,
                 harness,
                 fetch_error: None,
+                local_history: false,
             };
         }
 
@@ -521,6 +535,7 @@ impl ConversationDetailsData {
             skill_spec: None,
             harness,
             fetch_error: None,
+            local_history: false,
         }
     }
 
@@ -552,6 +567,7 @@ impl ConversationDetailsData {
             skill_spec: None,
             harness: None,
             fetch_error,
+            local_history: false,
         }
     }
 
@@ -594,6 +610,7 @@ impl ConversationDetailsData {
             skill_spec: None,
             harness,
             fetch_error: None,
+            local_history: false,
         }
     }
 }
@@ -752,6 +769,10 @@ impl ConversationDetailsPanel {
         &self,
         app: &AppContext,
     ) -> Option<DetailsPanelLocalContinuationInfo> {
+        if self.data.is_local_history() {
+            // History's Open action restores the original local session directly.
+            return None;
+        }
         if !AISettings::as_ref(app).is_any_ai_enabled(app) {
             return None;
         }
@@ -894,6 +915,9 @@ impl ConversationDetailsPanel {
                     open_action,
                     data.copy_link_url.clone(),
                 );
+                if data.is_local_history() {
+                    config.fork_conversation_id = None;
+                }
                 if !status.as_ref().is_some_and(ConversationStatus::is_done) {
                     config.delete_conversation_id = None;
                 }
