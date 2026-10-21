@@ -61,6 +61,7 @@ mod experiments;
 mod external_secrets;
 #[cfg(target_family = "wasm")]
 mod font_fallback;
+mod full_disk_access;
 pub mod galaxy_managed_paths_watcher;
 pub use galaxy_managed_paths_watcher as warp_managed_paths_watcher;
 mod global_resource_handles;
@@ -2825,6 +2826,10 @@ fn launch(ctx: &mut galaxyui::AppContext, app_state: Option<AppState>, launch_mo
             IntervalTimer::handle(ctx).update(ctx, |timer, _| {
                 timer.mark_interval_end("WINDOWS_CREATED");
             });
+
+            if cfg!(target_os = "macos") && matches!(launch_mode, LaunchMode::App { .. }) {
+                full_disk_access::prompt_on_startup(ctx);
+            }
 
             #[cfg(feature = "local_fs")]
             if matches!(launch_mode, LaunchMode::App { .. })
