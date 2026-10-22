@@ -1039,6 +1039,7 @@ fn convert_provider_tool_batch(
                 matches!(pending.state, PendingToolCallState::RecoveryPending),
             )),
             Err(message) => invalid_results.push(ToolResult {
+                images: Vec::new(),
                 call_id: pending.call.id.clone(),
                 content: format!("Invalid {} tool input: {message}", pending.call.name),
                 status: ToolResultStatus::Error,
@@ -8460,7 +8461,10 @@ impl BlocklistAIController {
                     matches!(
                         pending.call.name.as_str(),
                         "request_computer_use" | "use_computer"
-                    )
+                    ) && pending.state.result().or_else(|| match event {
+                        galaxy_agent_core::ToolEvent::Completed { result } if result.call_id == pending.call.id => Some(result),
+                        _ => None,
+                    }).is_some_and(|result| result.status == galaxy_agent_core::ToolResultStatus::Success)
                 });
                 used_computer.then_some(COMPUTER_USE_PROVIDER_PROFILE)
             }

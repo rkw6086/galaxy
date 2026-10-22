@@ -106,6 +106,7 @@ fn rejected_plan_creation_cannot_seed_visible_or_durable_tasks() {
                 arguments: serde_json::json!({"documents": [{"content": "## Tasks\n- [ ] Inspect\n- [ ] Verify"}]}),
             },
             state: PendingToolCallState::Resolved { result: galaxy_agent_core::ToolResult {
+                images: Vec::new(),
                 call_id: "plan".to_owned(),
                 content: "Not advertised".to_owned(),
                 status: galaxy_agent_core::ToolResultStatus::Error,

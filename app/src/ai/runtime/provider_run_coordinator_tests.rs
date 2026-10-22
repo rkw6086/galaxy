@@ -461,6 +461,7 @@ async fn coordinator_awaiting_tools(
 fn tool_result(call_id: &str, content: &str, status: ToolResultStatus) -> ToolEvent {
     ToolEvent::Completed {
         result: ToolResult {
+            images: Vec::new(),
             call_id: call_id.to_string(),
             content: content.to_string(),
             status,
@@ -514,6 +515,7 @@ async fn one_run_drives_model_tool_and_followup_turns_with_atomic_history() {
         .complete_tool(
             &batch.work_id,
             ToolResult {
+                images: Vec::new(),
                 call_id: "read-1".to_string(),
                 content: "manifest contents".to_string(),
                 status: ToolResultStatus::Success,

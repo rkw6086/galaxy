@@ -92,6 +92,37 @@ fn supported_tools_include_plan_document_capabilities() {
 }
 
 #[test]
+fn computer_use_is_explicitly_enabled_and_kept_out_of_command_monitor_tools() {
+    let mut params = request_params_with_ask_user_question_enabled(false);
+    params.computer_use_enabled = true;
+    let (normal, cli) = super::prepare_direct_provider_params(&mut params);
+    assert!(normal.contains(&api::ToolType::RequestComputerUse));
+    assert!(!normal.contains(&api::ToolType::UseComputer));
+    assert!(!cli.contains(&api::ToolType::RequestComputerUse));
+    assert!(!cli.contains(&api::ToolType::UseComputer));
+
+    params.computer_use_enabled = false;
+    let (normal, _) = super::prepare_direct_provider_params(&mut params);
+    assert!(!normal.contains(&api::ToolType::RequestComputerUse));
+}
+
+#[test]
+fn computer_use_never_expands_explicit_tool_overrides_or_read_only_permissions() {
+    let mut params = request_params_with_ask_user_question_enabled(false);
+    params.computer_use_enabled = true;
+    params.supported_tools_override = Some(Vec::new());
+    let (normal, cli) = super::prepare_direct_provider_params(&mut params);
+    assert!(normal.is_empty());
+    assert!(cli.is_empty());
+
+    params.permission_mode = crate::ai::execution_profiles::PermissionMode::ReadOnly;
+    params.supported_tools_override = Some(vec![api::ToolType::RequestComputerUse, api::ToolType::UseComputer]);
+    let (normal, cli) = super::prepare_direct_provider_params(&mut params);
+    assert!(normal.is_empty());
+    assert!(cli.is_empty());
+}
+
+#[test]
 fn supported_tools_omit_subagents_when_orchestration_is_disabled() {
     let params = request_params_with_ask_user_question_enabled(false);
     let supported_tools = get_supported_tools(&params);

@@ -533,6 +533,7 @@ fn lrc_snapshot_follow_up_uses_the_cli_monitor_prompt_and_tools() {
         ),
     };
     let snapshot_tool_result = ToolResult {
+        images: Vec::new(),
         call_id: "run-call".to_string(),
         content: result.result.model_content(),
         status: ToolResultStatus::Success,
@@ -842,6 +843,7 @@ fn normalized_tool_outcomes_are_the_only_action_results_sent_to_rig() {
     let tool_results = statuses
         .iter()
         .map(|(call_id, status, _)| ToolResult {
+            images: Vec::new(),
             call_id: (*call_id).to_string(),
             content: format!("normalized-{call_id}"),
             status: *status,

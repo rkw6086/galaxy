@@ -17,6 +17,55 @@ fn call(name: &str, arguments: serde_json::Value) -> ToolCall {
 }
 
 #[test]
+fn computer_use_request_always_captures_a_bounded_initial_screenshot() {
+    let action = action_from_tool_call("task", &call("request_computer_use", serde_json::json!({
+        "task_summary": "Inspect the browser",
+    })), &SkillPathOrigin::Local, &HashMap::new()).unwrap();
+    let AIAgentActionType::RequestComputerUse(request) = action.action else { panic!("expected computer-use request"); };
+    let screenshot = request.screenshot_params.unwrap();
+    assert_eq!(screenshot.max_long_edge_px, Some(1568));
+    assert_eq!(screenshot.max_total_px, Some(1_150_000));
+    assert_eq!(screenshot.target, computer_use::Target::Screen);
+}
+
+#[test]
+fn computer_actions_preserve_coordinates_keys_and_screenshot_choices() {
+    let action = action_from_tool_call("task", &call("use_computer", serde_json::json!({
+        "action_summary": "Select the field and type",
+        "actions": [
+            { "type": "mouse_down", "button": "left", "x": 420, "y": 310 },
+            { "type": "mouse_up", "button": "left" },
+            { "type": "type_text", "text": "hello" },
+            { "type": "key_down", "keycode": 36 },
+            { "type": "key_up", "keycode": 36 },
+        ],
+        "take_screenshot": false,
+    })), &SkillPathOrigin::Local, &HashMap::new()).unwrap();
+    let AIAgentActionType::UseComputer(request) = action.action else { panic!("expected computer actions"); };
+    assert_eq!(request.actions.len(), 5);
+    assert_eq!(request.actions[0].action, computer_use::Action::MouseDown {
+        button: computer_use::MouseButton::Left, at: computer_use::Vector2I::new(420, 310),
+    });
+    assert_eq!(request.actions[3].action, computer_use::Action::KeyDown { key: computer_use::Key::Keycode(36) });
+    assert_eq!(request.screenshot_params, None);
+}
+
+#[test]
+fn computer_actions_reject_invalid_targets_keys_and_unbounded_waiting() {
+    for actions in [
+        serde_json::json!([{ "type": "key_down", "key": "Return" }]),
+        serde_json::json!([{ "type": "key_up", "key": "a", "keycode": 0 }]),
+        serde_json::json!([{ "type": "mouse_move", "x": 1, "y": 2, "target": { "type": "window", "window_id": 0, "pid": 12 } }]),
+        serde_json::json!([{ "type": "wait", "seconds": 6 }, { "type": "wait", "seconds": 6 }]),
+        serde_json::json!(vec![serde_json::json!({ "type": "wait", "seconds": 0 }); 21]),
+    ] {
+        assert!(action_from_tool_call("task", &call("use_computer", serde_json::json!({
+            "action_summary": "Invalid request", "actions": actions,
+        })), &SkillPathOrigin::Local, &HashMap::new()).is_err());
+    }
+}
+
+#[test]
 fn shell_calls_become_domain_actions_without_a_proto_round_trip() {
     let action = action_from_tool_call(
         "task-1",

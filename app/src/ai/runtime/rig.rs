@@ -133,20 +133,25 @@ pub(crate) async fn prepare_provider_run(
     let skill_path_origin = params.session_context.skill_path_origin();
     let mut cli_params = params.clone();
     let computer_use_model = params.computer_use_model.as_str();
-    let computer_use_profile = if params.computer_use_enabled
-        && !computer_use_model.is_empty()
-        && computer_use_model != "computer-use-agent-auto"
-        && computer_use_model != params.model.as_str()
-        && !matches!(
-            &computer_use_provider_config,
-            crate::ai::provider::ProviderConfig::None
-        ) {
+    let computer_use_profile = if supported_tools.contains(&ToolType::RequestComputerUse) {
         let mut computer_params = params.clone();
-        computer_params.model = params.computer_use_model.clone();
+        let computer_provider = if computer_use_model.is_empty()
+            || computer_use_model == "computer-use-agent-auto"
+            || computer_use_model == params.model.as_str()
+            || matches!(&computer_use_provider_config, crate::ai::provider::ProviderConfig::None)
+        {
+            base_provider_config.clone()
+        } else {
+            computer_params.model = params.computer_use_model.clone();
+            computer_use_provider_config
+        };
+        let mut computer_tools = supported_tools.clone();
+        computer_tools.retain(|tool| *tool != ToolType::RequestComputerUse);
+        computer_tools.push(ToolType::UseComputer);
         let (runtime, prepared) = prepare_provider_profile(
-            computer_use_provider_config,
+            computer_provider,
             computer_params,
-            supported_tools.clone(),
+            computer_tools,
             supported_cli_agent_tools.clone(),
             None,
         )

@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::*;
-use crate::{AgentErrorKind, PermissionKind, TaskListItem, TaskListStatus};
+use crate::{AgentErrorKind, PermissionKind, TaskListItem, TaskListStatus, ToolResultImage};
 
 fn initial_messages() -> Vec<ConversationMessage> {
     vec![ConversationMessage {
@@ -88,6 +88,7 @@ fn accept_tool_turn(run: &mut ProviderRun, turn: CompletedModelTurn) -> PendingT
 
 fn successful_result(call_id: &str, content: &str) -> ToolResult {
     ToolResult {
+        images: Vec::new(),
         call_id: call_id.to_string(),
         content: content.to_string(),
         status: ToolResultStatus::Success,
@@ -1674,6 +1675,127 @@ fn multipart_archive_is_not_multiplied_and_legacy_duplicates_are_repaired() {
 }
 
 #[test]
+fn screenshot_results_survive_checkpoint_compaction_and_archive_deduplication() {
+    let mut run = ProviderRun::new(
+        "screenshots",
+        vec![ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![ContentPart::Image {
+                data: vec![99],
+                mime_type: "image/png".to_string(),
+            }]),
+        }],
+        "base",
+        ProviderRunLimits::default(),
+    );
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![
+                tool_call("capture", "use_computer"),
+                tool_call("capture-more", "use_computer"),
+            ],
+            &["use_computer"],
+        ),
+    );
+    for (call_id, bytes) in [("capture", vec![1, 2]), ("capture-more", vec![3, 4])] {
+        let mut result = successful_result(call_id, "screenshot captured");
+        result.images.push(ToolResultImage {
+            data: bytes,
+            mime_type: "image/png".to_string(),
+        });
+        run.complete_tool(&batch.work_id, result).unwrap();
+    }
+    // Pending typed results and their image payloads must survive a checkpoint.
+    assert_serialization_round_trip(&run);
+    run = serde_json::from_str(&serde_json::to_string(&run).unwrap()).unwrap();
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    let transcript = run.transcript().to_vec();
+    let summary = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text("Screenshots inspected.".to_string()),
+    }];
+    run.compact_transcript_at_model_boundary(transcript.len(), summary.clone())
+        .unwrap();
+    assert_eq!(run.transcript(), summary);
+    assert_eq!(run.tool_result_archive().len(), 2);
+    let MessageContent::MultiPart(parts) = &run.tool_result_archive()[1].content else {
+        panic!("expected archived screenshot result batch");
+    };
+    assert_eq!(parts.len(), 6);
+    assert!(matches!(
+        &parts[2], ContentPart::Text(text) if text == "Images returned by tool call capture:"
+    ));
+    assert!(matches!(
+        &parts[3], ContentPart::Image { data, .. } if data == &[1, 2]
+    ));
+    assert!(matches!(
+        &parts[4], ContentPart::Text(text) if text == "Images returned by tool call capture-more:"
+    ));
+    assert!(matches!(
+        &parts[5], ContentPart::Image { data, .. } if data == &[3, 4]
+    ));
+    let expected = run.tool_result_archive().to_vec();
+    let duplicated = expected.iter().cloned().chain(transcript).collect();
+    run.replace_tool_result_archive(duplicated);
+    assert_eq!(run.tool_result_archive(), expected);
+    assert_serialization_round_trip(&run);
+}
+
+#[test]
+fn archives_only_images_labelled_for_new_results_in_the_same_message() {
+    let result = successful_result("capture", "captured");
+    let mut parts = ToolResult::into_batch_content_parts(vec![result]);
+    parts.extend([
+        ContentPart::Image {
+            data: vec![99],
+            mime_type: "image/png".to_string(),
+        },
+        ContentPart::Text("Images returned by tool call missing:".to_string()),
+        ContentPart::Image {
+            data: vec![88],
+            mime_type: "image/png".to_string(),
+        },
+        ContentPart::Text("Images returned by tool call capture:".to_string()),
+        ContentPart::Image {
+            data: vec![1],
+            mime_type: "image/png".to_string(),
+        },
+        ContentPart::Text("Unrelated user upload".to_string()),
+        ContentPart::Image {
+            data: vec![77],
+            mime_type: "image/png".to_string(),
+        },
+    ]);
+    let mut archive = Vec::new();
+    let message = ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::MultiPart(parts),
+    };
+    archive_tool_results(&mut archive, vec![message.clone()]);
+    let MessageContent::MultiPart(parts) = &archive[0].content else {
+        panic!("expected correlated tool result with one image");
+    };
+    assert_eq!(parts.len(), 3);
+    assert!(matches!(&parts[2], ContentPart::Image { data, .. } if data == &[1]));
+    let expected = archive.clone();
+    archive_tool_results(&mut archive, vec![message]);
+    assert_eq!(archive, expected);
+}
+
+#[test]
+fn legacy_tool_results_without_images_still_restore() {
+    let result: ToolResult = serde_json::from_value(json!({
+        "call_id": "legacy",
+        "content": "old text result",
+        "status": "Success"
+    }))
+    .unwrap();
+    assert!(result.images.is_empty());
+    assert_eq!(result.content, "old text result");
+}
+
+#[test]
 fn local_child_launch_yields_and_does_not_execute_batched_follow_up_tools() {
     let mut run = run();
     let batch = accept_tool_turn(
@@ -1718,6 +1840,7 @@ fn failed_child_launch_allows_a_corrective_model_turn() {
     run.complete_tool(
         &batch.work_id,
         ToolResult {
+            images: Vec::new(),
             call_id: "children".to_string(),
             content: "Launch failed".to_string(),
             status: ToolResultStatus::Error,

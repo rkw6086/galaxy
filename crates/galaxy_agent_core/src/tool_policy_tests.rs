@@ -212,6 +212,120 @@ fn recall_never_returns_a_prior_recall_call() {
     );
 }
 
+fn screenshot_exchange(id: &str, bytes: Vec<u8>) -> Vec<ConversationMessage> {
+    let mut messages = tool_exchange(id, "use_computer", serde_json::json!({}), "captured");
+    messages[1].content = MessageContent::MultiPart(ToolResult::into_batch_content_parts(vec![
+        ToolResult {
+            call_id: id.to_string(),
+            content: "captured".to_string(),
+            status: ToolResultStatus::Success,
+            images: vec![ToolResultImage {
+                data: bytes,
+                mime_type: "image/png".to_string(),
+            }],
+        },
+    ]));
+    messages
+}
+
+#[test]
+fn recall_attaches_only_the_exact_selected_screenshots_from_archived_or_live_results() {
+    let archive = screenshot_exchange("capture", vec![1, 2]);
+    let mut messages = screenshot_exchange("capture-more", vec![3, 4]);
+    messages.push(ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::MultiPart(vec![
+            ContentPart::Text("Images returned by tool call capture:".to_string()),
+            ContentPart::Image {
+                data: vec![99],
+                mime_type: "image/png".to_string(),
+            },
+        ]),
+    });
+    let policy = ToolPolicy::new(&[definition(RECALL_TOOL_HISTORY_NAME)]);
+    for (arguments, original_id, bytes) in [
+        (
+            serde_json::json!({"tool_use_id": "capture"}),
+            "capture",
+            vec![1, 2],
+        ),
+        (
+            serde_json::json!({"tool_name": "use_computer"}),
+            "capture-more",
+            vec![3, 4],
+        ),
+        (
+            serde_json::json!({"tool_name": "use_computer", "offset_from_end": 1}),
+            "capture",
+            vec![1, 2],
+        ),
+    ] {
+        let call = ToolCall {
+            id: "recall-image".to_string(),
+            name: RECALL_TOOL_HISTORY_NAME.to_string(),
+            arguments,
+        };
+        let ToolCallDecision::Inline(result) = policy.decide(&call, &messages, &archive) else {
+            panic!("recall should execute inline");
+        };
+        assert_eq!(result.call_id, call.id);
+        assert!(result
+            .content
+            .contains(&format!("Tool Use ID: {original_id}\n")));
+        assert_eq!(
+            result.images,
+            vec![ToolResultImage {
+                data: bytes,
+                mime_type: "image/png".to_string(),
+            }]
+        );
+        let parts = ToolResult::into_batch_content_parts(vec![result]);
+        assert!(matches!(
+            &parts[0], ContentPart::ToolResult { tool_use_id, .. } if tool_use_id == "recall-image"
+        ));
+        assert!(matches!(
+            &parts[1], ContentPart::Text(text) if text == "Images returned by tool call recall-image:"
+        ));
+        assert!(matches!(&parts[2], ContentPart::Image { .. }));
+    }
+    let call = ToolCall {
+        id: "missing".to_string(),
+        name: RECALL_TOOL_HISTORY_NAME.to_string(),
+        arguments: serde_json::json!({"tool_use_id": "capture-missing"}),
+    };
+    let ToolCallDecision::Inline(result) = policy.decide(&call, &messages, &archive) else {
+        panic!("missing recall should execute inline");
+    };
+    assert!(result.images.is_empty());
+    assert_eq!(
+        result.content,
+        "No matching tool calls found in conversation history."
+    );
+}
+
+#[test]
+fn recall_does_not_reattach_images_from_an_earlier_recall_result() {
+    let mut messages = screenshot_exchange("recall-previous", vec![99]);
+    let MessageContent::ToolUse { name, .. } = &mut messages[0].content else {
+        panic!("expected tool call");
+    };
+    *name = RECALL_TOOL_HISTORY_NAME.to_string();
+    let policy = ToolPolicy::new(&[definition(RECALL_TOOL_HISTORY_NAME)]);
+    let call = ToolCall {
+        id: "recall-now".to_string(),
+        name: RECALL_TOOL_HISTORY_NAME.to_string(),
+        arguments: serde_json::json!({}),
+    };
+    let ToolCallDecision::Inline(result) = policy.decide(&call, &messages, &[]) else {
+        panic!("recall should execute inline");
+    };
+    assert!(result.images.is_empty());
+    assert_eq!(
+        result.content,
+        "No matching tool calls found in conversation history."
+    );
+}
+
 #[test]
 fn loop_guard_detects_repeated_failures_and_resets_after_detection() {
     let mut guard = ToolLoopGuard::new(5, 3);

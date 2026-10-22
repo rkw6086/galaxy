@@ -169,6 +169,7 @@ fn tool_events_keep_one_call_id_across_permission_and_execution() {
         },
         ToolEvent::Completed {
             result: ToolResult {
+                images: Vec::new(),
                 call_id: "call-1".to_string(),
                 content: "ok".to_string(),
                 status: ToolResultStatus::Success,
@@ -182,11 +183,13 @@ fn tool_events_keep_one_call_id_across_permission_and_execution() {
 #[test]
 fn denied_results_are_errors_but_cancelled_results_are_distinct() {
     let denied = ToolResult {
+        images: Vec::new(),
         call_id: "denied".to_string(),
         content: "permission denied".to_string(),
         status: ToolResultStatus::Denied,
     };
     let cancelled = ToolResult {
+        images: Vec::new(),
         call_id: "cancelled".to_string(),
         content: "cancelled".to_string(),
         status: ToolResultStatus::Cancelled,

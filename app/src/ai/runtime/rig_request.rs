@@ -389,17 +389,7 @@ fn input_messages(
 ) -> Vec<ConversationMessage> {
     let mut messages = Vec::new();
     if !tool_results.is_empty() {
-        let mut parts = tool_results
-            .into_iter()
-            .map(|result| {
-                let is_error = result.is_error();
-                ContentPart::ToolResult {
-                    tool_use_id: result.call_id,
-                    content: result.content,
-                    is_error,
-                }
-            })
-            .collect::<Vec<_>>();
+        let mut parts = ToolResult::into_batch_content_parts(tool_results);
         let content = if parts.len() == 1 {
             let ContentPart::ToolResult {
                 tool_use_id,
@@ -1042,6 +1032,12 @@ fn build_system_prompt(
         .any(|tool| matches!(tool.name.as_str(), "run_agents" | "start_agent"))
     {
         prompt.push_str(CODING_DELEGATION_GUIDANCE);
+    }
+    if tools.iter().any(|tool| tool.name == "request_computer_use") {
+        prompt.push_str("## Desktop Computer Use\nUse request_computer_use for tasks that require seeing or interacting with the user's desktop. This controls the machine running Galaxy, including when the terminal is connected to another host. Request the specific authorized task and wait for the screenshot. A successful request switches to the configured computer-use model; rejected or failed requests do not grant control.\n\n");
+    }
+    if tools.iter().any(|tool| tool.name == "use_computer") {
+        prompt.push_str("## Desktop Computer Use\nInspect the latest returned screenshot before acting. Use use_computer with small action batches, then inspect the new screenshot. Use original physical pixel coordinates: multiply displayed image x by original_width/width and y by original_height/height. Every button/key press requires both down and up actions. For window targeting, select an exact window_id/pid from the latest windows list; never invent a window. Stop on errors or denied permission and report the actual cause. Galaxy's Full Disk Access is separate from Screen Recording and Accessibility permissions. When desktop work is complete and terminal/file work remains, call the appropriate normal tool and Galaxy resumes the base model. Only finish the response when the whole user's task is complete.\n\n");
     }
     prompt.push_str("## Available Tools\n");
     if tools.is_empty() {

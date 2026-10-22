@@ -104,6 +104,7 @@ fn restored_task_progress_replay_does_not_duplicate_the_persisted_checklist() {
                 arguments: serde_json::to_value(&snapshot).unwrap(),
             },
             state: galaxy_agent_core::PendingToolCallState::Resolved { result: galaxy_agent_core::ToolResult {
+                images: Vec::new(),
                 call_id: "progress".to_owned(), status: galaxy_agent_core::ToolResultStatus::Success,
                 content: snapshot.to_tool_result_content(),
             }},

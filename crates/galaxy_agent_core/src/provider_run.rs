@@ -4,6 +4,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::types::tool_image_group_call_id;
 use crate::{
     AgentError, ContentPart, ConversationMessage, MessageContent, MessageRole, PermissionDecision,
     PermissionRequest, StopReason, TaskListSnapshot, ToolCall, ToolCallDecision, ToolPolicy,
@@ -860,6 +861,7 @@ impl ProviderRun {
                         .push(pending.call.id.clone());
                     pending.state = PendingToolCallState::Resolved {
                         result: ToolResult {
+                            images: Vec::new(),
                             call_id: pending.call.id.clone(),
                             content: "Tool execution was interrupted by application restart and was not replayed."
                                 .to_string(),
@@ -1161,6 +1163,7 @@ impl ProviderRun {
                 let content = reason.unwrap_or_else(|| "Tool permission was denied.".to_string());
                 call.state = PendingToolCallState::Resolved {
                     result: ToolResult {
+                        images: Vec::new(),
                         call_id: call_id.to_string(),
                         content,
                         status: ToolResultStatus::Denied,
@@ -1244,6 +1247,7 @@ impl ProviderRun {
             | PendingToolCallState::RecoveryPending => {
                 call.state = PendingToolCallState::Resolved {
                     result: ToolResult {
+                        images: Vec::new(),
                         call_id: call_id.to_string(),
                         content: reason.into(),
                         status: ToolResultStatus::Cancelled,
@@ -1468,6 +1472,7 @@ impl ProviderRun {
                 let state = if has_launch && !is_local_agent_launch(&call) {
                     PendingToolCallState::Resolved {
                         result: ToolResult {
+                            images: Vec::new(),
                             call_id: call.id.clone(),
                             content: "Not executed: launching a child group yields this turn. Wait for the group's completion before scheduling dependent work.".to_string(),
                             status: ToolResultStatus::Error,
@@ -1476,6 +1481,7 @@ impl ProviderRun {
                 } else if !call.arguments.is_object() {
                     PendingToolCallState::Resolved {
                         result: ToolResult {
+                            images: Vec::new(),
                             call_id: call.id.clone(),
                             content: format!(
                                 "Error: '{}' received malformed arguments; expected a JSON object.",
@@ -1587,6 +1593,7 @@ impl ProviderRun {
                     if call.state.result().is_none() {
                         call.state = PendingToolCallState::Resolved {
                             result: ToolResult {
+                                images: Vec::new(),
                                 call_id: call.call.id.clone(),
                                 content: result_content.clone(),
                                 status,
@@ -1782,16 +1789,7 @@ fn assistant_message(turn: &CompletedModelTurn) -> ConversationMessage {
 fn tool_result_message(results: Vec<ToolResult>) -> ConversationMessage {
     ConversationMessage {
         role: MessageRole::User,
-        content: MessageContent::MultiPart(
-            results
-                .into_iter()
-                .map(|result| ContentPart::ToolResult {
-                    tool_use_id: result.call_id,
-                    content: result.content,
-                    is_error: !matches!(result.status, ToolResultStatus::Success),
-                })
-                .collect(),
-        ),
+        content: MessageContent::MultiPart(ToolResult::into_batch_content_parts(results)),
     }
 }
 
@@ -1862,17 +1860,42 @@ pub fn archive_tool_results(
                 seen_results.insert(tool_use_id.clone())
             }
             MessageContent::MultiPart(parts) => {
-                parts.retain(|part| match part {
-                    ContentPart::ToolUse { tool_use_id, .. } => {
-                        seen_uses.insert(tool_use_id.clone())
+                let mut retained_results = HashSet::new();
+                let mut keep_parts: Vec<_> = parts
+                    .iter()
+                    .map(|part| match part {
+                        ContentPart::ToolUse { tool_use_id, .. } => {
+                            seen_uses.insert(tool_use_id.clone())
+                        }
+                        ContentPart::ToolResult { tool_use_id, .. } => {
+                            let keep = seen_results.insert(tool_use_id.clone());
+                            if keep {
+                                retained_results.insert(tool_use_id.clone());
+                            }
+                            keep
+                        }
+                        ContentPart::Text(_)
+                        | ContentPart::Reasoning { .. }
+                        | ContentPart::Image { .. } => false,
+                    })
+                    .collect();
+                let mut keep_image_group = false;
+                for (index, part) in parts.iter().enumerate() {
+                    match part {
+                        ContentPart::Text(_) => {
+                            keep_image_group = tool_image_group_call_id(part)
+                                .is_some_and(|call_id| retained_results.contains(call_id))
+                                && matches!(parts.get(index + 1), Some(ContentPart::Image { .. }));
+                            keep_parts[index] = keep_image_group;
+                        }
+                        ContentPart::Image { .. } => keep_parts[index] = keep_image_group,
+                        ContentPart::Reasoning { .. }
+                        | ContentPart::ToolUse { .. }
+                        | ContentPart::ToolResult { .. } => keep_image_group = false,
                     }
-                    ContentPart::ToolResult { tool_use_id, .. } => {
-                        seen_results.insert(tool_use_id.clone())
-                    }
-                    ContentPart::Text(_)
-                    | ContentPart::Reasoning { .. }
-                    | ContentPart::Image { .. } => false,
-                });
+                }
+                let mut retained = keep_parts.into_iter();
+                parts.retain(|_| retained.next().unwrap_or(false));
                 !parts.is_empty()
             }
             MessageContent::Text(_) => false,

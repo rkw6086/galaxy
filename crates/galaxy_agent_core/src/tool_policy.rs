@@ -2,9 +2,10 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 
 use serde_json::Value as JsonValue;
 
+use crate::types::tool_image_group_call_id;
 use crate::{
     ContentPart, ConversationMessage, MessageContent, TaskListSnapshot, ToolCall, ToolDefinition,
-    ToolResult, ToolResultStatus, UPDATE_TASK_LIST_NAME,
+    ToolResult, ToolResultImage, ToolResultStatus, UPDATE_TASK_LIST_NAME,
 };
 
 pub const RECALL_TOOL_HISTORY_NAME: &str = "recall_tool_history";
@@ -124,6 +125,7 @@ impl ToolPolicy {
                 )
             };
             return ToolCallDecision::Reject(ToolResult {
+                images: Vec::new(),
                 call_id: call.id.clone(),
                 content: format!(
                     "Error: '{}' is not a valid tool for this request; {available}. Do not invent tool names.",
@@ -134,13 +136,15 @@ impl ToolPolicy {
         }
 
         if call.name == RECALL_TOOL_HISTORY_NAME {
+            let (content, images) = recall_tool_history_with_images(
+                messages,
+                archive,
+                ToolHistoryQuery::from_arguments(&call.arguments),
+            );
             return ToolCallDecision::Inline(ToolResult {
+                images,
                 call_id: call.id.clone(),
-                content: recall_tool_history(
-                    messages,
-                    archive,
-                    ToolHistoryQuery::from_arguments(&call.arguments),
-                ),
+                content,
                 status: ToolResultStatus::Success,
             });
         }
@@ -148,11 +152,13 @@ impl ToolPolicy {
         if call.name == UPDATE_TASK_LIST_NAME {
             return match TaskListSnapshot::from_arguments(&call.arguments) {
                 Ok(snapshot) => ToolCallDecision::Inline(ToolResult {
+                    images: Vec::new(),
                     call_id: call.id.clone(),
                     content: snapshot.to_tool_result_content(),
                     status: ToolResultStatus::Success,
                 }),
                 Err(error) => ToolCallDecision::Reject(ToolResult {
+                    images: Vec::new(),
                     call_id: call.id.clone(),
                     content: format!("Error: {error}"),
                     status: ToolResultStatus::Error,
@@ -201,6 +207,14 @@ pub fn recall_tool_history(
     archive: &[ConversationMessage],
     query: ToolHistoryQuery<'_>,
 ) -> String {
+    recall_tool_history_with_images(messages, archive, query).0
+}
+
+fn recall_tool_history_with_images(
+    messages: &[ConversationMessage],
+    archive: &[ConversationMessage],
+    query: ToolHistoryQuery<'_>,
+) -> (String, Vec<ToolResultImage>) {
     let mut entries = Vec::new();
     collect_tool_entries(archive, &mut entries);
     collect_tool_entries(messages, &mut entries);
@@ -222,26 +236,43 @@ pub fn recall_tool_history(
         .len()
         .checked_sub(1usize.saturating_add(query.offset_from_end))
     else {
-        return "No matching tool calls found in conversation history.".to_string();
+        return (
+            "No matching tool calls found in conversation history.".to_string(),
+            Vec::new(),
+        );
     };
     let entry = filtered[index];
     let result = truncate_recalled_result(&entry.result);
 
-    format!(
-        "Tool: {}\nTool Use ID: {}\nInput: {}\nResult:\n{result}",
-        entry.name, entry.tool_use_id, entry.input
+    (
+        format!(
+            "Tool: {}\nTool Use ID: {}\nInput: {}\nResult:\n{result}",
+            entry.name, entry.tool_use_id, entry.input
+        ),
+        entry
+            .images
+            .iter()
+            .map(|(data, mime_type)| ToolResultImage {
+                data: data.to_vec(),
+                mime_type: (*mime_type).to_string(),
+            })
+            .collect(),
     )
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ToolHistoryEntry {
+#[derive(Clone, Debug, PartialEq)]
+struct ToolHistoryEntry<'a> {
     tool_use_id: String,
     name: String,
     input: String,
     result: String,
+    images: Vec<(&'a [u8], &'a str)>,
 }
 
-fn collect_tool_entries(messages: &[ConversationMessage], entries: &mut Vec<ToolHistoryEntry>) {
+fn collect_tool_entries<'a>(
+    messages: &'a [ConversationMessage],
+    entries: &mut Vec<ToolHistoryEntry<'a>>,
+) {
     let mut pending = Vec::new();
     for message in messages {
         match &message.content {
@@ -256,6 +287,7 @@ fn collect_tool_entries(messages: &[ConversationMessage], entries: &mut Vec<Tool
                 ..
             } => pair_result(tool_use_id, content, &mut pending, entries),
             MessageContent::MultiPart(parts) => {
+                let entries_start = entries.len();
                 for part in parts {
                     match part {
                         ContentPart::ToolUse {
@@ -275,6 +307,41 @@ fn collect_tool_entries(messages: &[ConversationMessage], entries: &mut Vec<Tool
                         | ContentPart::Image { .. } => {}
                     }
                 }
+                // ToolResult::into_batch_content_parts places labelled image groups
+                // after every correlated result. Only attach images to results from
+                // this same message, never a nearby user upload or another call.
+                let result_ids: BTreeSet<_> = parts
+                    .iter()
+                    .filter_map(|part| match part {
+                        ContentPart::ToolResult { tool_use_id, .. } => Some(tool_use_id.as_str()),
+                        ContentPart::Text(_)
+                        | ContentPart::Reasoning { .. }
+                        | ContentPart::Image { .. }
+                        | ContentPart::ToolUse { .. } => None,
+                    })
+                    .collect();
+                let mut image_call_id = None;
+                for part in parts {
+                    match part {
+                        ContentPart::Text(_) => {
+                            image_call_id = tool_image_group_call_id(part)
+                                .filter(|call_id| result_ids.contains(call_id));
+                        }
+                        ContentPart::Image { data, mime_type } => {
+                            if let Some(entry) = image_call_id.and_then(|call_id| {
+                                entries[entries_start..]
+                                    .iter_mut()
+                                    .rev()
+                                    .find(|entry| entry.tool_use_id == call_id)
+                            }) {
+                                entry.images.push((data, mime_type));
+                            }
+                        }
+                        ContentPart::Reasoning { .. }
+                        | ContentPart::ToolUse { .. }
+                        | ContentPart::ToolResult { .. } => image_call_id = None,
+                    }
+                }
             }
             MessageContent::Text(_) => {}
         }
@@ -285,7 +352,7 @@ fn pair_result(
     tool_use_id: &str,
     content: &str,
     pending: &mut Vec<(String, String, String)>,
-    entries: &mut Vec<ToolHistoryEntry>,
+    entries: &mut Vec<ToolHistoryEntry<'_>>,
 ) {
     let Some(index) = pending.iter().position(|(id, _, _)| id == tool_use_id) else {
         return;
@@ -296,6 +363,7 @@ fn pair_result(
         name,
         input,
         result: content.to_string(),
+        images: Vec::new(),
     });
 }
 

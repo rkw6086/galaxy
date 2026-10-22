@@ -174,9 +174,10 @@ base_url = "http://localhost:4000/v1"
 api_key = "sk-..."
 
 [[ai.providers.models]]
-model_id = "claude-sonnet-4-20250514[1m]"
-display_name = "Claude Sonnet 4 (1M)"
+model_id = "claude-sonnet-4-20250514"
+display_name = "Claude Sonnet 4"
 context_size = 1000000
+default_context_size = 200000
 
 [[ai.providers]]
 name = "Ollama (Local)"
@@ -189,10 +190,9 @@ context_size = 128000
 ```
 
 **OpenAI/LiteLLM model discovery**:
-- Models can be auto-fetched from the `/models` endpoint via the Settings > OpenAI / LiteLLM page
-- For each model, the system probes `{model_id}[1m]` with a minimal chat completion request
-- If the `[1m]` variant is accepted (HTTP 200 or 429), it's used with 1M context window
-- Otherwise, the base model ID is used with its reported context size
+- Models can be auto-fetched from `/models` and enriched with LiteLLM `/model/info` via the Settings > OpenAI / LiteLLM page.
+- Preserve the efficient/default context window separately from the provider's maximum. Ordinary requests, compaction, and context displays use the lower positive default/input/maximum budget, including any explicit profile cap; availability of a larger maximum must never expand that budget automatically.
+- Retain lower budgets when merging metadata from both endpoints, apply `effective_context_window_percent` once, and preserve the maximum as metadata. Discovery must not probe or select an extended `[1m]` variant automatically.
 - Models injected via `ai.providers[]` are routed to their specific endpoint (per-model routing map)
 - Provider name shown as the description label in the model picker; icon shows OpenAI logo for all OpenAI-compatible providers
 
@@ -211,6 +211,8 @@ Key invariants:
 - A restored `AwaitingModel` checkpoint has an uncertain remote outcome and must terminate as an explicit restore failure rather than replaying the call; known recoverable failures observed in-process retain the bounded model-retry lifecycle
 - Same-conversation direct-provider follow-ups queue behind the cancelling generation; the old run keeps the active slot until terminal projection and cleanup, queued intent is checkpointed without credentials for restart recovery, and queued-only restore validates provider ownership and terminalizes the abandoned unprepared exchange from its persisted projection/stream identity before starting the successor; the next generation rebuilds provider history after cleanup so it includes the old generation's final committed output, and stale callbacks are ignored by stream identity
 - Known tools are in `KNOWN_TOOLS` in `response_translator.rs`; definitions are built by `tool_definition_for_name()` in `convert_request.rs`
+- Direct-provider computer use starts with `request_computer_use`; the computer-use profile exposes `use_computer`, including when its model falls back to the main model. Tool availability and every action remain subject to session capabilities and the existing profile permission checks.
+- Computer-use screenshots must reach providers as image parts, survive checkpoints and tool-result archival, and remain correlated with their tool call on explicit history recall. Emit every result in a tool batch before its screenshot image groups, and estimate image tokens without counting encoded image bytes as text.
 - Direct-provider normal and plan turns must advertise `read_plan`, `create_plan`, and `edit_plan` when the matching document capabilities are enabled; plan-creation requests should call `create_plan` after research rather than only returning prose
 - Direct-provider normal and plan turns expose `update_task_list` for explicit progress updates. Keep the validated current list in durable `ProviderRun` state, inject it into each request, preserve it across compaction and restore, and reconcile restored UI updates idempotently. Finishing a response must never mark unfinished work complete. CLI monitors and completed-command assessments retain their focused tool sets.
 - Completed local plans are archived intact into `Plans/Archive` after seven days only when their conversation has explicitly completed all checklist items and has no active provider run or child. Draft, unfinished, or reopened plans stay visible; resumed work restores an automatically archived plan, and manual recovery is respected. Archival never deletes plan contents.

@@ -2819,9 +2819,12 @@ pub(crate) fn openai_model_context_size(
         .max_input_tokens
         .unwrap_or(model.context_size)
         .min(model.context_size);
-    if provider_kind == OpenAIProviderKind::ChatGPTSubscription {
-        // The catalog's default window is the supported session budget. The
-        // advertised maximum must not silently opt subscriptions into long context.
+    if matches!(
+        provider_kind,
+        OpenAIProviderKind::ChatGPTSubscription | OpenAIProviderKind::LiteLLM
+    ) {
+        // Use the efficient session window for both subscriptions and proxies.
+        // An advertised maximum does not opt a connection into long context.
         // Older saved catalogs kept the default in max_input_tokens instead.
         return model
             .default_context_size
@@ -2959,7 +2962,7 @@ fn openai_model_context_window(
         is_configurable: max_context_size > default_context_size,
         min: default_context_size,
         max: max_context_size,
-        // Subscription limits are already capped to the catalog's default above.
+        // Subscription and LiteLLM limits are capped to the catalog default above.
         default_max: max_context_size,
     }
 }
@@ -2969,6 +2972,53 @@ fn u32_from_json_any(value: &serde_json::Value, keys: &[&str]) -> Option<u32> {
     keys.iter()
         .find_map(|key| value[*key].as_u64())
         .and_then(|value| u32::try_from(value).ok())
+}
+
+/// Keep an endpoint's recommended window separate from its optional expanded
+/// maximum. A bare model ID carries no token metadata, so it must not replace
+/// richer limits when the two catalog endpoints are combined.
+#[cfg(not(target_family = "wasm"))]
+fn openai_context_limits(metadata: &serde_json::Value) -> (u32, Option<u32>, Option<u32>) {
+    let positive_limit = |keys: &[&str]| {
+        keys.iter().find_map(|key| {
+            metadata[*key]
+                .as_u64()
+                .and_then(|value| u32::try_from(value).ok())
+                .filter(|value| *value > 0)
+        })
+    };
+    let max_input_tokens =
+        positive_limit(&["max_input_tokens", "input_token_limit", "max_prompt_tokens"]);
+    let default_context_size = positive_limit(&[
+        "default_context_size",
+        "default_context_window",
+        "context_window",
+    ]);
+    let maximum_context_size = positive_limit(&[
+        "max_context_window",
+        "max_model_len",
+        "context_size",
+        "token_size",
+    ]);
+    let effective_context_percent = metadata["effective_context_window_percent"]
+        .as_u64()
+        .filter(|value| (1..=100).contains(value))
+        .unwrap_or(100);
+    // A proxy may already reduce max_input_tokens by this percentage. Apply it
+    // only to the original session window, never to that input limit again.
+    let default_context_size = default_context_size
+        .map(|value| {
+            u32::try_from(u64::from(value) * effective_context_percent / 100)
+                .unwrap_or(value)
+                .max(1)
+        })
+        .or(max_input_tokens)
+        .or(maximum_context_size);
+    let context_size = maximum_context_size
+        .or(default_context_size)
+        .or(max_input_tokens)
+        .unwrap_or(DEFAULT_DISCOVERED_MODEL_CONTEXT_SIZE);
+    (context_size, max_input_tokens, default_context_size)
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -3209,19 +3259,11 @@ async fn fetch_from_litellm_model_info(
             let model_name = entry["model_name"].as_str()?;
             let model_info = &entry["model_info"];
 
-            let max_input_tokens = model_info["max_input_tokens"]
-                .as_u64()
-                .and_then(|v| u32::try_from(v).ok());
+            let (context_size, max_input_tokens, default_context_size) =
+                openai_context_limits(model_info);
             let max_output_tokens = model_info["max_output_tokens"]
                 .as_u64()
                 .and_then(|v| u32::try_from(v).ok());
-            let context_size = u32_from_json_any(
-                model_info,
-                &["max_context_window", "context_window", "max_model_len"],
-            )
-            .or(max_input_tokens)
-            .unwrap_or(200_000);
-
             let vision_supported = model_info["supports_vision"].as_bool().unwrap_or(true);
 
             let display_name = model_name.replace(['-', '_'], " ");
@@ -3271,7 +3313,7 @@ async fn fetch_from_litellm_model_info(
                 vision_supported,
                 context_size,
                 max_input_tokens,
-                default_context_size: None,
+                default_context_size,
                 max_output_tokens,
                 provider,
                 supports_system_messages: if model_name.starts_with("codex-gpt-") {
@@ -3318,7 +3360,30 @@ async fn fetch_litellm_catalog(
             metadata
                 .iter()
                 .find(|info| info.model_id == model.model_id)
-                .cloned()
+                .map(|info| {
+                    let mut enriched = info.clone();
+                    // /model/info supplies capabilities, but must not erase a
+                    // smaller session budget supplied by /models (or vice versa).
+                    enriched.default_context_size = model
+                        .default_context_size
+                        .into_iter()
+                        .chain(info.default_context_size)
+                        .min();
+                    enriched.max_input_tokens = model
+                        .max_input_tokens
+                        .into_iter()
+                        .chain(info.max_input_tokens)
+                        .min();
+                    enriched.context_size = match (
+                        model.default_context_size,
+                        info.default_context_size,
+                    ) {
+                        (Some(_), Some(_)) => model.context_size.max(info.context_size),
+                        (Some(_), None) => model.context_size,
+                        _ => info.context_size,
+                    };
+                    enriched
+                })
                 .unwrap_or(model)
         })
         .collect())
@@ -3369,21 +3434,7 @@ async fn fetch_from_openai_models(
         .iter()
         .filter_map(|m| {
             let id = m["id"].as_str()?;
-            let max_input_tokens = u32_from_any(
-                m,
-                &["max_input_tokens", "input_token_limit", "max_prompt_tokens"],
-            );
-            let context_size = u32_from_any(
-                m,
-                &[
-                    "max_context_window",
-                    "max_model_len",
-                    "context_window",
-                    "token_size",
-                ],
-            )
-            .or(max_input_tokens)
-            .unwrap_or(200_000);
+            let (context_size, max_input_tokens, default_context_size) = openai_context_limits(m);
             let max_output_tokens = u32_from_any(
                 m,
                 &[
@@ -3430,7 +3481,7 @@ async fn fetch_from_openai_models(
                     .unwrap_or(true),
                 context_size,
                 max_input_tokens,
-                default_context_size: None,
+                default_context_size,
                 max_output_tokens,
                 provider,
                 supports_system_messages: if id.starts_with("codex-gpt-") {

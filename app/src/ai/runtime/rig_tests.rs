@@ -87,6 +87,27 @@ async fn selected_computer_use_model_gets_its_own_profile() {
     );
 }
 
+#[tokio::test]
+async fn automatic_and_same_model_computer_use_keep_a_dedicated_profile() {
+    for selected in ["computer-use-agent-auto", "base-selection", "unroutable-model"] {
+        let mut params = RequestParams::new_for_test();
+        params.model = LLMId::from("base-selection");
+        params.computer_use_model = LLMId::from(selected);
+        params.computer_use_enabled = true;
+        let prepared = prepare_provider_run(
+            ProviderConfig::OpenAI(openai_config("base-provider-model")),
+            ProviderConfig::None, ProviderConfig::None, params, Vec::new(),
+        ).await.unwrap();
+        assert!(prepared.base_profile.request.tools.iter().any(|tool| tool.name == "request_computer_use"));
+        assert!(!prepared.base_profile.request.tools.iter().any(|tool| tool.name == "use_computer"));
+        let computer = prepared.computer_use_profile.unwrap();
+        assert_eq!(computer.request.model.as_str(), "base-provider-model");
+        assert!(computer.request.tools.iter().any(|tool| tool.name == "use_computer"));
+        assert!(!computer.request.tools.iter().any(|tool| tool.name == "request_computer_use"));
+        assert!(computer.request.system_prompt.unwrap().contains("Inspect the latest returned screenshot before acting"));
+    }
+}
+
 #[test]
 fn subscription_context_budget_uses_catalog_limit_and_clamps_stale_overrides() {
     let mut config = openai_config("subscription-model");
