@@ -3998,12 +3998,7 @@ impl AIBlock {
         });
 
         self.ask_user_question_view = Some(view.clone());
-        if self
-            .action_model
-            .as_ref(ctx)
-            .get_action_status(self.client_ids.conversation_id, action_id)
-            .is_some_and(|status| status.is_blocked())
-        {
+        if view.as_ref(ctx).is_waiting_on_user_answers(ctx) {
             ctx.focus(&view);
         }
         if self.sync_ask_user_question_speedbump_footer(ctx)
@@ -4826,16 +4821,20 @@ impl AIBlock {
         self.model.status(app).is_complete()
     }
 
-    /// Returns `true` if the block contains any actions that are blocked on user confirmation.
+    /// Returns `true` when actions need confirmation or a question is waiting for an answer.
     pub fn is_blocked_on_user_confirmation(&self, app: &AppContext) -> bool {
-        self.requested_action_ids
-            .iter()
-            .filter_map(|id| {
-                self.action_model
-                    .as_ref(app)
-                    .get_action_status(self.client_ids.conversation_id, id)
-            })
-            .any(|status| status.is_blocked())
+        self.ask_user_question_view
+            .as_ref()
+            .is_some_and(|view| view.as_ref(app).is_waiting_on_user_answers(app))
+            || self
+                .requested_action_ids
+                .iter()
+                .filter_map(|id| {
+                    self.action_model
+                        .as_ref(app)
+                        .get_action_status(self.client_ids.conversation_id, id)
+                })
+                .any(|status| status.is_blocked())
     }
 
     /// Returns the server output ID for this AI block, if available.
@@ -5369,10 +5368,7 @@ impl AIBlock {
             did_focus_subview = true;
         } else if let Some(ask_user_question_view) =
             self.ask_user_question_view.as_ref().filter(|view| {
-                pending_action_id.is_some_and(|id| {
-                    let view = view.as_ref(ctx);
-                    view.action_id() == id && view.is_editing()
-                })
+                view.as_ref(ctx).is_waiting_on_user_answers(ctx)
             })
         {
             ctx.focus(ask_user_question_view);

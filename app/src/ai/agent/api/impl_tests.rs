@@ -191,14 +191,53 @@ fn supported_tools_omits_ask_user_question_when_disabled() {
 
 #[test]
 fn supported_tools_includes_ask_user_question_when_enabled_and_feature_flag_is_enabled() {
-    if !FeatureFlag::AskUserQuestion.is_enabled() {
-        return;
-    }
+    let _flag = FeatureFlag::AskUserQuestion.override_enabled(true);
 
     let params = request_params_with_ask_user_question_enabled(true);
     let supported_tools = get_supported_tools(&params);
 
     assert!(supported_tools.contains(&api::ToolType::AskUserQuestion));
+}
+
+#[test]
+fn question_overrides_respect_mode_capability_and_feature_without_enabling_cli_pauses() {
+    use crate::ai::execution_profiles::PermissionMode;
+
+    for (mode, enabled, feature_enabled, expected) in [
+        (PermissionMode::AskFirst, true, true, true),
+        (PermissionMode::AllowAll, true, true, true),
+        (PermissionMode::AllowAll, false, true, false),
+        (PermissionMode::AllowAll, true, false, false),
+        (PermissionMode::GalaxyDecides, true, true, false),
+        (PermissionMode::ReadOnly, true, true, false),
+    ] {
+        let _flag = FeatureFlag::AskUserQuestion.override_enabled(feature_enabled);
+        let mut params = request_params_with_ask_user_question_enabled(enabled);
+        params.permission_mode = mode;
+        params.supported_tools_override = Some(vec![api::ToolType::AskUserQuestion]);
+
+        let (normal, cli) = super::prepare_direct_provider_params(&mut params);
+
+        assert_eq!(
+            normal.contains(&api::ToolType::AskUserQuestion),
+            expected,
+            "{mode:?}"
+        );
+        assert!(!cli.contains(&api::ToolType::AskUserQuestion), "{mode:?}");
+    }
+}
+
+#[test]
+fn question_availability_does_not_expand_empty_tool_overrides() {
+    let _flag = FeatureFlag::AskUserQuestion.override_enabled(true);
+    let mut params = request_params_with_ask_user_question_enabled(true);
+    params.permission_mode = crate::ai::execution_profiles::PermissionMode::AllowAll;
+    params.supported_tools_override = Some(Vec::new());
+
+    let (normal, cli) = super::prepare_direct_provider_params(&mut params);
+
+    assert!(normal.is_empty());
+    assert!(cli.is_empty());
 }
 
 #[test]

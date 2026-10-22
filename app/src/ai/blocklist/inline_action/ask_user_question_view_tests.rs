@@ -1,10 +1,16 @@
+use std::sync::Arc;
+
 use ai::agent::action::{AskUserQuestionItem, AskUserQuestionOption, AskUserQuestionType};
-use ai::agent::action_result::AskUserQuestionAnswerItem;
+use ai::agent::action_result::{AskUserQuestionAnswerItem, AskUserQuestionResult};
 
 use super::{
-    ask_user_question_view_state, AskUserQuestionAction, AskUserQuestionEffect,
-    AskUserQuestionPhase, AskUserQuestionSession, AskUserQuestionViewState,
+    ask_user_question_is_waiting_on_user_answers, ask_user_question_view_state,
+    AskUserQuestionAction, AskUserQuestionEffect, AskUserQuestionPhase,
+    AskUserQuestionSession, AskUserQuestionViewState,
 };
+use crate::ai::agent::task::TaskId;
+use crate::ai::agent::{AIAgentActionId, AIAgentActionResult, AIAgentActionResultType};
+use crate::ai::blocklist::action_model::AIActionStatus;
 
 fn build_question(
     question_id: &str,
@@ -40,6 +46,53 @@ fn view_state_for(session: &AskUserQuestionSession) -> AskUserQuestionViewState 
 
 fn current_draft(session: &AskUserQuestionSession) -> Option<&super::QuestionDraft> {
     session.current().and_then(|current| current.draft)
+}
+
+#[test]
+fn blocked_and_running_questions_accept_answers_until_the_session_completes() {
+    let mut session = build_session(vec![build_question("q1", "Destination", false, true, &[])]);
+    let blocked = AIActionStatus::Blocked;
+    let running = AIActionStatus::RunningAsync;
+
+    for status in [&blocked, &running] {
+        assert!(ask_user_question_is_waiting_on_user_answers(
+            session.phase(),
+            Some(status),
+        ));
+    }
+
+    assert!(matches!(
+        session.apply(AskUserQuestionAction::SkipAll),
+        AskUserQuestionEffect::Submit(_)
+    ));
+    for status in [&blocked, &running] {
+        assert!(!ask_user_question_is_waiting_on_user_answers(
+            session.phase(),
+            Some(status),
+        ));
+    }
+}
+
+#[test]
+fn queued_preprocessing_missing_and_finished_questions_do_not_accept_answers() {
+    let session = build_session(vec![build_question("q1", "Destination", false, true, &[])]);
+    let finished = AIActionStatus::Finished(Arc::new(AIAgentActionResult {
+        result: AIAgentActionResultType::AskUserQuestion(AskUserQuestionResult::Cancelled),
+        task_id: TaskId::new("question-task".to_owned()),
+        id: AIAgentActionId::from("question-action".to_owned()),
+    }));
+
+    for status in [
+        None,
+        Some(AIActionStatus::Queued),
+        Some(AIActionStatus::Preprocessing),
+        Some(finished),
+    ] {
+        assert!(!ask_user_question_is_waiting_on_user_answers(
+            session.phase(),
+            status.as_ref(),
+        ));
+    }
 }
 
 #[test]

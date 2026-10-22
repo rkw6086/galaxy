@@ -243,6 +243,58 @@ fn plan_turn_requires_a_plan_tool_result() {
 }
 
 #[test]
+fn normal_and_plan_turns_advertise_clarifications_only_for_interactive_permission_modes() {
+    use crate::ai::execution_profiles::{
+        AIExecutionProfile, AskUserQuestionPermission, PermissionMode,
+    };
+
+    let _flag = galaxy_core::features::FeatureFlag::AskUserQuestion.override_enabled(true);
+    for (permission_mode, expected) in [
+        (PermissionMode::AskFirst, true),
+        (PermissionMode::AllowAll, true),
+        (PermissionMode::GalaxyDecides, false),
+        (PermissionMode::ReadOnly, false),
+    ] {
+        for plan_mode in [false, true] {
+            let mut profile = AIExecutionProfile {
+                permission_mode,
+                ..Default::default()
+            };
+            profile.project_permission_mode();
+            let mut params = RequestParams::new_for_test();
+            params.permission_mode = permission_mode;
+            params.ask_user_question_enabled =
+                profile.ask_user_question != AskUserQuestionPermission::Never;
+            let mut input = user_query("Clarify the requested destination before proceeding");
+            if plan_mode {
+                let AIAgentInput::UserQuery {
+                    user_query_mode, ..
+                } = &mut input
+                else {
+                    unreachable!("user_query returns a user query input");
+                };
+                *user_query_mode = UserQueryMode::Plan;
+            }
+            params.input = vec![input];
+            let (normal, cli) =
+                crate::ai::agent::api::prepare_direct_provider_params(&mut params);
+            assert!(!cli.contains(&ToolType::AskUserQuestion));
+
+            let prepared = prepare_rig_turn(&config(), params, normal, cli);
+            assert_eq!(
+                prepared
+                    .request
+                    .tools
+                    .iter()
+                    .any(|tool| tool.name == "ask_user_question"),
+                expected,
+                "{permission_mode:?}, plan_mode={plan_mode}"
+            );
+        }
+    }
+}
+
+#[test]
 fn no_tools_turn_flattens_historical_tool_protocol_messages() {
     let mut params = RequestParams::new_for_test();
     params.message_history = vec![
