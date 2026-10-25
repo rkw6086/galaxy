@@ -61,6 +61,7 @@ fn serialized_profiles_only_store_one_permission_mode_and_bounded_approvals() {
             "write_to_pty",
             "run_agents",
             "computer_use",
+            "ask_user_question",
             "directory_allowlist",
             "mcp_allowlist",
         ] {
@@ -126,4 +127,26 @@ fn allow_all_projects_every_tool_to_always_allow() {
     assert_eq!(profile.mcp_permissions, ActionPermission::AlwaysAllow);
     assert_eq!(profile.computer_use, ComputerUsePermission::AlwaysAllow);
     assert_eq!(profile.run_agents, RunAgentsPermission::AlwaysAllow);
+}
+
+#[test]
+fn clarification_availability_follows_permission_mode_after_projection_and_restore() {
+    for (mode, expected) in [
+        (PermissionMode::AskFirst, AskUserQuestionPermission::AlwaysAsk),
+        (PermissionMode::AllowAll, AskUserQuestionPermission::AlwaysAsk),
+        (PermissionMode::GalaxyDecides, AskUserQuestionPermission::Never),
+        (PermissionMode::ReadOnly, AskUserQuestionPermission::Never),
+    ] {
+        let mut profile = AIExecutionProfile {
+            permission_mode: mode,
+            ..Default::default()
+        };
+        profile.project_permission_mode();
+        assert_eq!(profile.ask_user_question, expected, "{mode:?}");
+
+        let saved = serde_json::to_value(&profile).unwrap();
+        assert!(saved.get("ask_user_question").is_none());
+        let restored: AIExecutionProfile = serde_json::from_value(saved).unwrap();
+        assert_eq!(restored.ask_user_question, expected, "{mode:?}");
+    }
 }

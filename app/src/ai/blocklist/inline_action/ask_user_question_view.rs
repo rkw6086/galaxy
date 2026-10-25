@@ -188,6 +188,17 @@ enum AskUserQuestionPhase<'a> {
     },
 }
 
+fn ask_user_question_is_waiting_on_user_answers(
+    phase: AskUserQuestionPhase<'_>,
+    status: Option<&AIActionStatus>,
+) -> bool {
+    matches!(phase, AskUserQuestionPhase::Editing)
+        && matches!(
+            status,
+            Some(AIActionStatus::Blocked | AIActionStatus::RunningAsync)
+        )
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Editing-phase state for the questionnaire.
 /// Holds the active question index and one draft slot per question.
@@ -806,10 +817,6 @@ impl AskUserQuestionView {
         &self.action_id
     }
 
-    pub fn is_editing(&self) -> bool {
-        self.session.is_editing()
-    }
-
     /// Sets the settings-link mouse handle used in the speedbump footer.
     /// The footer is only actually drawn during the completed/finished render paths.
     pub fn set_speedbump_settings_link(
@@ -902,10 +909,12 @@ impl AskUserQuestionView {
         })
     }
 
-    /// True when the action model reports this inline action is blocked waiting on user answers.
-    fn is_waiting_on_user_answers(&self, app: &AppContext) -> bool {
-        self.action_status(app)
-            .is_some_and(|status| status.is_blocked())
+    /// Questions can wait before execution or in an approved async executor, as in Allow All.
+    pub(crate) fn is_waiting_on_user_answers(&self, app: &AppContext) -> bool {
+        ask_user_question_is_waiting_on_user_answers(
+            self.session.phase(),
+            self.action_status(app).as_ref(),
+        )
     }
 
     pub fn should_render_inline(&self, app: &AppContext) -> bool {
@@ -1170,8 +1179,8 @@ impl AskUserQuestionView {
         self.abort_auto_advance();
         let action_id = self.action_id().clone();
         let conversation_id = self.conversation_id;
-        // Completing the executor only stages the result; execute_action drives the action model
-        // to publish final status/events for this inline block.
+        // A running executor receives the answer directly. A blocked question must first start
+        // execution; execute_action starts it and leaves an already-running receiver intact.
         self.action_model.update(ctx, |action_model, ctx| {
             action_model
                 .ask_user_question_executor(ctx)

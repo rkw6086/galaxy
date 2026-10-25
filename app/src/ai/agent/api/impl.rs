@@ -28,12 +28,28 @@ pub(crate) fn prepare_direct_provider_params(
         .clone()
         .unwrap_or_else(|| get_supported_tools(params));
     remove_orchestration_tools_if_disabled(&mut supported_tools, params.orchestration_enabled);
+    let ask_user_question_enabled = FeatureFlag::AskUserQuestion.is_enabled()
+        && params.ask_user_question_enabled
+        && matches!(
+            params.permission_mode,
+            crate::ai::execution_profiles::PermissionMode::AskFirst
+                | crate::ai::execution_profiles::PermissionMode::AllowAll
+        );
+    supported_tools.retain(|tool| {
+        *tool != api::ToolType::AskUserQuestion || ask_user_question_enabled
+    });
+    // Computer use controls this machine, even when the terminal is connected elsewhere.
+    // Only expose the initial request here; the dedicated profile owns subsequent actions.
+    supported_tools.retain(|tool| *tool != api::ToolType::UseComputer
+        && (*tool != api::ToolType::RequestComputerUse || params.computer_use_enabled));
     let mut supported_cli_agent_tools =
         supported_tools_override.unwrap_or_else(|| get_supported_cli_agent_tools(params));
     remove_orchestration_tools_if_disabled(
         &mut supported_cli_agent_tools,
         params.orchestration_enabled,
     );
+    supported_cli_agent_tools.retain(|tool| !matches!(tool, api::ToolType::UseComputer | api::ToolType::RequestComputerUse));
+    supported_cli_agent_tools.retain(|tool| *tool != api::ToolType::AskUserQuestion);
     if params.permission_mode == crate::ai::execution_profiles::PermissionMode::ReadOnly {
         let permitted = |tool: &api::ToolType| is_read_only_tool(tool)
             || (!params.command_allowlist.is_empty() && matches!(tool, api::ToolType::RunShellCommand | api::ToolType::ReadShellCommandOutput | api::ToolType::WriteToLongRunningShellCommand));
@@ -73,6 +89,9 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
         api::ToolType::CreateDocuments,
         api::ToolType::EditDocuments,
     ];
+    if params.computer_use_enabled {
+        supported_tools.push(api::ToolType::RequestComputerUse);
+    }
 
     if params.orchestration_enabled {
         supported_tools.push(api::ToolType::Subagent);

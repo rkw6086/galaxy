@@ -11,10 +11,12 @@ use crate::cloud_object::model::actions::ObjectActions;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::model::view::CloudViewModel;
 use crate::cloud_object::{
-    CloudObjectSyncStatus, ObjectIdType, ObjectType, Owner, ServerCreationInfo, Space,
+    CloudObjectLocation, CloudObjectSyncStatus, ObjectIdType, ObjectType, Owner,
+    ServerCreationInfo, Space,
 };
 use crate::drive::items::WarpDriveItemId;
 use crate::drive::CloudObjectTypeAndId;
+use crate::local_object_repository::LocalObjectRepository;
 use crate::menu::MenuItem;
 use crate::network::NetworkStatus;
 use crate::notebooks::{CloudNotebook, CloudNotebookModel};
@@ -123,6 +125,69 @@ fn label_for_menu_item(item: &MenuItem<DriveIndexAction>) -> &str {
     } else {
         panic!("item provided wasn't of type MenuItem::Item")
     }
+}
+
+#[test]
+fn local_drive_objects_can_move_into_and_out_of_plans_offline() {
+    App::test(ASSETS, |mut app| async move {
+        initialize_app(&mut app);
+        let repository = LocalObjectRepository::handle(&app);
+        let plans_id = SyncId::ClientId(ClientId::new());
+        let notebook_id = SyncId::ClientId(ClientId::new());
+        repository.update(&mut app, |repository, ctx| {
+            repository.create_folder_with_id(plans_id, "Plans".to_string(), None, ctx);
+            repository.create_notebook_with_id(
+                notebook_id,
+                None,
+                CloudNotebookModel::default(),
+                ctx,
+            );
+        });
+        NetworkStatus::handle(&app).update(&mut app, |network_status, ctx| {
+            network_status.reachability_changed(false, ctx);
+        });
+        let index = create_index(&mut app);
+        let object_id = CloudObjectTypeAndId::Notebook(notebook_id);
+
+        index.update(&mut app, |index, ctx| {
+            assert!(index.move_operation_allowed(&object_id, ctx));
+            index.update_drop_target_location(CloudObjectLocation::Folder(plans_id), ctx);
+            assert_eq!(
+                index.current_drop_target,
+                Some(CloudObjectLocation::Folder(plans_id)),
+            );
+            let Some(MenuItem::Submenu { fields, menu }) =
+                index.local_move_menu_item(object_id, ctx)
+            else {
+                panic!("expected a local Move to submenu");
+            };
+            assert_eq!(fields.label(), "Move to");
+            assert_eq!(label_for_menu_item(&menu.items()[0]), "Personal / Plans");
+
+            index.move_object(&object_id, CloudObjectLocation::Folder(plans_id), ctx);
+            assert_eq!(
+                CloudModel::as_ref(ctx)
+                    .get_notebook(&notebook_id)
+                    .unwrap()
+                    .metadata
+                    .folder_id,
+                Some(plans_id),
+            );
+            let Some(MenuItem::Submenu { menu, .. }) = index.local_move_menu_item(object_id, ctx)
+            else {
+                panic!("expected moving the notebook back to the top level to be offered");
+            };
+            assert_eq!(label_for_menu_item(&menu.items()[0]), "Personal (top level)");
+
+            index.move_object(&object_id, CloudObjectLocation::Space(Space::Personal), ctx);
+            assert!(CloudModel::as_ref(ctx)
+                .get_notebook(&notebook_id)
+                .unwrap()
+                .metadata
+                .folder_id
+                .is_none());
+        });
+    });
 }
 
 #[test]

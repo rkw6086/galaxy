@@ -5,6 +5,7 @@ This file provides guidance when working with code in this repository.
 ## Development Commands
 
 ### Build and Run
+- `cargo build` - Build Galaxy and verify feature and bug-fix changes
 - `cargo run` - Build and run Warp locally
 - `cargo bundle --bin warp` - Bundle the main app
 - `make run` - Build and run `galaxy-oss`
@@ -28,8 +29,9 @@ Environment variables:
 - `WS_SERVER_URL` - WebSocket endpoint (default: `ws://localhost:8080/graphql/v2`)
 
 ### Testing
-- Before launching `galaxy-oss`, check for existing app instances and close the prior development instance so only one app instance runs at a time. Distinguish the app process from its `terminal-server` helper; do not count the helper as a duplicate app. Leave the newly launched instance running for the user.
-- During interactive feature and bug-fix verification, make the requested code changes first and run only `cargo run --bin galaxy-oss` for the user to verify. Leave the app running for the user; do not stop it or treat the command timeout as a failure. Do not run `cargo fmt`, `cargo check`, `cargo test`, `cargo clippy`, presubmit, or other validation commands until the user confirms the behavior. Run formatting, tests, and linting only as the final cleanup step after interactive approval.
+- This development machine is CLI-only and has no GUI. The user performs GUI and most behavioral testing on a remote machine.
+- Verify feature and bug-fix changes with `cargo build` only. Do not use `cargo run`, `make run`, or launch the app to verify results, and do not wait for interactive approval before completing the work.
+- After `cargo build` succeeds and all requested work and final review are complete, commit the changes and push the current branch to both configured remotes, `origin` and `samsung`, using ordinary non-force pushes. If the build fails, report the blocker and do not push.
 - `cargo nextest run --no-fail-fast --workspace --exclude command-signatures-v2` - Run tests with nextest
 - `cargo nextest run -p galaxy_completer --features v2` - Run completer tests with v2 features
 - `cargo test --doc` - Run doc tests
@@ -143,7 +145,7 @@ ACP: controller.rs → ResponseStream → acp_output_stream (session-owned lifec
 - `convert.rs` — Bedrock request construction and prompt-caching behavior
 - `client.rs` — AWS SDK client construction, runtime creation, and independent background streaming calls
 - `models.rs` — Model registry and cross-region inference prefix logic
-- `discovery.rs` — Checks bundled `galaxy_bedrock_model_catalog` candidates with AWS `GetFoundationModelAvailability`; agreement, authorization, entitlement, and regional availability must all pass. Cached access is never restored as authorization; per-model enablement survives successful refreshes. Sweeps run once at startup when enabled and once per explicit connection Test; settings saves, reloads, and model toggles must never trigger another sweep. Live verification belongs to `LLMPreferences` and is scoped to the exact connection configuration.
+- `discovery.rs` — Discovers the live inventory with AWS `ListFoundationModels` and paginated `ListInferenceProfiles`, resolving profile-only model details with `GetFoundationModel`. The bundled `galaxy_bedrock_model_catalog` is optional capability/token-budget enrichment, never an inventory allowlist. Invocation uses AWS-returned model IDs/profile ARNs rather than guessed prefixes. `GetFoundationModelAvailability` still requires agreement, authorization, entitlement, and regional availability; cached access is never restored as authorization. Saved model enablement and names survive refreshes, and failed discovery must not overwrite preferences with an empty catalog. Sweeps run once at startup when enabled and once per explicit connection Test; settings saves, credential reloads, login completion, and model toggles must never trigger another sweep. Live verification belongs to `LLMPreferences` and is scoped to the exact connection configuration. Prompt-cache preferences must never hide models; unknown cache capabilities use no caching.
 - `diagnostic.rs` — Debug logging (enabled via `GALAXY_BEDROCK_DIAGNOSTICS=1`)
 - `external_config.rs` — Fallback config from Claude Code/OpenCode settings
 
@@ -172,9 +174,10 @@ base_url = "http://localhost:4000/v1"
 api_key = "sk-..."
 
 [[ai.providers.models]]
-model_id = "claude-sonnet-4-20250514[1m]"
-display_name = "Claude Sonnet 4 (1M)"
+model_id = "claude-sonnet-4-20250514"
+display_name = "Claude Sonnet 4"
 context_size = 1000000
+default_context_size = 200000
 
 [[ai.providers]]
 name = "Ollama (Local)"
@@ -187,10 +190,9 @@ context_size = 128000
 ```
 
 **OpenAI/LiteLLM model discovery**:
-- Models can be auto-fetched from the `/models` endpoint via the Settings > OpenAI / LiteLLM page
-- For each model, the system probes `{model_id}[1m]` with a minimal chat completion request
-- If the `[1m]` variant is accepted (HTTP 200 or 429), it's used with 1M context window
-- Otherwise, the base model ID is used with its reported context size
+- Models can be auto-fetched from `/models` and enriched with LiteLLM `/model/info` via the Settings > OpenAI / LiteLLM page.
+- Preserve the efficient/default context window separately from the provider's maximum. Ordinary requests, compaction, and context displays use the lower positive default/input/maximum budget, including any explicit profile cap; availability of a larger maximum must never expand that budget automatically.
+- Retain lower budgets when merging metadata from both endpoints, apply `effective_context_window_percent` once, and preserve the maximum as metadata. Discovery must not probe or select an extended `[1m]` variant automatically.
 - Models injected via `ai.providers[]` are routed to their specific endpoint (per-model routing map)
 - Provider name shown as the description label in the model picker; icon shows OpenAI logo for all OpenAI-compatible providers
 
@@ -209,7 +211,13 @@ Key invariants:
 - A restored `AwaitingModel` checkpoint has an uncertain remote outcome and must terminate as an explicit restore failure rather than replaying the call; known recoverable failures observed in-process retain the bounded model-retry lifecycle
 - Same-conversation direct-provider follow-ups queue behind the cancelling generation; the old run keeps the active slot until terminal projection and cleanup, queued intent is checkpointed without credentials for restart recovery, and queued-only restore validates provider ownership and terminalizes the abandoned unprepared exchange from its persisted projection/stream identity before starting the successor; the next generation rebuilds provider history after cleanup so it includes the old generation's final committed output, and stale callbacks are ignored by stream identity
 - Known tools are in `KNOWN_TOOLS` in `response_translator.rs`; definitions are built by `tool_definition_for_name()` in `convert_request.rs`
+- Direct-provider computer use starts with `request_computer_use`; the computer-use profile exposes `use_computer`, including when its model falls back to the main model. Tool availability and every action remain subject to session capabilities and the existing profile permission checks.
+- Computer-use screenshots must reach providers as image parts, survive checkpoints and tool-result archival, and remain correlated with their tool call on explicit history recall. Emit every result in a tool batch before its screenshot image groups, and estimate image tokens without counting encoded image bytes as text.
 - Direct-provider normal and plan turns must advertise `read_plan`, `create_plan`, and `edit_plan` when the matching document capabilities are enabled; plan-creation requests should call `create_plan` after research rather than only returning prose
+- Direct-provider normal and plan turns expose `update_task_list` for explicit progress updates. Keep the validated current list in durable `ProviderRun` state, inject it into each request, preserve it across compaction and restore, and reconcile restored UI updates idempotently. Finishing a response must never mark unfinished work complete. CLI monitors and completed-command assessments retain their focused tool sets.
+- Completed local plans are archived intact into `Plans/Archive` after seven days only when their conversation has explicitly completed all checklist items and has no active provider run or child. Draft, unfinished, or reopened plans stay visible; resumed work restores an automatically archived plan, and manual recovery is respected. Archival never deletes plan contents.
+- Session history lists conversations available in local panes or local persistence, with local status/date/search filters. Restore from memory or SQLite only; never fall back to hosted attachment or server recovery, and report unavailable local data without substituting a new conversation. Ignore stale cloud/team/source/harness/artifact filters on this screen.
+- Active UI and built-in agent instructions use Galaxy branding. Preserve legacy serialized names, protocol identifiers, environment variables, actual third-party package names, and upstream service references where compatibility requires them; do not relabel an unsupported hosted service as a Galaxy feature.
 - Unknown or invalid tool calls receive one correlated synthetic error result and a visible `AgentOutput` message; the durable run owns any continuation
 - `recall_tool_history` is an inline completed tool batch. `ProviderRun` commits its synthetic result and starts a bounded next turn without routing it through client action execution
 - `recall_tool_history` excludes earlier calls to itself; archived tool results remain searchable by query or exact `tool_use_id`
@@ -217,6 +225,7 @@ Key invariants:
 - Bedrock prompt caching uses three cache points: system prompt, second-to-last history message, and tool configuration
 - `ensure_tool_results_paired()` enforces Bedrock's invariant that every `tool_use` has a matching `tool_result`
 - Progressive summaries are prepended to provider requests as a user/assistant pair; direct-provider runs compact their live transcript at a checkpointed `ReadyToCallModel` boundary before another model call, while background summarization remains independent for session-owned runtimes
+- Direct-provider progressive compaction runs in a separate request alongside foreground work. Start early against the smaller usable history budget of the current and terminal-use profiles, including each profile's prompt/tools/output reservation. Apply a result only at a safe model boundary after validating its exact snapshotted prefix, preserving all newer history and recomputing live context accounting. Wait for pending compaction only after context exhaustion; cancellation and terminal cleanup must remain immediate. Cleanly completed conversations may accept a late summary while idle; stale, cancelled, or superseded generations must never replace a newer run's history.
 - Loop prevention in `controller.rs` detects repeated tool failures (3+ identical) and injects a corrective instruction
 - Direct-provider long-running shell follow-ups retain CLI tasks as UI projections while command monitoring and completion stay owned by the same provider run
 - A direct-provider command completion is only queued when the terminal reports it; the CLI task remains active until the provider run applies that completion at a safe boundary and deactivates it
@@ -241,6 +250,7 @@ Key invariants:
 - Safe inspection and output polling do not add risk-review model calls. A narrow shell fast path accepts validated `pwd`, `ls`, Git version, and hardened Git status/diff forms; shell expansion, chaining, redirects, unknown flags and unhardened Git commands still require review. Explicit restrictions are checked before fast approval. Galaxy Decides skips user-question pauses. External ACP/CLI agents retain their own protocol permission flows; unstructured ACP requests must not grant Galaxy terminal mutations.
 
 - Allow All bypasses independent model review and human approval for Galaxy-owned tools, while explicit command/MCP denylists, protected paths, workspace restrictions, command ownership, and child delegation boundaries remain enforced.
+- Ask First and Allow All expose `ask_user_question` for clarifying missing information; Allow All still bypasses action-approval panes. Galaxy Decides and Read Only omit clarification pauses. CLI monitoring and tool-free assessments must not gain question tools through an explicit tool override.
 - Profiles persist `command_allowlist` regular expressions. A matching complete submitted command bypasses permission review in every mode, including Read Only, only after explicit restrictions are checked; denylist matching uses the shell command decomposition as well. Profile permission-mode changes preserve the explicit list but clear remembered command digests.
 - Profiles persist `orchestration_providers`: absent/null includes all providers (including future additions); an explicit empty list permits none. Entries use configured provider names. Orchestration tool descriptions and pickers filter models, and RunAgents validates per-child/default model selection again at launch and recovery. Restricted profiles cannot use custom routers or external harnesses to bypass provider selection.
 

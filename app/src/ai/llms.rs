@@ -27,6 +27,8 @@ use warp_multi_agent_api as api;
 use super::custom_model_routers::{self, CustomModelRouter, ModelConfigError};
 use super::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::acp::{acp_launch_fingerprint, acp_provider_selection_identity};
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::provider::external_config::ExternalBedrockConfig;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::auth::AuthStateProvider;
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
@@ -624,6 +626,7 @@ pub struct LLMPreferences {
     #[cfg(not(target_family = "wasm"))]
     chatgpt_subscription_models_refresh_in_flight: bool,
     bedrock_models_refresh_in_flight: bool,
+    bedrock_verification_generation: u64,
     #[cfg(not(target_family = "wasm"))]
     bedrock_verified_config: Option<super::provider::client::BedrockClientConfig>,
     #[cfg(not(target_family = "wasm"))]
@@ -804,6 +807,7 @@ impl LLMPreferences {
             #[cfg(not(target_family = "wasm"))]
             chatgpt_subscription_models_refresh_in_flight: false,
             bedrock_models_refresh_in_flight: false,
+            bedrock_verification_generation: 0,
             #[cfg(not(target_family = "wasm"))]
             bedrock_verified_config: None,
             #[cfg(not(target_family = "wasm"))]
@@ -852,7 +856,9 @@ impl LLMPreferences {
             return;
         }
         self.bedrock_models_refresh_in_flight = true;
+        let generation = self.begin_bedrock_verification();
         let config = bedrock_discovery_config(settings);
+        let revision = super::provider::authentication::connection_revision(ctx);
         let requested_config = config.clone();
         self.bedrock_verified_config = None;
         self.bedrock_verified_model_ids.clear();
@@ -868,6 +874,11 @@ impl LLMPreferences {
                     discovery.models
                 });
                 me.bedrock_models_refresh_in_flight = false;
+                if me.bedrock_verification_generation != generation
+                    || super::provider::authentication::connection_revision(ctx) != revision
+                {
+                    return;
+                }
                 if !*AISettings::as_ref(ctx).bedrock_enabled.value() {
                     return;
                 }
@@ -896,7 +907,7 @@ impl LLMPreferences {
                         ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
                     }
                     Err(error) => {
-                        log::debug!("[bedrock] Startup model discovery unavailable: {error}");
+                        log::warn!("[bedrock] Startup model discovery unavailable: {error}");
                     }
                 }
             },
@@ -904,18 +915,29 @@ impl LLMPreferences {
     }
 
     #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn begin_bedrock_verification(&mut self) -> u64 {
+        self.bedrock_verification_generation += 1;
+        self.bedrock_verification_generation
+    }
+
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn record_bedrock_verification(
         &mut self,
+        generation: u64,
         config: super::provider::client::BedrockClientConfig,
         models: &[BedrockModelConfig],
         ctx: &mut ModelContext<Self>,
-    ) {
+    ) -> bool {
+        if self.bedrock_verification_generation != generation {
+            return false;
+        }
         self.bedrock_verified_model_ids =
             models.iter().map(|model| model.model_id.clone()).collect();
         self.bedrock_verified_config = Some(config);
         self.inject_bedrock_models(ctx);
         self.ensure_default_model_present();
         ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+        true
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -953,48 +975,14 @@ impl LLMPreferences {
         let region = settings.bedrock_region.value().clone();
         let cross_region = *settings.bedrock_cross_region_inference.value();
 
-        // Check if user wants only 1-hour cache models
-        use crate::ai::provider::external_config::ExternalBedrockConfig;
-        let external_config = ExternalBedrockConfig::load();
-        let require_1h_cache = external_config.enable_prompt_caching_1h;
-
-        let mut effective = discovered_models;
-
-        // Filter out models that don't support 1-hour caching if required
-        if require_1h_cache {
-            effective.retain(|model| {
-                // 1-hour caching is supported by Claude 4.5+ models
-                // Opus 4.5+, Sonnet 4.5+, Haiku 4.5+
-                let supports_1h = model.model_id.contains("4-5")
-                    || model.model_id.contains("4.5")
-                    || model.model_id.contains("-4-6") // Opus/Sonnet 4.6+ also support 1h
-                    || model.model_id.contains("4.6")
-                    || model.model_id.contains("-4-7")
-                    || model.model_id.contains("4.7")
-                    || model.model_id.contains("-4-8")
-                    || model.model_id.contains("4.8");
-
-                if !supports_1h {
-                    log::info!(
-                        "[bedrock] Filtering out model {} - does not support 1-hour cache (ENABLE_PROMPT_CACHING_1H=1)",
-                        model.model_id
-                    );
-                }
-                supports_1h
-            });
-
-            if effective.is_empty() {
-                log::warn!("[bedrock] No models left after filtering for 1-hour cache support!");
-            }
-        }
-
-        let effective = effective;
-        for model in effective {
+        for model in discovered_models {
             if !model.enabled || !self.bedrock_model_is_verified(&model.model_id, ctx) {
                 continue;
             }
             let metadata = model_metadata(&model.model_id);
-            if metadata.is_some_and(|metadata| metadata.supports_agent_runtime() == Some(false)) {
+            if model.runtime_supported == Some(false)
+                || metadata.is_some_and(|metadata| metadata.supports_agent_runtime() == Some(false))
+            {
                 log::debug!(
                     "[bedrock] Excluding {} from Agent Mode because its catalog metadata marks it as incompatible with streaming Converse",
                     model.model_id
@@ -1054,7 +1042,6 @@ impl LLMPreferences {
 
         // Default agent mode to ANTHROPIC_MODEL from external config if set,
         // otherwise Claude Opus 4.6, falling back to the first available model.
-        // Note: external_config already loaded above for filtering
         let external_config_for_default = ExternalBedrockConfig::load();
 
         if let Some(id) = external_config_for_default
@@ -1090,7 +1077,11 @@ impl LLMPreferences {
                     .map(|m| m.id.clone())
             })
         {
-            self.models_by_feature.agent_mode.default_id = id;
+            if !self.models_by_feature.agent_mode.choices.iter().any(|model| {
+                model.id == self.models_by_feature.agent_mode.default_id
+            }) {
+                self.models_by_feature.agent_mode.default_id = id;
+            }
         }
 
         // Default coding to Claude Sonnet 4.6, falling back to the first available model.
@@ -1103,12 +1094,18 @@ impl LLMPreferences {
             .or_else(|| self.models_by_feature.coding.choices.first())
             .map(|m| m.id.clone())
         {
-            self.models_by_feature.coding.default_id = id;
+            if !self.models_by_feature.coding.choices.iter().any(|model| {
+                model.id == self.models_by_feature.coding.default_id
+            }) {
+                self.models_by_feature.coding.default_id = id;
+            }
         }
 
         // Default CLI agent to the first available model.
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            if let Some(id) = cli.choices.first().map(|m| m.id.clone()) {
+            if let Some(id) = cli.choices.first().filter(|_| {
+                !cli.choices.iter().any(|model| model.id == cli.default_id)
+            }).map(|m| m.id.clone()) {
                 cli.default_id = id;
             }
         }
@@ -2854,9 +2851,12 @@ pub(crate) fn openai_model_context_size(
         .max_input_tokens
         .unwrap_or(model.context_size)
         .min(model.context_size);
-    if provider_kind == OpenAIProviderKind::ChatGPTSubscription {
-        // The catalog's default window is the supported session budget. The
-        // advertised maximum must not silently opt subscriptions into long context.
+    if matches!(
+        provider_kind,
+        OpenAIProviderKind::ChatGPTSubscription | OpenAIProviderKind::LiteLLM
+    ) {
+        // Use the efficient session window for both subscriptions and proxies.
+        // An advertised maximum does not opt a connection into long context.
         // Older saved catalogs kept the default in max_input_tokens instead.
         return model
             .default_context_size
@@ -2994,7 +2994,7 @@ fn openai_model_context_window(
         is_configurable: max_context_size > default_context_size,
         min: default_context_size,
         max: max_context_size,
-        // Subscription limits are already capped to the catalog's default above.
+        // Subscription and LiteLLM limits are capped to the catalog default above.
         default_max: max_context_size,
     }
 }
@@ -3034,6 +3034,53 @@ fn advertised_reasoning_efforts(value: &serde_json::Value) -> Vec<String> {
         .filter(|level| value[format!("supports_{level}_reasoning_effort")].as_bool() == Some(true))
         .map(str::to_string)
         .collect()
+}
+
+/// Keep an endpoint's recommended window separate from its optional expanded
+/// maximum. A bare model ID carries no token metadata, so it must not replace
+/// richer limits when the two catalog endpoints are combined.
+#[cfg(not(target_family = "wasm"))]
+fn openai_context_limits(metadata: &serde_json::Value) -> (u32, Option<u32>, Option<u32>) {
+    let positive_limit = |keys: &[&str]| {
+        keys.iter().find_map(|key| {
+            metadata[*key]
+                .as_u64()
+                .and_then(|value| u32::try_from(value).ok())
+                .filter(|value| *value > 0)
+        })
+    };
+    let max_input_tokens =
+        positive_limit(&["max_input_tokens", "input_token_limit", "max_prompt_tokens"]);
+    let default_context_size = positive_limit(&[
+        "default_context_size",
+        "default_context_window",
+        "context_window",
+    ]);
+    let maximum_context_size = positive_limit(&[
+        "max_context_window",
+        "max_model_len",
+        "context_size",
+        "token_size",
+    ]);
+    let effective_context_percent = metadata["effective_context_window_percent"]
+        .as_u64()
+        .filter(|value| (1..=100).contains(value))
+        .unwrap_or(100);
+    // A proxy may already reduce max_input_tokens by this percentage. Apply it
+    // only to the original session window, never to that input limit again.
+    let default_context_size = default_context_size
+        .map(|value| {
+            u32::try_from(u64::from(value) * effective_context_percent / 100)
+                .unwrap_or(value)
+                .max(1)
+        })
+        .or(max_input_tokens)
+        .or(maximum_context_size);
+    let context_size = maximum_context_size
+        .or(default_context_size)
+        .or(max_input_tokens)
+        .unwrap_or(DEFAULT_DISCOVERED_MODEL_CONTEXT_SIZE);
+    (context_size, max_input_tokens, default_context_size)
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -3264,19 +3311,11 @@ async fn fetch_from_litellm_model_info(
             let model_name = entry["model_name"].as_str()?;
             let model_info = &entry["model_info"];
 
-            let max_input_tokens = model_info["max_input_tokens"]
-                .as_u64()
-                .and_then(|v| u32::try_from(v).ok());
+            let (context_size, max_input_tokens, default_context_size) =
+                openai_context_limits(model_info);
             let max_output_tokens = model_info["max_output_tokens"]
                 .as_u64()
                 .and_then(|v| u32::try_from(v).ok());
-            let context_size = u32_from_json_any(
-                model_info,
-                &["max_context_window", "context_window", "max_model_len"],
-            )
-            .or(max_input_tokens)
-            .unwrap_or(200_000);
-
             let vision_supported = model_info["supports_vision"].as_bool().unwrap_or(true);
 
             let display_name = model_name.replace(['-', '_'], " ");
@@ -3326,7 +3365,7 @@ async fn fetch_from_litellm_model_info(
                 vision_supported,
                 context_size,
                 max_input_tokens,
-                default_context_size: None,
+                default_context_size,
                 max_output_tokens,
                 provider,
                 supports_system_messages: if model_name.starts_with("codex-gpt-") {
@@ -3373,12 +3412,32 @@ async fn fetch_litellm_catalog(
             metadata
                 .iter()
                 .find(|info| info.model_id == model.model_id)
-                .cloned()
-                .map(|mut info| {
-                    if info.reasoning_efforts.is_empty() {
-                        info.reasoning_efforts = model.reasoning_efforts.clone();
+                .map(|info| {
+                    let mut enriched = info.clone();
+                    // /model/info supplies capabilities, but must not erase a
+                    // smaller session budget supplied by /models (or vice versa).
+                    enriched.default_context_size = model
+                        .default_context_size
+                        .into_iter()
+                        .chain(info.default_context_size)
+                        .min();
+                    enriched.max_input_tokens = model
+                        .max_input_tokens
+                        .into_iter()
+                        .chain(info.max_input_tokens)
+                        .min();
+                    enriched.context_size = match (
+                        model.default_context_size,
+                        info.default_context_size,
+                    ) {
+                        (Some(_), Some(_)) => model.context_size.max(info.context_size),
+                        (Some(_), None) => model.context_size,
+                        _ => info.context_size,
+                    };
+                    if enriched.reasoning_efforts.is_empty() {
+                        enriched.reasoning_efforts = model.reasoning_efforts.clone();
                     }
-                    info
+                    enriched
                 })
                 .unwrap_or(model)
         })
@@ -3430,21 +3489,7 @@ async fn fetch_from_openai_models(
         .iter()
         .filter_map(|m| {
             let id = m["id"].as_str()?;
-            let max_input_tokens = u32_from_any(
-                m,
-                &["max_input_tokens", "input_token_limit", "max_prompt_tokens"],
-            );
-            let context_size = u32_from_any(
-                m,
-                &[
-                    "max_context_window",
-                    "max_model_len",
-                    "context_window",
-                    "token_size",
-                ],
-            )
-            .or(max_input_tokens)
-            .unwrap_or(200_000);
+            let (context_size, max_input_tokens, default_context_size) = openai_context_limits(m);
             let max_output_tokens = u32_from_any(
                 m,
                 &[
@@ -3491,7 +3536,7 @@ async fn fetch_from_openai_models(
                     .unwrap_or(true),
                 context_size,
                 max_input_tokens,
-                default_context_size: None,
+                default_context_size,
                 max_output_tokens,
                 provider,
                 supports_system_messages: if id.starts_with("codex-gpt-") {
@@ -3529,13 +3574,5 @@ mod tests;
 fn bedrock_discovery_config(
     settings: &AISettings,
 ) -> crate::ai::provider::client::BedrockClientConfig {
-    crate::ai::provider::client::BedrockClientConfig {
-        auth_method: *settings.bedrock_auth_method.value(),
-        profile: settings.bedrock_profile.value().clone(),
-        region: settings.bedrock_region.value().clone(),
-        access_key_id: settings.bedrock_access_key_id.value().clone(),
-        secret_access_key: settings.bedrock_secret_access_key.value().clone(),
-        session_token: None,
-        cross_region_inference: *settings.bedrock_cross_region_inference.value(),
-    }
+    crate::ai::provider::client::BedrockClientConfig::from_settings(settings)
 }

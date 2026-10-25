@@ -14,6 +14,10 @@ use tokio::sync::Mutex;
 use vec1::vec1;
 
 use crate::settings::{AISettings, AISettingsChangedEvent};
+use crate::ai::provider::authentication::{
+    BedrockAuthConnection, connection_revision, credentials_are_current,
+};
+use crate::ai::provider::client::BedrockClientConfig;
 use crate::terminal::event::{AfterBlockCompletedEvent, BlockType, UserBlockCompleted};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
@@ -56,7 +60,7 @@ fn aws_profile_reference_for_message(profile: &str, capitalize_first_word: bool)
     }
 }
 
-fn user_facing_aws_credentials_error_message(err: &CredentialsError, profile: &str) -> String {
+pub(crate) fn user_facing_aws_credentials_error_message(err: &CredentialsError, profile: &str) -> String {
     match err {
         CredentialsError::CredentialsNotLoaded(_) => format!(
             "AWS credentials were not found for {}. Log in with the AWS CLI or update your AWS credentials configuration, then refresh.",
@@ -129,15 +133,17 @@ fn aws_credentials_state_for_error(err: LoadAwsCredentialsError) -> AwsCredentia
 /// Loads AWS credentials from the AWS SDK.
 ///
 /// # Arguments
-/// * `profile` - AWS profile name. If empty, uses the default AWS SDK behavior
+/// * `connection` - Effective AWS connection. If its profile is empty, uses the default AWS SDK behavior
 ///   (checks AWS_PROFILE env var, then uses "default").
 pub async fn load_aws_credentials_from_sdk(
-    profile: &str,
+    connection: &BedrockClientConfig,
 ) -> Result<AwsCredentials, LoadAwsCredentialsError> {
-    let region_provider = aws_config::meta::region::RegionProviderChain::default_provider();
-    let loader =
-        aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
-    let loader = if profile.trim().is_empty() || profile.trim() == "default" {
+    let profile = &connection.profile;
+    let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
+    if !connection.region.is_empty() {
+        loader = loader.region(aws_config::Region::new(connection.region.clone()));
+    }
+    let loader = if profile.trim().is_empty() {
         loader // Let AWS SDK use its default behavior
     } else {
         loader.profile_name(profile)
@@ -150,14 +156,15 @@ pub async fn load_aws_credentials_from_sdk(
 
     let creds = provider.provide_credentials().await.map_err(|e| {
         let message = user_facing_aws_credentials_error_message(&e, profile);
-        log::warn!("{e}");
-        // TODO(isaiah): turn this full SDK dump back down to debug once we've resolved
-        // the current customer-facing AWS credential issue and no longer need prod-visible
-        // provider internals for support debugging.
-        log::warn!("{e:#?}");
+        log::warn!("AWS credential reload failed: {message}");
         log::info!("AWS credential load failure message shown to user: {message}");
         LoadAwsCredentialsError::CredentialsLoadFailed(message)
     })?;
+    if !credentials_are_current(creds.expiry(), SystemTime::now()) {
+        return Err(LoadAwsCredentialsError::CredentialsLoadFailed(
+            "AWS credentials have expired. Refresh your AWS login.".to_owned(),
+        ));
+    }
 
     Ok(AwsCredentials::new(
         creds.access_key_id().to_string(),
@@ -198,8 +205,10 @@ impl AwsCredentialRefresher for ApiKeyManager {
                 ..
             }) = event
             {
-                let auth_command = &AISettings::as_ref(ctx).bedrock_auth_refresh_command;
-                if command.trim().starts_with(auth_command.trim()) {
+                let auth_command = BedrockAuthConnection::current(ctx).command;
+                if !auth_command.trim().is_empty()
+                    && command.trim().starts_with(auth_command.trim())
+                {
                     log::debug!("Detected AWS auth command completion, refreshing credentials");
                     drop(refresh_aws_credentials(manager, ctx));
                 }
@@ -225,6 +234,8 @@ impl AwsCredentialRefresher for ApiKeyManager {
             if matches!(
                 event,
                 AISettingsChangedEvent::BedrockProfile { .. }
+                    | AISettingsChangedEvent::BedrockAuthMethod { .. }
+                    | AISettingsChangedEvent::BedrockRegion { .. }
                     | AISettingsChangedEvent::BedrockAuthRefreshCommand { .. }
                     | AISettingsChangedEvent::BedrockEnabled { .. }
             ) {
@@ -266,15 +277,28 @@ fn refresh_aws_credentials_local_chain(
         return Box::pin(async { Ok(()) });
     }
 
-    let profile = (*AISettings::as_ref(ctx).bedrock_profile).clone();
+    let connection = BedrockAuthConnection::current(ctx);
+    if connection.config.auth_method == crate::settings::BedrockAuthMethod::StaticKeys {
+        manager.set_aws_credentials_state(AwsCredentialsState::Missing, ctx);
+        return Box::pin(async { Ok(()) });
+    }
+    let config = connection.config.clone();
+    let revision = connection_revision(ctx);
 
     manager.set_aws_credentials_state(AwsCredentialsState::Refreshing, ctx);
 
     let (tx, rx) = channel();
     // credential fetch from aws cli's disk cache
     let _ = ctx.spawn(
-        async move { load_aws_credentials_from_sdk(&profile).await },
+        async move { load_aws_credentials_from_sdk(&config).await },
         move |manager, result, ctx| {
+            if connection_revision(ctx) != revision
+                || BedrockAuthConnection::current(ctx) != connection
+                || manager.aws_credentials_refresh_strategy() != AwsCredentialsRefreshStrategy::LocalChain
+            {
+                let _ = tx.send(Err("AWS connection changed during credential reload".to_owned()));
+                return;
+            }
             let (new_state, tx_result) = match result {
                 Ok(credentials) => (
                     AwsCredentialsState::Loaded {

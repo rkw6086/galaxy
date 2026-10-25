@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::*;
-use crate::{AgentErrorKind, PermissionKind};
+use crate::{AgentErrorKind, PermissionKind, TaskListItem, TaskListStatus, ToolResultImage};
 
 fn initial_messages() -> Vec<ConversationMessage> {
     vec![ConversationMessage {
@@ -88,6 +88,7 @@ fn accept_tool_turn(run: &mut ProviderRun, turn: CompletedModelTurn) -> PendingT
 
 fn successful_result(call_id: &str, content: &str) -> ToolResult {
     ToolResult {
+        images: Vec::new(),
         call_id: call_id.to_string(),
         content: content.to_string(),
         status: ToolResultStatus::Success,
@@ -352,6 +353,201 @@ fn unknown_malformed_and_inline_tools_are_pre_resolved_in_the_same_batch() {
     let recall_result = batch.calls[3].state.result().unwrap();
     assert!(recall_result.content.contains("old contents"));
     assert_eq!(batch.unresolved_call_ids(), vec!["external"]);
+}
+
+fn task_snapshot(status: TaskListStatus) -> TaskListSnapshot {
+    TaskListSnapshot {
+        tasks: vec![TaskListItem {
+            id: "fix".to_string(),
+            title: "Fix the failure".to_string(),
+            status,
+        }],
+    }
+}
+
+fn update_task_call(id: &str, snapshot: &TaskListSnapshot) -> ToolCall {
+    ToolCall {
+        id: id.to_string(),
+        name: UPDATE_TASK_LIST_NAME.to_string(),
+        arguments: serde_json::to_value(snapshot).unwrap(),
+    }
+}
+
+#[test]
+fn inline_task_updates_commit_atomically_in_call_order_with_other_tools() {
+    let mut run = run();
+    let initial = task_snapshot(TaskListStatus::Pending);
+    let working = task_snapshot(TaskListStatus::InProgress);
+    let completed = task_snapshot(TaskListStatus::Completed);
+    run.set_task_list(Some(initial.clone())).unwrap();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![
+                update_task_call("tasks-start", &working),
+                tool_call("external", "read_files"),
+                update_task_call("tasks-finish", &completed),
+            ],
+            &[UPDATE_TASK_LIST_NAME, "read_files"],
+        ),
+    );
+
+    assert_eq!(batch.unresolved_call_ids(), vec!["external"]);
+    assert_eq!(run.task_list(), Some(&initial));
+    assert!(matches!(
+        run.commit_tool_batch(&batch.work_id),
+        Err(ProviderRunProtocolError::IncompleteToolBatch { .. }),
+    ));
+    assert_eq!(run.task_list(), Some(&initial));
+
+    run.complete_tool(&batch.work_id, successful_result("external", "contents"))
+        .unwrap();
+    run.commit_tool_batch(&batch.work_id).unwrap();
+
+    assert_eq!(run.task_list(), Some(&completed));
+    assert_eq!(run.state().phase(), ProviderRunPhase::ReadyToCallModel);
+    assert_serialization_round_trip(&run);
+    let committed = run.clone();
+    assert!(run.commit_tool_batch(&batch.work_id).is_err());
+    assert_eq!(run, committed);
+}
+
+#[test]
+fn rejected_task_updates_do_not_replace_durable_progress() {
+    let mut run = run();
+    let initial = task_snapshot(TaskListStatus::InProgress);
+    run.set_task_list(Some(initial.clone())).unwrap();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![ToolCall {
+                id: "invalid-task-update".to_string(),
+                name: UPDATE_TASK_LIST_NAME.to_string(),
+                arguments: json!({"tasks": []}),
+            }],
+            &[UPDATE_TASK_LIST_NAME],
+        ),
+    );
+    assert_eq!(
+        batch.calls[0].state.result().unwrap().status,
+        ToolResultStatus::Error,
+    );
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    assert_eq!(run.task_list(), Some(&initial));
+
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![update_task_call(
+                "unadvertised-update",
+                &task_snapshot(TaskListStatus::Completed),
+            )],
+            &[],
+        ),
+    );
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    assert_eq!(run.task_list(), Some(&initial));
+}
+
+#[test]
+fn task_progress_survives_compaction_archive_eviction_and_restore() {
+    let mut run = run();
+    let snapshot = task_snapshot(TaskListStatus::InProgress);
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![update_task_call("tasks", &snapshot)],
+            &[UPDATE_TASK_LIST_NAME],
+        ),
+    );
+    assert!(batch.is_complete());
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    run.compact_transcript_at_model_boundary(
+        run.transcript().len(),
+        vec![ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("Earlier conversation summary".to_string()),
+        }],
+    )
+    .unwrap();
+
+    let mut archive = run.tool_result_archive().to_vec();
+    for index in 0..450 {
+        archive.extend([
+            ConversationMessage {
+                role: MessageRole::Assistant,
+                content: MessageContent::ToolUse {
+                    tool_use_id: format!("read-{index}"),
+                    name: "read_files".to_string(),
+                    input: json!({}),
+                },
+            },
+            ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::ToolResult {
+                    tool_use_id: format!("read-{index}"),
+                    content: "contents".to_string(),
+                    is_error: false,
+                },
+            },
+        ]);
+    }
+    run.replace_tool_result_archive(archive);
+    assert!(!serde_json::to_string(run.tool_result_archive())
+        .unwrap()
+        .contains("task_list_snapshot"));
+    assert_eq!(run.task_list(), Some(&snapshot));
+    assert_serialization_round_trip(&run);
+    run.validate_restored_state().unwrap();
+}
+
+#[test]
+fn task_list_setter_and_restored_snapshots_validate_before_mutation() {
+    let mut run = run();
+    let initial = task_snapshot(TaskListStatus::InProgress);
+    run.set_task_list(Some(initial.clone())).unwrap();
+    assert!(matches!(
+        run.set_task_list(Some(TaskListSnapshot { tasks: Vec::new() })),
+        Err(ProviderRunProtocolError::InvalidTaskList { .. }),
+    ));
+    assert_eq!(run.task_list(), Some(&initial));
+
+    let invalid = mutate_run_json(&run, |value| value["task_list"] = json!({"tasks": []}));
+    assert!(restored_state_error(&invalid).contains("invalid task list"));
+
+    let legacy = mutate_run_json(&run, |value| {
+        value.as_object_mut().unwrap().remove("task_list");
+    });
+    assert_eq!(legacy.task_list(), None);
+    legacy.validate_restored_state().unwrap();
+    run.set_task_list(None).unwrap();
+    assert_eq!(run.task_list(), None);
+}
+
+#[test]
+fn restoring_a_completed_inline_task_batch_commits_once_without_external_work() {
+    let mut run = run();
+    let snapshot = task_snapshot(TaskListStatus::InProgress);
+    accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![update_task_call("tasks", &snapshot)],
+            &[UPDATE_TASK_LIST_NAME],
+        ),
+    );
+    let mut restored: ProviderRun = serde_json::from_str(&serde_json::to_string(&run).unwrap()).unwrap();
+    restored.validate_restored_state().unwrap();
+    assert_eq!(restored.task_list(), None);
+    assert!(restored.normalize_after_restore().unwrap().committed_tool_batch);
+    assert_eq!(restored.task_list(), Some(&snapshot));
+    assert!(!restored.normalize_after_restore().unwrap().committed_tool_batch);
+    assert_eq!(restored.task_list(), Some(&snapshot));
+
+    let corrupted = mutate_run_json(&run, |value| {
+        value["state"]["AwaitingTools"]["batch"]["calls"][0]["state"]["Resolved"]["result"]["content"] =
+            json!(task_snapshot(TaskListStatus::Completed).to_tool_result_content());
+    });
+    assert!(restored_state_error(&corrupted).contains("does not match its arguments"));
 }
 
 #[test]
@@ -1479,6 +1675,127 @@ fn multipart_archive_is_not_multiplied_and_legacy_duplicates_are_repaired() {
 }
 
 #[test]
+fn screenshot_results_survive_checkpoint_compaction_and_archive_deduplication() {
+    let mut run = ProviderRun::new(
+        "screenshots",
+        vec![ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![ContentPart::Image {
+                data: vec![99],
+                mime_type: "image/png".to_string(),
+            }]),
+        }],
+        "base",
+        ProviderRunLimits::default(),
+    );
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![
+                tool_call("capture", "use_computer"),
+                tool_call("capture-more", "use_computer"),
+            ],
+            &["use_computer"],
+        ),
+    );
+    for (call_id, bytes) in [("capture", vec![1, 2]), ("capture-more", vec![3, 4])] {
+        let mut result = successful_result(call_id, "screenshot captured");
+        result.images.push(ToolResultImage {
+            data: bytes,
+            mime_type: "image/png".to_string(),
+        });
+        run.complete_tool(&batch.work_id, result).unwrap();
+    }
+    // Pending typed results and their image payloads must survive a checkpoint.
+    assert_serialization_round_trip(&run);
+    run = serde_json::from_str(&serde_json::to_string(&run).unwrap()).unwrap();
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    let transcript = run.transcript().to_vec();
+    let summary = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text("Screenshots inspected.".to_string()),
+    }];
+    run.compact_transcript_at_model_boundary(transcript.len(), summary.clone())
+        .unwrap();
+    assert_eq!(run.transcript(), summary);
+    assert_eq!(run.tool_result_archive().len(), 2);
+    let MessageContent::MultiPart(parts) = &run.tool_result_archive()[1].content else {
+        panic!("expected archived screenshot result batch");
+    };
+    assert_eq!(parts.len(), 6);
+    assert!(matches!(
+        &parts[2], ContentPart::Text(text) if text == "Images returned by tool call capture:"
+    ));
+    assert!(matches!(
+        &parts[3], ContentPart::Image { data, .. } if data == &[1, 2]
+    ));
+    assert!(matches!(
+        &parts[4], ContentPart::Text(text) if text == "Images returned by tool call capture-more:"
+    ));
+    assert!(matches!(
+        &parts[5], ContentPart::Image { data, .. } if data == &[3, 4]
+    ));
+    let expected = run.tool_result_archive().to_vec();
+    let duplicated = expected.iter().cloned().chain(transcript).collect();
+    run.replace_tool_result_archive(duplicated);
+    assert_eq!(run.tool_result_archive(), expected);
+    assert_serialization_round_trip(&run);
+}
+
+#[test]
+fn archives_only_images_labelled_for_new_results_in_the_same_message() {
+    let result = successful_result("capture", "captured");
+    let mut parts = ToolResult::into_batch_content_parts(vec![result]);
+    parts.extend([
+        ContentPart::Image {
+            data: vec![99],
+            mime_type: "image/png".to_string(),
+        },
+        ContentPart::Text("Images returned by tool call missing:".to_string()),
+        ContentPart::Image {
+            data: vec![88],
+            mime_type: "image/png".to_string(),
+        },
+        ContentPart::Text("Images returned by tool call capture:".to_string()),
+        ContentPart::Image {
+            data: vec![1],
+            mime_type: "image/png".to_string(),
+        },
+        ContentPart::Text("Unrelated user upload".to_string()),
+        ContentPart::Image {
+            data: vec![77],
+            mime_type: "image/png".to_string(),
+        },
+    ]);
+    let mut archive = Vec::new();
+    let message = ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::MultiPart(parts),
+    };
+    archive_tool_results(&mut archive, vec![message.clone()]);
+    let MessageContent::MultiPart(parts) = &archive[0].content else {
+        panic!("expected correlated tool result with one image");
+    };
+    assert_eq!(parts.len(), 3);
+    assert!(matches!(&parts[2], ContentPart::Image { data, .. } if data == &[1]));
+    let expected = archive.clone();
+    archive_tool_results(&mut archive, vec![message]);
+    assert_eq!(archive, expected);
+}
+
+#[test]
+fn legacy_tool_results_without_images_still_restore() {
+    let result: ToolResult = serde_json::from_value(json!({
+        "call_id": "legacy",
+        "content": "old text result",
+        "status": "Success"
+    }))
+    .unwrap();
+    assert!(result.images.is_empty());
+    assert_eq!(result.content, "old text result");
+}
+
+#[test]
 fn local_child_launch_yields_and_does_not_execute_batched_follow_up_tools() {
     let mut run = run();
     let batch = accept_tool_turn(
@@ -1523,6 +1840,7 @@ fn failed_child_launch_allows_a_corrective_model_turn() {
     run.complete_tool(
         &batch.work_id,
         ToolResult {
+            images: Vec::new(),
             call_id: "children".to_string(),
             content: "Launch failed".to_string(),
             status: ToolResultStatus::Error,

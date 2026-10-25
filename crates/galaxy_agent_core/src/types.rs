@@ -190,9 +190,53 @@ pub struct ToolResult {
     pub call_id: String,
     pub content: String,
     pub status: ToolResultStatus,
+    /// Images returned by a tool, kept outside the text so provider adapters receive real images.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ToolResultImage>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ToolResultImage {
+    pub data: Vec<u8>,
+    pub mime_type: String,
+}
+
+pub(crate) fn tool_image_group_call_id(part: &ContentPart) -> Option<&str> {
+    let ContentPart::Text(text) = part else {
+        return None;
+    };
+    text.strip_prefix("Images returned by tool call ")?
+        .strip_suffix(':')
+        .filter(|call_id| !call_id.is_empty())
 }
 
 impl ToolResult {
+    pub fn into_batch_content_parts(results: Vec<Self>) -> Vec<ContentPart> {
+        let mut parts = Vec::new();
+        let mut image_parts = Vec::new();
+        for result in results {
+            let is_error = !matches!(result.status, ToolResultStatus::Success);
+            if !result.images.is_empty() {
+                image_parts.push(ContentPart::Text(format!(
+                    "Images returned by tool call {}:", result.call_id
+                )));
+                image_parts.extend(result.images.into_iter().map(|image| ContentPart::Image {
+                    data: image.data,
+                    mime_type: image.mime_type,
+                }));
+            }
+            parts.push(ContentPart::ToolResult {
+                tool_use_id: result.call_id,
+                content: result.content,
+                is_error,
+            });
+        }
+        // OpenAI requires every tool result before the next user message. Its adapter splits
+        // adjacent images into a user message, so never interleave them with a result batch.
+        parts.extend(image_parts);
+        parts
+    }
+
     pub fn is_error(&self) -> bool {
         matches!(
             self.status,

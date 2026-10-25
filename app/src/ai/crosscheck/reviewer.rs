@@ -181,28 +181,14 @@ impl CrosscheckReviewer {
 
         // Fall back to Bedrock via external config
         if *settings.bedrock_enabled.value() {
-            let auth_method = *settings.bedrock_auth_method.value();
             let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
-            let mut config = crate::ai::provider::client::BedrockClientConfig {
-                auth_method,
-                profile: settings.bedrock_profile.value().clone(),
-                region: settings.bedrock_region.value().clone(),
-                access_key_id: settings.bedrock_access_key_id.value().clone(),
-                secret_access_key: settings.bedrock_secret_access_key.value().clone(),
-                session_token: None,
-                cross_region_inference: *settings.bedrock_cross_region_inference.value(),
-            };
-
-            if let ::ai::api_keys::AwsCredentialsState::Loaded { credentials, .. } =
-                api_key_manager.aws_credentials_state()
-            {
-                config.auth_method = crate::settings::BedrockAuthMethod::StaticKeys;
-                config.access_key_id = credentials.access_key().to_string();
-                config.secret_access_key = credentials.secret_key().to_string();
-                config.session_token = credentials.session_token().map(|s| s.to_string());
-            }
-
-            return ProviderConfig::Bedrock(config.with_external_fallbacks());
+            let config = crate::ai::provider::client::BedrockClientConfig::from_settings(settings)
+                .with_model_route(model_id, settings.bedrock_models.value())
+                .with_managed_credentials(
+                    &api_key_manager.aws_credentials_refresh_strategy(),
+                    api_key_manager.aws_credentials_state(),
+                );
+            return ProviderConfig::Bedrock(config);
         }
 
         ProviderConfig::None
@@ -229,9 +215,8 @@ impl CrosscheckReviewer {
                         model: config.model.unwrap_or(model_id),
                         reasoning_effort: config.reasoning_effort,
                         max_output_tokens: Some(u64::from(REVIEWER_MAX_OUTPUT_TOKENS)),
-                        auth_file: None,
                     },
-                );
+                ).with_credential_resolver(crate::ai::chatgpt_auth::credential_resolver());
                 runtime
                     .complete_text(
                         prompt::CROSSCHECK_REVIEWER_SYSTEM_PROMPT.to_string(),

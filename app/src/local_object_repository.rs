@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::mpsc::SyncSender;
 
 use chrono::Utc;
@@ -13,7 +14,7 @@ use crate::ai::mcp::templatable::{
 };
 use crate::auth::UserUid;
 use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
-use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
+use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent, UpdateSource};
 use crate::cloud_object::{
     CloudObject, CloudObjectLocation, CloudObjectMetadata, CloudObjectPermissions,
     CloudObjectStatuses, CloudObjectSyncStatus, GenericCloudObject, GenericStringObjectFormat,
@@ -50,6 +51,7 @@ pub enum LocalObjectRepositoryEvent {
     Rules,
     ExecutionProfiles { id: Option<SyncId> },
     Notebooks { id: Option<SyncId> },
+    NotebookContentEdited { id: SyncId },
     Workflows { id: Option<SyncId> },
 }
 
@@ -219,6 +221,95 @@ impl LocalObjectRepository {
         CloudModel::as_ref(app).get_folder(id).cloned()
     }
 
+    /// Local moves never require a server ID, connectivity, or a cloud ownership transfer.
+    pub fn can_move_object_to_location(
+        object_id: CloudObjectTypeAndId,
+        new_location: CloudObjectLocation,
+        app: &AppContext,
+    ) -> bool {
+        let cloud_model = CloudModel::as_ref(app);
+        let Some(object) = cloud_model.get_by_uid(&object_id.uid()) else {
+            return false;
+        };
+        if object.permissions().owner != local_owner() || object.is_trashed(cloud_model) {
+            return false;
+        }
+
+        match new_location {
+            CloudObjectLocation::Space(space) => space == Space::Personal,
+            CloudObjectLocation::Trash => true,
+            CloudObjectLocation::Folder(folder_id) => {
+                let mut ancestor_id = Some(folder_id);
+                let mut visited = HashSet::new();
+                while let Some(id) = ancestor_id {
+                    if object_id == CloudObjectTypeAndId::Folder(id) || !visited.insert(id) {
+                        return false;
+                    }
+                    let Some(folder) = cloud_model.get_folder(&id) else {
+                        return false;
+                    };
+                    if folder.permissions.owner != local_owner()
+                        || folder.metadata.trashed_ts.is_some()
+                    {
+                        return false;
+                    }
+                    ancestor_id = folder.metadata.folder_id;
+                }
+                true
+            }
+        }
+    }
+
+    /// Reparent a local object and persist its metadata without enqueuing server work.
+    pub fn move_object_to_location(
+        &mut self,
+        object_id: CloudObjectTypeAndId,
+        new_location: CloudObjectLocation,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        if !Self::can_move_object_to_location(object_id, new_location, ctx) {
+            return false;
+        }
+
+        let event = CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
+            let object = cloud_model.get_mut_by_uid(&object_id.uid())?;
+            let from_folder = object.metadata().folder_id;
+            let to_folder = match new_location {
+                CloudObjectLocation::Space(_) => None,
+                CloudObjectLocation::Folder(folder_id) => Some(folder_id),
+                CloudObjectLocation::Trash => from_folder,
+            };
+            let event = if new_location == CloudObjectLocation::Trash {
+                object.metadata_mut().trashed_ts = Some(ServerTimestamp::new(Utc::now()));
+                CloudModelEvent::ObjectTrashed {
+                    type_and_id: object_id,
+                    source: UpdateSource::Local,
+                }
+            } else {
+                if from_folder == to_folder {
+                    return None;
+                }
+                object.metadata_mut().folder_id = to_folder;
+                CloudModelEvent::ObjectMoved {
+                    type_and_id: object_id,
+                    source: UpdateSource::Local,
+                    from_folder,
+                    to_folder,
+                }
+            };
+            set_locally_saved_metadata(object.metadata_mut());
+            let persistence_event = object.upsert_event();
+            ctx.emit(event);
+            ctx.notify();
+            Some(persistence_event)
+        });
+        let Some(event) = event else {
+            return false;
+        };
+        self.save(event);
+        true
+    }
+
     pub fn create_folder_with_id(
         &mut self,
         id: SyncId,
@@ -383,7 +474,10 @@ impl LocalObjectRepository {
         let Some(notebook) = self.notebook(&id, ctx) else {
             return false;
         };
-        self.update_notebook(
+        if notebook.model().data == data {
+            return true;
+        }
+        let updated = self.update_notebook(
             id,
             CloudNotebookModel {
                 title: notebook.model().title.clone(),
@@ -392,7 +486,11 @@ impl LocalObjectRepository {
                 conversation_id: notebook.model().conversation_id.clone(),
             },
             ctx,
-        )
+        );
+        if updated {
+            ctx.emit(LocalObjectRepositoryEvent::NotebookContentEdited { id });
+        }
+        updated
     }
 
     pub fn update_notebook_title(

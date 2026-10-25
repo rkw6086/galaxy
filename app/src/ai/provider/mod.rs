@@ -16,6 +16,8 @@ pub enum ProviderConfig {
 // Provider-neutral module boundary; Bedrock-specific transport helpers live here without a
 // provider-named directory so the provider layer can be reorganized independently of callers.
 #[cfg(not(target_family = "wasm"))]
+pub(crate) mod authentication;
+#[cfg(not(target_family = "wasm"))]
 pub mod client;
 #[cfg(not(target_family = "wasm"))]
 pub mod convert;

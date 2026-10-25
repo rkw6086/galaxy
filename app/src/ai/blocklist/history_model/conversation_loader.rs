@@ -226,6 +226,22 @@ impl AIConversationMetadata {
 }
 
 impl BlocklistAIHistoryModel {
+    /// Restore saved local sessions without falling back to a hosted transcript.
+    pub fn load_local_conversation_data(
+        &self,
+        conversation_id: AIConversationId,
+    ) -> galaxyui::r#async::BoxFuture<'static, Option<CloudConversationData>> {
+        let conversation = self
+            .load_conversation_from_db(&conversation_id)
+            .filter(|conversation| {
+                !conversation
+                    .server_metadata()
+                    .is_some_and(|metadata| metadata.ambient_agent_task_id.is_some())
+            })
+            .map(|conversation| CloudConversationData::Oz(Box::new(conversation)));
+        box_future(futures::future::ready(conversation))
+    }
+
     /// Loads conversation data from the appropriate source (DB or server).
     ///
     /// This method automatically determines whether to load from the local database or

@@ -8950,34 +8950,35 @@ impl Workspace {
         }
     }
 
-    /// Install the Oz CLI by creating a symlink in /usr/local/bin
+    /// Install the Galaxy AI CLI by creating a symlink in /usr/local/bin
     #[cfg(target_os = "macos")]
     fn install_oz(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.spawn(async { cli_install::install_oz() }, |view, result, ctx| {
             let command_name = ChannelState::channel().cli_command_name();
-            let message = format!("Installed the Oz CLI globally. You can now run '{command_name}' from any terminal outside of Warp.");
-            let toast = DismissibleToast::success(message).with_link(
-                ToastLink::new("Learn more".to_string())
-                    .with_href("https://docs.warp.dev/reference/cli".to_string()),
+            let message = format!("Installed the Galaxy AI CLI globally. You can now run '{command_name}' from any terminal.");
+            let toast = DismissibleToast::success(message);
+            view.handle_cli_command_result(
+                result,
+                toast,
+                "Failed to install Galaxy AI command",
+                ctx,
             );
-            view.handle_cli_command_result(result, toast, "Failed to install Oz command", ctx);
         });
     }
 
-    /// Uninstall the Oz CLI by removing the symlink from /usr/local/bin
+    /// Uninstall the Galaxy AI CLI by removing the symlink from /usr/local/bin
     #[cfg(target_os = "macos")]
     fn uninstall_oz(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.spawn(
             async { cli_install::uninstall_oz() },
             |view, result, ctx| {
                 let toast = DismissibleToast::success(
-                    "Removed the global Oz CLI installation — it still works inside Warp."
-                        .to_string(),
+                    "Removed the global Galaxy AI CLI installation.".to_string(),
                 );
                 view.handle_cli_command_result(
                     result,
                     toast,
-                    "Failed to uninstall Oz command",
+                    "Failed to uninstall Galaxy AI command",
                     ctx,
                 );
             },
@@ -9212,10 +9213,10 @@ impl Workspace {
         let window_id = self.window_id;
         let view_id = self.agent_management_view.id();
         AgentConversationsModel::handle(ctx).update(ctx, |model, ctx| {
+            // This history surface consumes local conversations, not hosted run updates.
+            model.register_view_closed(window_id, view_id, ctx);
             if is_open {
-                model.register_view_open(window_id, view_id, ctx);
-            } else {
-                model.register_view_closed(window_id, view_id, ctx);
+                model.sync_conversations(ctx);
             }
         });
 
@@ -12978,6 +12979,7 @@ impl Workspace {
         pane_view_locator: Option<PaneViewLocator>,
         terminal_view_id: Option<EntityId>,
         mut restore_layout: Option<RestoreConversationLayout>,
+        local_only: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         // If we have all required navigation data, try to navigate to the existing pane
@@ -13022,8 +13024,27 @@ impl Workspace {
                 UndoCloseStack::handle(ctx).update(ctx, |stack, ctx| {
                     stack.discard_pane_group_parent(pane_view_locator.pane_group_id, ctx);
                 });
-            } else if has_blocking_long_running_command {
-                // Don't open in this pane and use the existing restore layout.
+            } else if has_blocking_long_running_command
+                || (local_only
+                    && (ctx
+                        .view_with_id::<TerminalView>(window_id, terminal_view_id)
+                        .is_none()
+                        || ctx
+                            .view_with_id::<PaneGroup>(window_id, pane_view_locator.pane_group_id)
+                            .and_then(|pane_group| {
+                                pane_group.as_ref(ctx).terminal_view_from_pane_id(
+                                    pane_view_locator.pane_id,
+                                    ctx,
+                                )
+                            })
+                            .is_none_or(|terminal| terminal.id() != terminal_view_id)
+                        || ctx.root_view_id(window_id).is_none()))
+                || (local_only
+                    && BlocklistAIHistoryModel::as_ref(ctx)
+                        .conversation(&conversation_id)
+                        .is_none())
+            {
+                // Local history restores from disk if its previous pane is unavailable.
             } else {
                 BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
                     history_model.set_active_conversation_id(
@@ -13070,13 +13091,13 @@ impl Workspace {
         // Handle based on effective layout
         match effective_layout {
             RestoreConversationLayout::ActivePane => {
-                self.restore_conversation_in_active_pane(conversation_id, ctx);
+                self.restore_conversation_in_active_pane(conversation_id, local_only, ctx);
             }
             RestoreConversationLayout::SplitPane => {
-                self.restore_conversation_in_split_pane(conversation_id, ctx);
+                self.restore_conversation_in_split_pane(conversation_id, local_only, ctx);
             }
             RestoreConversationLayout::NewTab => {
-                self.restore_conversation_in_new_tab(conversation_id, ctx);
+                self.restore_conversation_in_new_tab(conversation_id, local_only, ctx);
             }
         }
     }
@@ -13087,6 +13108,7 @@ impl Workspace {
     fn restore_conversation_in_active_pane(
         &mut self,
         conversation_id: AIConversationId,
+        local_only: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         let terminal_view_for_active_pane = self.active_session_view(ctx).filter(|_| {
@@ -13097,7 +13119,7 @@ impl Workspace {
 
         // If we can't restore in the active pane, fall back to restoring in new tab.
         let Some(terminal_view) = &terminal_view_for_active_pane else {
-            self.restore_conversation_in_new_tab(conversation_id, ctx);
+            self.restore_conversation_in_new_tab(conversation_id, local_only, ctx);
             return;
         };
 
@@ -13143,7 +13165,7 @@ impl Workspace {
             });
         // If there's an active long-running command in the active terminal, fall back to restoring in new tab.
         if active_pane_has_long_running_command {
-            self.restore_conversation_in_new_tab(conversation_id, ctx);
+            self.restore_conversation_in_new_tab(conversation_id, local_only, ctx);
             return;
         }
 
@@ -13152,9 +13174,11 @@ impl Workspace {
             .as_ref(ctx)
             .get_conversation_metadata(&conversation_id)
             .is_some_and(|m| m.has_local_data);
-        let future = history_model
-            .as_ref(ctx)
-            .load_conversation_data(conversation_id, ctx);
+        let future = if local_only {
+            history_model.as_ref(ctx).load_local_conversation_data(conversation_id)
+        } else {
+            history_model.as_ref(ctx).load_conversation_data(conversation_id, ctx)
+        };
         let terminal_view_for_closure = terminal_view.clone();
         let window_id = ctx.window_id();
         ctx.spawn(future, move |_workspace, conversation, ctx| {
@@ -13169,7 +13193,12 @@ impl Workspace {
                     ctx.notify();
                 });
                 WorkspaceToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = DismissibleToast::error("Failed to load conversation.".to_owned());
+                    let message = if local_only {
+                        "This AI session is not available on this device."
+                    } else {
+                        "Failed to load conversation."
+                    };
+                    let toast = DismissibleToast::error(message.to_owned());
                     toast_stack.add_ephemeral_toast(toast, window_id, ctx);
                 });
                 return;
@@ -13208,6 +13237,7 @@ impl Workspace {
     fn restore_conversation_in_split_pane(
         &mut self,
         conversation_id: AIConversationId,
+        local_only: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         let window_id = ctx.window_id();
@@ -13223,14 +13253,21 @@ impl Workspace {
         });
 
         let history_model = BlocklistAIHistoryModel::handle(ctx);
-        let future = history_model
-            .as_ref(ctx)
-            .load_conversation_data(conversation_id, ctx);
+        let future = if local_only {
+            history_model.as_ref(ctx).load_local_conversation_data(conversation_id)
+        } else {
+            history_model.as_ref(ctx).load_conversation_data(conversation_id, ctx)
+        };
         ctx.spawn(future, move |_workspace, conversation, ctx| {
             let Some(conversation) = conversation else {
                 log::warn!("Failed to load conversation {conversation_id}");
                 WorkspaceToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = DismissibleToast::error("Failed to load conversation.".to_owned());
+                    let message = if local_only {
+                        "This AI session is not available on this device."
+                    } else {
+                        "Failed to load conversation."
+                    };
+                    let toast = DismissibleToast::error(message.to_owned());
                     toast_stack.add_ephemeral_toast(toast, window_id, ctx);
                 });
                 // Close the loading pane
@@ -13262,6 +13299,7 @@ impl Workspace {
     fn restore_conversation_in_new_tab(
         &mut self,
         conversation_id: AIConversationId,
+        local_only: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         let window_id = ctx.window_id();
@@ -13291,15 +13329,22 @@ impl Workspace {
         let loading_pane_id = new_pane_group.as_ref(ctx).focused_pane_id(ctx);
 
         let history_model = BlocklistAIHistoryModel::handle(ctx);
-        let future = history_model
-            .as_ref(ctx)
-            .load_conversation_data(conversation_id, ctx);
+        let future = if local_only {
+            history_model.as_ref(ctx).load_local_conversation_data(conversation_id)
+        } else {
+            history_model.as_ref(ctx).load_conversation_data(conversation_id, ctx)
+        };
 
         ctx.spawn(future, move |workspace, conversation, ctx| {
             let Some(conversation) = conversation else {
                 log::warn!("Failed to load conversation {conversation_id}");
                 WorkspaceToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = DismissibleToast::error("Failed to load conversation.".to_owned());
+                    let message = if local_only {
+                        "This AI session is not available on this device."
+                    } else {
+                        "Failed to load conversation."
+                    };
+                    let toast = DismissibleToast::error(message.to_owned());
                     toast_stack.add_ephemeral_toast(toast, window_id, ctx);
                 });
                 // Close the loading tab
@@ -21892,7 +21937,7 @@ impl Workspace {
             AISettings::as_ref(app)
                 .is_any_ai_enabled(app)
                 .then(|| WorkspaceBannerButtonDetails {
-                    text: "Fix with Oz".to_owned(),
+                    text: "Fix with Galaxy Agent".to_owned(),
                     action: WorkspaceAction::FixSettingsWithOz {
                         error_description: error.to_string(),
                     },
@@ -24893,7 +24938,7 @@ impl TypedActionView for Workspace {
             }
             RunAISuggestedCommand(code) => {
                 let command = code.trim().to_string();
-                let workflow = Workflow::new("Command from Oz", command);
+                let workflow = Workflow::new("Command from Galaxy Agent", command);
                 self.run_workflow_in_active_input(
                     &WorkflowType::AIGenerated {
                         workflow,
@@ -25148,6 +25193,7 @@ impl TypedActionView for Workspace {
                 conversation_id,
                 terminal_view_id,
                 restore_layout,
+                local_only,
             } => {
                 self.restore_or_navigate_to_conversation(
                     *conversation_id,
@@ -25155,6 +25201,7 @@ impl TypedActionView for Workspace {
                     *pane_view_locator,
                     *terminal_view_id,
                     *restore_layout,
+                    *local_only,
                     ctx,
                 );
             }

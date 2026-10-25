@@ -24,10 +24,8 @@ impl UseComputerExecutor {
             return false;
         };
 
-        // We unconditionally return true here because this action is only executed by
-        // the computer use subagent, which cannot begin without the user approving it via
-        // a `RequestComputerUse` action, and the approval extends to all computer use
-        // actions within that computer use subagent.
+        // The shared action boundary applies the active permission mode to every action.
+        // Once that check passes, the executor has no additional approval requirement.
         true
     }
 

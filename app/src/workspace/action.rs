@@ -592,6 +592,8 @@ pub enum WorkspaceAction {
         /// If provided, use this layout to restore the conversation.
         /// Otherwise, fall back to the user's setting.
         restore_layout: Option<RestoreConversationLayout>,
+        /// History recovery must use this device's saved data without server fallback.
+        local_only: bool,
     },
     /// Fork an existing AI conversation.
     /// Optionally summarizes the conversation after forking and/or sends an initial prompt.

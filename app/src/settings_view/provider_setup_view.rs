@@ -220,6 +220,7 @@ pub enum ProviderSetupViewAction {
     ToggleModel(usize),
     CycleModelCapability(usize, CapabilityKey),
     ConnectChatGPT,
+    CancelChatGPTSignIn,
     ConnectClaude,
     SignOutClaude,
     CancelClaudeSignIn,
@@ -687,10 +688,8 @@ impl ProviderSetupView {
         self.draft_bedrock = draft;
         self.draft_models.clear();
         self.discovery_state = DiscoveryState::Idle;
+        self.bedrock_region_request += 1;
         self.sync_editors(ctx);
-        if self.draft_bedrock.region.is_empty() {
-            self.load_bedrock_profile_region(ctx);
-        }
         self.sync_provider_type_buttons(ctx);
         self.sync_bedrock_auth_buttons(ctx);
         self.sync_model_switches(ctx);
@@ -1130,8 +1129,23 @@ impl ProviderSetupView {
         }
     }
 
+    fn bedrock_client_config(&self) -> crate::ai::provider::client::BedrockClientConfig {
+        crate::ai::provider::client::BedrockClientConfig {
+            auth_method: self.draft_bedrock.auth_method,
+            profile: self.draft_bedrock.profile.clone(),
+            region: self.draft_bedrock.region.clone(),
+            access_key_id: self.draft_bedrock.access_key_id.clone(),
+            secret_access_key: self.draft_bedrock.secret_access_key.clone(),
+            session_token: None,
+            credentials_expiry: None,
+            invocation_model_id: None,
+            cross_region_inference: self.draft_bedrock.cross_region_inference,
+        }
+    }
+
     fn begin_discovery(&mut self, ctx: &mut ViewContext<Self>) {
         self.cancel_acp_setup();
+        self.bedrock_region_request += 1;
         self.step = ProviderSetupStep::Discover;
         self.discovery_state = DiscoveryState::Loading;
         self.acp_setup_status.clear();
@@ -1145,33 +1159,45 @@ impl ProviderSetupView {
                 return;
             }
             ProviderSetupProviderType::Bedrock => {
-                let config = crate::ai::provider::client::BedrockClientConfig {
-                    auth_method: self.draft_bedrock.auth_method,
-                    profile: self.draft_bedrock.profile.clone(),
-                    region: self.draft_bedrock.region.clone(),
-                    access_key_id: self.draft_bedrock.access_key_id.clone(),
-                    secret_access_key: self.draft_bedrock.secret_access_key.clone(),
-                    session_token: None,
-                    cross_region_inference: self.draft_bedrock.cross_region_inference,
-                };
+                let config = self.bedrock_client_config();
                 let requested_config = config.clone();
+                let generation = self.acp_discovery_generation;
+                let verification_generation = LLMPreferences::handle(ctx)
+                    .update(ctx, |preferences, _| preferences.begin_bedrock_verification());
                 ctx.spawn(
                     async move {
                         crate::ai::provider::discovery::discover_available_models(config).await
                     },
-                    move |me, result, ctx| match result {
+                    move |me, result, ctx| {
+                        if generation != me.acp_discovery_generation
+                            || me.provider_type != ProviderSetupProviderType::Bedrock
+                            || me.step != ProviderSetupStep::Discover
+                            || me.bedrock_client_config() != requested_config
+                        {
+                            return;
+                        }
+                        match result {
                         Ok(discovery) => {
                             for record in discovery.records {
                                 crate::ai::remote_logging::log_view_event(ctx, record);
                             }
                             let models = discovery.models;
-                            LLMPreferences::handle(ctx).update(ctx, |preferences, ctx| {
+                            let accepted = LLMPreferences::handle(ctx).update(ctx, |preferences, ctx| {
                                 preferences.record_bedrock_verification(
+                                    verification_generation,
                                     requested_config,
                                     &models,
                                     ctx,
-                                );
+                                )
                             });
+                            if !accepted {
+                                me.discovery_state = DiscoveryState::Failed(
+                                    "A newer Bedrock connection test superseded this result. Retry the test.".to_owned(),
+                                );
+                                me.update_next_button(ctx);
+                                ctx.notify();
+                                return;
+                            }
                             me.draft_bedrock.models =
                                 crate::ai::provider::discovery::preserve_model_toggles(
                                     &me.draft_bedrock.models,
@@ -1188,6 +1214,7 @@ impl ProviderSetupView {
                             me.discovery_state = DiscoveryState::Failed(error);
                             me.update_next_button(ctx);
                             ctx.notify();
+                        }
                         }
                     },
                 );
@@ -1564,10 +1591,10 @@ impl ProviderSetupView {
             );
         }
 
-        if matches!(
-            state,
-            ChatGPTAuthState::NotConnected | ChatGPTAuthState::Failed(_)
-        ) {
+        let pending = matches!(state,
+            ChatGPTAuthState::AwaitingBrowser | ChatGPTAuthState::ExchangingToken
+        );
+        {
             children.push(
                 appearance
                     .ui_builder()
@@ -1575,10 +1602,21 @@ impl ProviderSetupView {
                         ButtonVariant::Secondary,
                         self.chatgpt_connect_mouse_state.clone(),
                     )
-                    .with_text_label("Connect ChatGPT".to_owned())
+                    .with_text_label(if pending {
+                        "Cancel sign-in"
+                    } else if matches!(state, ChatGPTAuthState::Connected) {
+                        "Reconnect ChatGPT"
+                    } else {
+                        "Connect ChatGPT"
+                    }.to_owned())
                     .build()
-                    .on_click(|ctx, _, _| {
-                        ctx.dispatch_typed_action(ProviderSetupViewAction::ConnectChatGPT);
+                    .on_click(move |ctx, _, _| {
+                        let action = if pending {
+                            ProviderSetupViewAction::CancelChatGPTSignIn
+                        } else {
+                            ProviderSetupViewAction::ConnectChatGPT
+                        };
+                        ctx.dispatch_typed_action(action);
                     })
                     .finish(),
             );
@@ -1835,7 +1873,7 @@ impl ProviderSetupView {
             .finish()
     }
 
-    fn render_discovery(&self, appearance: &Appearance) -> Box<dyn galaxyui::Element> {
+    fn render_discovery(&self, appearance: &Appearance, app: &AppContext) -> Box<dyn galaxyui::Element> {
         let (message, color) = match &self.discovery_state {
             DiscoveryState::Idle | DiscoveryState::Loading => (
                 if self.provider_type == ProviderSetupProviderType::Acp
@@ -1849,7 +1887,7 @@ impl ProviderSetupView {
             ),
             DiscoveryState::Failed(error) => (error.clone(), appearance.theme().ui_error_color()),
         };
-        Flex::column()
+        let mut column = Flex::column()
             .with_spacing(12.)
             .with_child(
                 Text::new(
@@ -1887,8 +1925,13 @@ impl ProviderSetupView {
                     .with_color(color)
                     .soft_wrap(true)
                     .finish()
-            })
-            .finish()
+            });
+        if self.provider_type == ProviderSetupProviderType::ChatGPTSubscription
+            && matches!(self.discovery_state, DiscoveryState::Failed(_))
+        {
+            column = column.with_child(self.render_chatgpt_auth(appearance, app));
+        }
+        column.finish()
     }
 
     fn render_model_table(
@@ -2442,7 +2485,7 @@ impl View for ProviderSetupView {
         let content = match self.step {
             ProviderSetupStep::ProviderType => self.render_provider_type(appearance),
             ProviderSetupStep::Configure => self.render_configure(appearance, app),
-            ProviderSetupStep::Discover => self.render_discovery(appearance),
+            ProviderSetupStep::Discover => self.render_discovery(appearance, app),
             ProviderSetupStep::Models => self.render_models(appearance),
         };
         Flex::column()
@@ -2462,6 +2505,10 @@ impl TypedActionView for ProviderSetupView {
         match action {
             ProviderSetupViewAction::SelectProvider(kind) => {
                 if self.provider_type != *kind {
+                    #[cfg(not(target_family = "wasm"))]
+                    if self.provider_type == ProviderSetupProviderType::ChatGPTSubscription {
+                        ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.cancel_sign_in(ctx));
+                    }
                     self.cancel_claude_signin();
                     self.draft_api_key = None;
                     self.claude_credentials_available = false;
@@ -2562,6 +2609,10 @@ impl TypedActionView for ProviderSetupView {
             ProviderSetupViewAction::Cancel => {
                 self.cancel_acp_setup();
                 self.cancel_claude_signin();
+                #[cfg(not(target_family = "wasm"))]
+                if self.provider_type == ProviderSetupProviderType::ChatGPTSubscription {
+                    ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.cancel_sign_in(ctx));
+                }
                 self.discovery_state = DiscoveryState::Idle;
                 ctx.emit(ProviderSetupViewEvent::Close);
             }
@@ -2606,6 +2657,10 @@ impl TypedActionView for ProviderSetupView {
             ProviderSetupViewAction::ConnectChatGPT => {
                 #[cfg(not(target_family = "wasm"))]
                 ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.connect(ctx));
+            }
+            ProviderSetupViewAction::CancelChatGPTSignIn => {
+                #[cfg(not(target_family = "wasm"))]
+                ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.cancel_sign_in(ctx));
             }
             ProviderSetupViewAction::ConnectClaude => {
                 #[cfg(not(target_family = "wasm"))]

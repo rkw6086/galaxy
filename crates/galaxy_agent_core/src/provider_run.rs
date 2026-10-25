@@ -4,10 +4,11 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::types::tool_image_group_call_id;
 use crate::{
     AgentError, ContentPart, ConversationMessage, MessageContent, MessageRole, PermissionDecision,
-    PermissionRequest, StopReason, ToolCall, ToolCallDecision, ToolPolicy, ToolResult,
-    ToolResultStatus, Usage,
+    PermissionRequest, StopReason, TaskListSnapshot, ToolCall, ToolCallDecision, ToolPolicy,
+    ToolResult, ToolResultStatus, UPDATE_TASK_LIST_NAME, Usage, task_list_from_tool_result,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -357,6 +358,9 @@ pub enum ProviderRunProtocolError {
     InvalidTranscriptCompaction {
         message: String,
     },
+    InvalidTaskList {
+        message: String,
+    },
     InvalidRestoredState {
         message: String,
     },
@@ -422,6 +426,7 @@ impl fmt::Display for ProviderRunProtocolError {
             Self::InvalidTranscriptCompaction { message } => {
                 write!(f, "invalid transcript compaction: {message}")
             }
+            Self::InvalidTaskList { message } => write!(f, "invalid task list: {message}"),
             Self::InvalidRestoredState { message } => {
                 write!(f, "invalid restored provider run: {message}")
             }
@@ -439,6 +444,8 @@ pub struct ProviderRun {
     epoch: RunEpoch,
     transcript: Vec<ConversationMessage>,
     tool_result_archive: Vec<ConversationMessage>,
+    #[serde(default)]
+    task_list: Option<TaskListSnapshot>,
     usage: Usage,
     model_turns: u32,
     model_retries: u32,
@@ -460,6 +467,7 @@ impl ProviderRun {
             epoch: RunEpoch::default(),
             transcript,
             tool_result_archive: Vec::new(),
+            task_list: None,
             usage: Usage::default(),
             model_turns: 0,
             model_retries: 0,
@@ -487,6 +495,23 @@ impl ProviderRun {
 
     pub fn transcript(&self) -> &[ConversationMessage] {
         &self.transcript
+    }
+
+    pub fn task_list(&self) -> Option<&TaskListSnapshot> {
+        self.task_list.as_ref()
+    }
+
+    pub fn set_task_list(
+        &mut self,
+        task_list: Option<TaskListSnapshot>,
+    ) -> Result<(), ProviderRunProtocolError> {
+        if let Some(snapshot) = &task_list {
+            snapshot
+                .validate()
+                .map_err(|message| ProviderRunProtocolError::InvalidTaskList { message })?;
+        }
+        self.task_list = task_list;
+        Ok(())
     }
 
     pub fn tool_result_archive(&self) -> &[ConversationMessage] {
@@ -563,6 +588,11 @@ impl ProviderRun {
         }
         if self.profile.as_str().is_empty() {
             return Err(invalid("request profile must not be empty".to_string()));
+        }
+        if let Some(snapshot) = &self.task_list {
+            snapshot
+                .validate()
+                .map_err(|error| invalid(format!("invalid task list: {error}")))?;
         }
         if self.limits.max_model_turns == Some(0) {
             return Err(invalid("model-turn limit must be at least one".to_string()));
@@ -831,6 +861,7 @@ impl ProviderRun {
                         .push(pending.call.id.clone());
                     pending.state = PendingToolCallState::Resolved {
                         result: ToolResult {
+                            images: Vec::new(),
                             call_id: pending.call.id.clone(),
                             content: "Tool execution was interrupted by application restart and was not replayed."
                                 .to_string(),
@@ -1132,6 +1163,7 @@ impl ProviderRun {
                 let content = reason.unwrap_or_else(|| "Tool permission was denied.".to_string());
                 call.state = PendingToolCallState::Resolved {
                     result: ToolResult {
+                        images: Vec::new(),
                         call_id: call_id.to_string(),
                         content,
                         status: ToolResultStatus::Denied,
@@ -1215,6 +1247,7 @@ impl ProviderRun {
             | PendingToolCallState::RecoveryPending => {
                 call.state = PendingToolCallState::Resolved {
                     result: ToolResult {
+                        images: Vec::new(),
                         call_id: call_id.to_string(),
                         content: reason.into(),
                         status: ToolResultStatus::Cancelled,
@@ -1273,6 +1306,20 @@ impl ProviderRun {
             });
         };
         let next_epoch = self.next_epoch()?;
+        let mut task_list = self.task_list.clone();
+        for pending in &batch.calls {
+            if pending.call.name != UPDATE_TASK_LIST_NAME {
+                continue;
+            }
+            let result = pending.state.result().expect("validated complete tool batch");
+            if result.status == ToolResultStatus::Success {
+                task_list = Some(task_list_from_tool_result(&result.content).ok_or_else(|| {
+                    ProviderRunProtocolError::InvalidTaskList {
+                        message: "successful task update has no valid snapshot result".to_string(),
+                    }
+                })?);
+            }
+        }
         let yielded_to_children = batch.calls.iter().any(|pending| {
             is_local_agent_launch(&pending.call)
                 && pending
@@ -1281,6 +1328,7 @@ impl ProviderRun {
                     .is_some_and(|result| result.status == ToolResultStatus::Success)
         });
         self.transcript.push(tool_result_message(results));
+        self.task_list = task_list;
         self.epoch = next_epoch;
         // Launch acknowledgement is a yield, not an invitation to issue more tools.
         // The client persists child membership and supplies a new input once the group finishes.
@@ -1424,6 +1472,7 @@ impl ProviderRun {
                 let state = if has_launch && !is_local_agent_launch(&call) {
                     PendingToolCallState::Resolved {
                         result: ToolResult {
+                            images: Vec::new(),
                             call_id: call.id.clone(),
                             content: "Not executed: launching a child group yields this turn. Wait for the group's completion before scheduling dependent work.".to_string(),
                             status: ToolResultStatus::Error,
@@ -1432,6 +1481,7 @@ impl ProviderRun {
                 } else if !call.arguments.is_object() {
                     PendingToolCallState::Resolved {
                         result: ToolResult {
+                            images: Vec::new(),
                             call_id: call.id.clone(),
                             content: format!(
                                 "Error: '{}' received malformed arguments; expected a JSON object.",
@@ -1543,6 +1593,7 @@ impl ProviderRun {
                     if call.state.result().is_none() {
                         call.state = PendingToolCallState::Resolved {
                             result: ToolResult {
+                                images: Vec::new(),
                                 call_id: call.call.id.clone(),
                                 content: result_content.clone(),
                                 status,
@@ -1633,6 +1684,18 @@ fn validate_pending_tool_state(pending: &PendingToolCall) -> Result<(), String> 
         | PendingToolCallState::Executing
         | PendingToolCallState::RecoveryPending
         | PendingToolCallState::Resolved { .. } => {}
+    }
+    if pending.call.name == UPDATE_TASK_LIST_NAME {
+        if let Some(result) = pending.state.result() {
+            if result.status == ToolResultStatus::Success {
+                let snapshot = task_list_from_tool_result(&result.content)
+                    .ok_or_else(|| "successful task update has no valid snapshot result".to_string())?;
+                let expected = TaskListSnapshot::from_arguments(&pending.call.arguments)?;
+                if snapshot != expected {
+                    return Err("task update result does not match its arguments".to_string());
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -1726,16 +1789,7 @@ fn assistant_message(turn: &CompletedModelTurn) -> ConversationMessage {
 fn tool_result_message(results: Vec<ToolResult>) -> ConversationMessage {
     ConversationMessage {
         role: MessageRole::User,
-        content: MessageContent::MultiPart(
-            results
-                .into_iter()
-                .map(|result| ContentPart::ToolResult {
-                    tool_use_id: result.call_id,
-                    content: result.content,
-                    is_error: !matches!(result.status, ToolResultStatus::Success),
-                })
-                .collect(),
-        ),
+        content: MessageContent::MultiPart(ToolResult::into_batch_content_parts(results)),
     }
 }
 
@@ -1806,17 +1860,42 @@ pub fn archive_tool_results(
                 seen_results.insert(tool_use_id.clone())
             }
             MessageContent::MultiPart(parts) => {
-                parts.retain(|part| match part {
-                    ContentPart::ToolUse { tool_use_id, .. } => {
-                        seen_uses.insert(tool_use_id.clone())
+                let mut retained_results = HashSet::new();
+                let mut keep_parts: Vec<_> = parts
+                    .iter()
+                    .map(|part| match part {
+                        ContentPart::ToolUse { tool_use_id, .. } => {
+                            seen_uses.insert(tool_use_id.clone())
+                        }
+                        ContentPart::ToolResult { tool_use_id, .. } => {
+                            let keep = seen_results.insert(tool_use_id.clone());
+                            if keep {
+                                retained_results.insert(tool_use_id.clone());
+                            }
+                            keep
+                        }
+                        ContentPart::Text(_)
+                        | ContentPart::Reasoning { .. }
+                        | ContentPart::Image { .. } => false,
+                    })
+                    .collect();
+                let mut keep_image_group = false;
+                for (index, part) in parts.iter().enumerate() {
+                    match part {
+                        ContentPart::Text(_) => {
+                            keep_image_group = tool_image_group_call_id(part)
+                                .is_some_and(|call_id| retained_results.contains(call_id))
+                                && matches!(parts.get(index + 1), Some(ContentPart::Image { .. }));
+                            keep_parts[index] = keep_image_group;
+                        }
+                        ContentPart::Image { .. } => keep_parts[index] = keep_image_group,
+                        ContentPart::Reasoning { .. }
+                        | ContentPart::ToolUse { .. }
+                        | ContentPart::ToolResult { .. } => keep_image_group = false,
                     }
-                    ContentPart::ToolResult { tool_use_id, .. } => {
-                        seen_results.insert(tool_use_id.clone())
-                    }
-                    ContentPart::Text(_)
-                    | ContentPart::Reasoning { .. }
-                    | ContentPart::Image { .. } => false,
-                });
+                }
+                let mut retained = keep_parts.into_iter();
+                parts.retain(|_| retained.next().unwrap_or(false));
                 !parts.is_empty()
             }
             MessageContent::Text(_) => false,

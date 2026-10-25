@@ -418,17 +418,70 @@ fn domain_tool_result(action_result: &AIAgentActionResult, permission_denied: bo
     } else {
         ToolResultStatus::Success
     };
-    let content = action_result.result.model_content();
+    let (content, images) = computer_use_model_content(&action_result.result)
+        .unwrap_or_else(|| (action_result.result.model_content(), Vec::new()));
     let content = if permission_denied {
         format!("Permission denied by the user. {content}")
     } else {
         content
     };
     ToolResult {
+        images: if permission_denied { Vec::new() } else { images },
         call_id: action_result.id.to_string(),
         content,
         status,
     }
+}
+
+fn computer_use_model_content(
+    result: &AIAgentActionResultType,
+) -> Option<(String, Vec<galaxy_agent_core::ToolResultImage>)> {
+    let (screenshot, mut metadata) = match result {
+        AIAgentActionResultType::RequestComputerUse(RequestComputerUseResult::Approved {
+            screenshot,
+            platform,
+            windows,
+        }) => (
+            Some(screenshot),
+            serde_json::json!({
+                "status": "approved",
+                "platform": format!("{platform:?}"),
+                "windows": windows,
+            }),
+        ),
+        AIAgentActionResultType::UseComputer(UseComputerResult::Success(result)) => (
+            result.screenshot.as_ref(),
+            serde_json::json!({
+                "status": "success",
+                "cursor_position": result.cursor_position.map(|point| serde_json::json!({
+                    "x": point.x(), "y": point.y(),
+                })),
+                "windows": result.windows,
+                "captured_window": result.captured_window.map(|window| serde_json::json!({
+                    "window_id": window.window_id,
+                    "width_px": window.width_px,
+                    "height_px": window.height_px,
+                })),
+            }),
+        ),
+        _ => return None,
+    };
+    let images = screenshot
+        .map(|screenshot| {
+            metadata["screenshot"] = serde_json::json!({
+                "width": screenshot.width,
+                "height": screenshot.height,
+                "original_width": screenshot.original_width,
+                "original_height": screenshot.original_height,
+                "coordinate_space": "Use original physical pixels; scale image coordinates by original_width/width and original_height/height.",
+            });
+            vec![galaxy_agent_core::ToolResultImage {
+                data: screenshot.data.clone(),
+                mime_type: screenshot.mime_type.to_string(),
+            }]
+        })
+        .unwrap_or_default();
+    Some((metadata.to_string(), images))
 }
 
 #[cfg(not(target_family = "wasm"))]

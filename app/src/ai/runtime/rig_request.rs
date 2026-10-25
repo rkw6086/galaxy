@@ -15,6 +15,9 @@ use uuid::Uuid;
 use warp_multi_agent_api as api;
 use warp_multi_agent_api::ToolType;
 
+use super::task_progress::{
+    add_task_list_context, task_list_from_api_tasks, task_list_tool, TASK_PROGRESS_GUIDANCE,
+};
 use crate::ai::agent::api::RequestParams;
 use crate::ai::agent::{AIAgentContext, AIAgentInput, MCPContext, UserQueryMode};
 use crate::ai::openai::client::OpenAIClientConfig;
@@ -277,7 +280,9 @@ fn prepare_rig_turn_for_provider(
             // History recall cannot advance a running command. Keeping it in the CLI tool list lets
             // the model spend its monitor turn recalling a prior snapshot instead of scheduling
             // `read_shell_command_output`, so make polling the only inspection path here.
-            tools.retain(|tool| tool.name != "recall_tool_history");
+            tools.retain(|tool| {
+                !matches!(tool.name.as_str(), "recall_tool_history" | "update_task_list")
+            });
         }
         RigRequestMode::CompletedCommandAssessment => {
             // The caller deliberately disables tools for the final assessment. The inline history
@@ -348,6 +353,8 @@ fn prepare_rig_turn_for_provider(
     request.system_prompt = Some(system_prompt);
     request.tools = tools;
     request.max_output_tokens = max_output_tokens;
+    let task_list = task_list_from_api_tasks(&tasks, &task_id);
+    add_task_list_context(&mut request, task_list.as_ref());
 
     PreparedRigTurn {
         max_context_tokens,
@@ -382,17 +389,7 @@ fn input_messages(
 ) -> Vec<ConversationMessage> {
     let mut messages = Vec::new();
     if !tool_results.is_empty() {
-        let mut parts = tool_results
-            .into_iter()
-            .map(|result| {
-                let is_error = result.is_error();
-                ContentPart::ToolResult {
-                    tool_use_id: result.call_id,
-                    content: result.content,
-                    is_error,
-                }
-            })
-            .collect::<Vec<_>>();
+        let mut parts = ToolResult::into_batch_content_parts(tool_results);
         let content = if parts.len() == 1 {
             let ContentPart::ToolResult {
                 tool_use_id,
@@ -692,6 +689,7 @@ fn tool_definitions(
         .into_iter()
         .filter(|tool| tool_name_is_supported(&tool.name, &supported))
         .collect::<Vec<_>>();
+    tools.push(task_list_tool());
     let mut mcp_tool_aliases = HashMap::new();
 
     if !supported.contains(&ToolType::CallMcpTool) {
@@ -782,7 +780,9 @@ fn add_tool_title_parameter(schema: &mut serde_json::Value) -> String {
 }
 
 fn tools_are_inline_only(tools: &[ToolDefinition]) -> bool {
-    tools.iter().all(|tool| tool.name == "recall_tool_history")
+    tools.iter().all(|tool| {
+        matches!(tool.name.as_str(), "recall_tool_history" | "update_task_list")
+    })
 }
 
 const MAX_PROVIDER_TOOL_NAME_BYTES: usize = 64;
@@ -850,6 +850,9 @@ fn build_system_prompt(
     );
     prompt.push_str(SHELL_EXECUTION_GUIDANCE);
     prompt.push_str(PROGRESS_COMMUNICATION_GUIDANCE);
+    if tools.iter().any(|tool| tool.name == "update_task_list") {
+        prompt.push_str(TASK_PROGRESS_GUIDANCE);
+    }
     let contexts = inputs.iter().filter_map(AIAgentInput::context).flatten();
     let mut environment = Vec::new();
     let mut request_time = None;
@@ -1029,6 +1032,12 @@ fn build_system_prompt(
         .any(|tool| matches!(tool.name.as_str(), "run_agents" | "start_agent"))
     {
         prompt.push_str(CODING_DELEGATION_GUIDANCE);
+    }
+    if tools.iter().any(|tool| tool.name == "request_computer_use") {
+        prompt.push_str("## Desktop Computer Use\nUse request_computer_use for tasks that require seeing or interacting with the user's desktop. This controls the machine running Galaxy, including when the terminal is connected to another host. Request the specific authorized task and wait for the screenshot. A successful request switches to the configured computer-use model; rejected or failed requests do not grant control.\n\n");
+    }
+    if tools.iter().any(|tool| tool.name == "use_computer") {
+        prompt.push_str("## Desktop Computer Use\nInspect the latest returned screenshot before acting. Use use_computer with small action batches, then inspect the new screenshot. Use original physical pixel coordinates: multiply displayed image x by original_width/width and y by original_height/height. Every button/key press requires both down and up actions. For window targeting, select an exact window_id/pid from the latest windows list; never invent a window. Stop on errors or denied permission and report the actual cause. Galaxy's Full Disk Access is separate from Screen Recording and Accessibility permissions. When desktop work is complete and terminal/file work remains, call the appropriate normal tool and Galaxy resumes the base model. Only finish the response when the whole user's task is complete.\n\n");
     }
     prompt.push_str("## Available Tools\n");
     if tools.is_empty() {

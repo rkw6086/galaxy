@@ -834,9 +834,33 @@ pub struct BedrockModelConfig {
     #[serde(default)]
     #[schemars(description = "Whether the model supports image/vision input.")]
     pub vision_supported: bool,
+    #[serde(default)]
+    pub invocation_model_id: String,
+    #[serde(default)]
+    pub provider_name: String,
+    #[serde(default)]
+    pub response_streaming_supported: Option<bool>,
+    #[serde(default)]
+    pub runtime_supported: Option<bool>,
 }
 
 impl settings_value::SettingsValue for BedrockModelConfig {}
+
+impl Default for BedrockModelConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            access_verified: false,
+            model_id: String::new(),
+            display_name: String::new(),
+            vision_supported: false,
+            invocation_model_id: String::new(),
+            provider_name: String::new(),
+            response_streaming_supported: None,
+            runtime_supported: None,
+        }
+    }
+}
 
 fn default_context_size() -> u32 {
     200_000

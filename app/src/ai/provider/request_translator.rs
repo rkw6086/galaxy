@@ -1714,6 +1714,8 @@ pub(crate) fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolTy
         "ask_user_question" => has(ToolType::AskUserQuestion),
         "read_skill" => has(ToolType::ReadSkill),
         "fetch_conversation" => has(ToolType::FetchConversation),
+        "request_computer_use" => has(ToolType::RequestComputerUse),
+        "use_computer" => has(ToolType::UseComputer),
         // This tool is implemented entirely inside the direct-provider response
         // translator, so it does not need a client ToolType capability bit.
         "recall_tool_history" => true,
@@ -1730,8 +1732,77 @@ pub(crate) const IMPLEMENTATION_PROGRESS_GUIDANCE: &str = "## Incremental Implem
 
 pub(crate) const SHELL_EXECUTION_GUIDANCE: &str = "## Shell Execution\nCommands use a persistent terminal. Never exit, log out of, replace with exec, or kill that shell or Galaxy. Do not append `exit $status` to a command to report its result; let the command's exit status be returned naturally. If a script needs exit, run it in an explicit child shell such as `sh -c '...'`. Stop a running agent command with interrupt_shell_command, not broad kill/pkill commands.\nRun builds, tests, installs, and workspace checks as separate shell tool calls so each has its own output and exit status. Keep stdout and stderr live: do not hide them in subprocess capture_output/PIPE, redirect everything to a file, or buffer a whole validation suite and print only its final tail. If a log file is needed, stream through tee while preserving the original command's exit status. Use non-interactive, non-watch modes and disable pagers. Give intentionally quiet commands a descriptive tool title so the user knows what is running; silence alone is not evidence of a hang. If repeated snapshots show no progress, investigate whether the command is waiting for input, watching, or buffering; do not blindly poll forever or start duplicate commands. Interrupt and correct an unintended watcher or blocked command before retrying.\n\n";
 
+fn computer_target_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "type": { "type": "string", "enum": ["screen", "window"], "default": "screen" },
+            "window_id": { "type": "integer", "minimum": 1 },
+            "pid": { "type": "integer", "minimum": 1 },
+        },
+        "required": ["type"],
+        "description": "Omit to target the main screen. Use window only with a window_id and pid from the latest returned windows list; requires background computer use support.",
+    })
+}
+
+fn computer_screenshot_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "max_long_edge_px": { "type": "integer", "minimum": 1, "maximum": 4096, "default": 1568 },
+            "max_total_px": { "type": "integer", "minimum": 1, "maximum": 4194304, "default": 1150000 },
+            "target": computer_target_schema(),
+        },
+        "description": "Screenshot size limits and target. Omit for a main-screen screenshot with bounded image size.",
+    })
+}
+
 pub fn default_tool_definitions() -> Vec<ToolDefinition> {
     vec![
+        ToolDefinition {
+            name: "request_computer_use".to_string(),
+            description: "Request desktop computer use on the machine running Galaxy and capture its initial screenshot. This uses the user's local desktop even when the terminal is connected by SSH. Call before interacting with the desktop; subsequent turns use the configured computer-use model and use_computer tool. Existing profile permissions apply. Screen Recording permission is needed to capture the screen; Accessibility permission is needed to control input on macOS.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "task_summary": { "type": "string", "description": "Specific desktop task and application to operate." },
+                    "screenshot_params": computer_screenshot_schema(),
+                },
+                "required": ["task_summary"],
+            }),
+        },
+        ToolDefinition {
+            name: "use_computer".to_string(),
+            description: "Perform a bounded batch of desktop actions after request_computer_use succeeds, then receive a screenshot. Use an empty actions array to inspect the desktop. Coordinates use original physical screenshot pixels, so scale coordinates from the displayed image using the returned original_width/width and original_height/height. Screen targets use main-display coordinates; window targets use coordinates relative to the exact enumerated window. Prefer small action batches and inspect the result. Named keys use OS keycodes; key accepts a single character. Button/key down and up are separate actions.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "action_summary": { "type": "string" },
+                    "actions": {
+                        "type": "array", "maxItems": 20,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": { "type": "string", "enum": ["wait", "mouse_move", "mouse_down", "mouse_up", "mouse_wheel", "type_text", "key_down", "key_up"] },
+                                "x": { "type": "integer" }, "y": { "type": "integer" },
+                                "button": { "type": "string", "enum": ["left", "right", "middle", "back", "forward"] },
+                                "text": { "type": "string", "maxLength": 100000 },
+                                "key": { "type": "string", "minLength": 1, "maxLength": 1 },
+                                "keycode": { "type": "integer", "description": "Platform keycode for modifier/navigation keys, such as macOS Return 36, Escape 53, Command 55, Shift 56, Option 58, Control 59." },
+                                "seconds": { "type": "number", "minimum": 0, "maximum": 10 },
+                                "direction": { "type": "string", "enum": ["up", "down", "left", "right"] },
+                                "pixels": { "type": "integer", "minimum": 0 },
+                                "target": computer_target_schema(),
+                            },
+                            "required": ["type"],
+                        },
+                    },
+                    "take_screenshot": { "type": "boolean", "default": true },
+                    "screenshot_params": computer_screenshot_schema(),
+                },
+                "required": ["action_summary", "actions"],
+            }),
+        },
         ToolDefinition {
             name: "run_shell_command".to_string(),
             description: "Execute a shell command in the user's terminal and return its output. Use for builds, tests, git, package managers, and other shell work. Commands run in this conversation's persistent shell and environment, starting in the supplied working directory. Successful cd commands affect subsequent calls in this shell; subshell directory changes do not. Avoid prefixing commands with cd to the directory you are already in, and use pwd only when the current location is uncertain. Never exit, log out of, replace, or kill this persistent shell. Run each build/test/install separately and keep its output live; avoid buffered subprocess wrappers and redirecting all output to files. Set wait_until_complete=false for commands that might run longer than a few seconds; Galaxy will return a command_id that can be monitored with read_shell_command_output.".to_string(),

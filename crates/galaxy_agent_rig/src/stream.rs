@@ -160,6 +160,13 @@ where
                             });
                         }
                         Ok(StreamedAssistantContent::Unknown(value)) => {
+                            // ChatGPT subscription streams include informational moderation
+                            // metadata that Rig does not map to assistant content.
+                            if value.get("type").and_then(serde_json::Value::as_str)
+                                == Some("response.metadata")
+                            {
+                                continue;
+                            }
                             if is_keepalive_event(&value) {
                                 yield Ok(AgentEvent::KeepAlive);
                             } else {
@@ -512,6 +519,11 @@ fn text_indicates_authentication_failure(text: &str) -> bool {
         "unrecognized client",
         "security token included in the request is invalid",
         "unable to locate credentials",
+        "unauthorizedexception",
+        "session token not found or invalid",
+        "sso session has expired",
+        "failed to load aws credentials",
+        "bedrock credentials not configured",
         "credential should be scoped to a valid region",
     ]
     .iter()

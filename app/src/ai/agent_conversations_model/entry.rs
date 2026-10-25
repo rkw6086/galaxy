@@ -166,6 +166,26 @@ pub struct AgentConversationCapabilities {
 }
 
 impl AgentConversationEntry {
+    /// Local history never offers hosted attachment, sharing, or server recovery.
+    pub(super) fn for_local_history(mut self) -> Self {
+        self.provenance = AgentConversationProvenance::LocalInteractive;
+        self.identity.ambient_agent_task_id = None;
+        self.identity.server_conversation_token = None;
+        self.identity.session_id = None;
+        self.display.session_status = None;
+        self.display.source = None;
+        self.display.environment_id = None;
+        self.display.harness = None;
+        self.display.request_usage = None;
+        self.display.executor = None;
+        self.capabilities.can_open = true;
+        self.capabilities.can_copy_link = false;
+        self.capabilities.can_share = false;
+        self.capabilities.can_fork_locally = false;
+        self.capabilities.can_cancel = false;
+        self
+    }
+
     pub(super) fn matches_filters(
         &self,
         filters: &AgentManagementFilters,

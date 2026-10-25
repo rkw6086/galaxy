@@ -661,10 +661,14 @@ impl AIExecutionProfile {
             PermissionMode::GalaxyDecides => RunAgentsPermission::GalaxyDecides,
             PermissionMode::AllowAll => RunAgentsPermission::AlwaysAllow,
         };
-        self.ask_user_question = if self.permission_mode == PermissionMode::AskFirst {
-            AskUserQuestionPermission::AlwaysAsk
-        } else {
-            AskUserQuestionPermission::Never
+        // Allow All bypasses tool approval, while clarification can still need user input.
+        self.ask_user_question = match self.permission_mode {
+            PermissionMode::AskFirst | PermissionMode::AllowAll => {
+                AskUserQuestionPermission::AlwaysAsk
+            }
+            PermissionMode::ReadOnly | PermissionMode::GalaxyDecides => {
+                AskUserQuestionPermission::Never
+            }
         };
         self.directory_allowlist.clear();
         self.mcp_allowlist.clear();

@@ -268,6 +268,8 @@ fn get_test_config() -> Option<BedrockClientConfig> {
         access_key_id: String::new(),
         secret_access_key: String::new(),
         session_token: None,
+        credentials_expiry: None,
+        invocation_model_id: None,
         cross_region_inference: false,
     })
 }

@@ -45,7 +45,7 @@ use crate::terminal::view::ambient_agent::AmbientAgentViewModel;
 use crate::workspace::WorkspaceAction;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
-const AUTO_BEDROCK_TOOLTIP: &str = "Warp uses Bedrock when the model Auto selects supports it; otherwise it may use Warp-hosted inference.";
+const AUTO_BEDROCK_TOOLTIP: &str = "Galaxy uses Bedrock when the model Auto selects supports it. Other models use their configured provider.";
 
 fn model_picker_label(llm: &LLMInfo) -> String {
     if llm.has_reasoning_level() && !is_custom_router_id(llm.id.as_str()) {

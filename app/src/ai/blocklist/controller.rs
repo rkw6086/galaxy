@@ -158,12 +158,22 @@ struct ActiveProviderRunIdentity {
 enum ActiveProviderProgressiveSummaryState {
     InFlight {
         identity: ActiveProviderRunIdentity,
+        waiting_for_context: bool,
     },
     Ready {
         identity: ActiveProviderRunIdentity,
+        waiting_for_context: bool,
         plan: ActiveProgressiveSummaryPlan,
         result: anyhow::Result<(String, Usage, String)>,
     },
+}
+
+impl ActiveProviderProgressiveSummaryState {
+    fn identity(&self) -> &ActiveProviderRunIdentity {
+        match self {
+            Self::InFlight { identity, .. } | Self::Ready { identity, .. } => identity,
+        }
+    }
 }
 
 fn configured_llm_context_limit(info: &LLMInfo) -> u32 {
@@ -1029,6 +1039,7 @@ fn convert_provider_tool_batch(
                 matches!(pending.state, PendingToolCallState::RecoveryPending),
             )),
             Err(message) => invalid_results.push(ToolResult {
+                images: Vec::new(),
                 call_id: pending.call.id.clone(),
                 content: format!("Invalid {} tool input: {message}", pending.call.name),
                 status: ToolResultStatus::Error,
@@ -6202,6 +6213,24 @@ impl BlocklistAIController {
             },
             ctx,
         );
+        // Projection can be persisted before a mixed tool batch commits. Seed
+        // from the actual visible list so replaying its inline update is a no-op.
+        let projected_task_list = BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .and_then(|conversation| {
+                crate::ai::runtime::task_list_from_api_tasks(
+                    &conversation.compute_active_tasks(),
+                    &root_task_id.to_string(),
+                )
+            });
+        let projector = ProviderRunResponseProjector::restored(
+            response_config.clone(),
+            projection_was_initialized,
+        )
+        .with_restored_task_lists(
+            projected_task_list,
+            crate::ai::runtime::restored_task_list(coordinator.run()),
+        );
         self.active_provider_runs.insert(
             conversation_id,
             ActiveProviderRunSlot {
@@ -6213,10 +6242,7 @@ impl BlocklistAIController {
                 projection_target,
                 run: Some(ActiveProviderRun {
                     coordinator,
-                    projector: ProviderRunResponseProjector::restored(
-                        response_config.clone(),
-                        projection_was_initialized,
-                    ),
+                    projector,
                     response_config,
                     action_context,
                     messages_sent,
@@ -6610,7 +6636,11 @@ impl BlocklistAIController {
         let prepared = match result {
             Ok(prepared) => prepared,
             Err(error) => {
-                self.fail_provider_startup(conversation_id, stream_id, error.to_string(), ctx);
+                let renderable = crate::ai::provider::authentication::provider_startup_error(
+                    &error,
+                    slot.response_stream.as_ref(ctx).model_id(),
+                );
+                self.fail_provider_startup_with_error(conversation_id, stream_id, renderable, ctx);
                 return;
             }
         };
@@ -6667,9 +6697,11 @@ impl BlocklistAIController {
             .active_provider_runs
             .get(&conversation_id)
             .and_then(|slot| slot.cancellation_reason);
+        let projector = ProviderRunResponseProjector::new(response_config.clone())
+            .with_task_list(coordinator.run().task_list().cloned());
         let mut run = ActiveProviderRun {
             coordinator,
-            projector: ProviderRunResponseProjector::new(response_config.clone()),
+            projector,
             response_config,
             action_context,
             messages_sent,
@@ -6931,8 +6963,9 @@ impl BlocklistAIController {
         }
 
         let active_context_limit = active_run
-            .response_config
-            .max_context_tokens
+            .coordinator
+            .current_context_limit()
+            .or(active_run.response_config.max_context_tokens)
             .unwrap_or_else(|| {
                 let preferences = LLMPreferences::as_ref(ctx);
                 configured_llm_context_limit(
@@ -6950,16 +6983,21 @@ impl BlocklistAIController {
             conversation.has_pending_progressive_summary()
         };
         let transcript = active_run.coordinator.run().transcript();
-        let Some((current_context_tokens, persistent_context_tokens)) =
+        let Some((current_context_tokens, current_persistent_context_tokens)) =
             self.active_provider_context_estimate(conversation_id, ctx)
         else {
             return false;
         };
+        let (summary_context_limit, summary_persistent_context_tokens) = active_run
+            .coordinator
+            .progressive_summary_context_budget()
+            .unwrap_or((active_context_limit, current_persistent_context_tokens));
         // Trigger and retain against the space history can actually use. Fixed
         // prompts and a large output reservation cannot be reduced by summarizing.
-        let history_capacity = active_context_limit.saturating_sub(persistent_context_tokens);
+        let history_capacity =
+            summary_context_limit.saturating_sub(summary_persistent_context_tokens);
         let current_history_tokens =
-            current_context_tokens.saturating_sub(persistent_context_tokens);
+            current_context_tokens.saturating_sub(current_persistent_context_tokens);
         if summary_pending
             || last_failure_context_tokens == Some(current_context_tokens)
             || (!force
@@ -7025,7 +7063,7 @@ impl BlocklistAIController {
             retained_messages_count: transcript.len().saturating_sub(split_point),
             trigger_context_tokens: current_context_tokens,
             active_context_limit,
-            persistent_context_tokens,
+            persistent_context_tokens: current_persistent_context_tokens,
             candidates,
             summarized_prefix: transcript[..split_point].to_vec(),
             summarize_messages: vec![ConversationMessage {
@@ -7046,6 +7084,7 @@ impl BlocklistAIController {
             conversation_id,
             ActiveProviderProgressiveSummaryState::InFlight {
                 identity: identity.clone(),
+                waiting_for_context: force,
             },
         );
         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _| {
@@ -7116,27 +7155,23 @@ impl BlocklistAIController {
         ctx: &mut ModelContext<Self>,
     ) {
         let conversation_id = identity.conversation_id;
-        let owns_summary = self
+        let waiting_for_context = match self
             .active_provider_progressive_summaries
             .get(&conversation_id)
-            .is_some_and(|state| {
-                matches!(
-                    state,
-                    ActiveProviderProgressiveSummaryState::InFlight {
-                        identity: active_identity,
-                    } if active_identity == &identity
-                )
-            });
-        if !owns_summary {
-            return;
-        }
+        {
+            Some(ActiveProviderProgressiveSummaryState::InFlight {
+                identity: active_identity,
+                waiting_for_context,
+            }) if active_identity == &identity => *waiting_for_context,
+            _ => return,
+        };
         let identity_is_current =
             self.active_provider_runs
                 .get(&conversation_id)
                 .is_some_and(|slot| {
                     slot.stream_id == identity.stream_id && slot.run_id == identity.run_id
                 });
-        if !identity_is_current {
+        if !identity_is_current && self.active_provider_runs.contains_key(&conversation_id) {
             self.active_provider_progressive_summaries
                 .remove(&conversation_id);
             BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _| {
@@ -7151,11 +7186,29 @@ impl BlocklistAIController {
             conversation_id,
             ActiveProviderProgressiveSummaryState::Ready {
                 identity,
+                waiting_for_context,
                 plan,
                 result,
             },
         );
-        self.drive_active_provider_run(conversation_id, ctx);
+        if !self.active_provider_runs.contains_key(&conversation_id) {
+            self.apply_ready_idle_provider_progressive_summary(conversation_id, ctx);
+            return;
+        }
+        // A background result must not re-enter an active model call or dispatch
+        // an awaiting tool batch again. Normal work consumes it at its next boundary.
+        if waiting_for_context
+            && self.active_provider_runs.get(&conversation_id).is_some_and(|slot| {
+                slot.run.as_ref().is_some_and(|run| {
+                    matches!(
+                        run.coordinator.run().state(),
+                        ProviderRunState::ReadyToCallModel
+                    )
+                })
+            })
+        {
+            self.drive_active_provider_run(conversation_id, ctx);
+        }
     }
 
     fn apply_ready_active_provider_progressive_summary(
@@ -7188,6 +7241,7 @@ impl BlocklistAIController {
 
         let Some(ActiveProviderProgressiveSummaryState::Ready {
             identity: _,
+            waiting_for_context,
             plan,
             result,
         }) = self
@@ -7204,6 +7258,7 @@ impl BlocklistAIController {
 
         let mut summary_applied = false;
         let mut recorded_usage = None;
+        let mut failure = None;
         match result {
             Ok((summary, usage, summarizer_model_id))
                 if estimated_history_tokens(&progressive_summary_messages(summary.clone()))
@@ -7213,6 +7268,7 @@ impl BlocklistAIController {
                     "[progressive-summary] Summary did not reduce context for conversation {:?}",
                     conversation_id,
                 );
+                failure = Some("summary did not reduce context".to_string());
                 recorded_usage = Some((usage, summarizer_model_id));
             }
             Ok((summary, usage, summarizer_model_id)) => {
@@ -7229,6 +7285,9 @@ impl BlocklistAIController {
                         "[progressive-summary] Discarding stale background summary for active conversation {:?}; the snapshotted prefix no longer matches",
                         conversation_id,
                     );
+                    failure = Some(
+                        "summary prefix no longer matches conversation history".to_string(),
+                    );
                 } else {
                     let drained = transcript[..plan.split_point].to_vec();
                     let retained = transcript[plan.split_point..].to_vec();
@@ -7236,6 +7295,14 @@ impl BlocklistAIController {
                     let summary_prefix = progressive_summary_messages(summary.clone());
                     let summary_prefix_len = summary_prefix.len();
                     let summary_prefix_tokens = estimated_history_tokens(&summary_prefix);
+                    let persistent_context_tokens = run
+                        .coordinator
+                        .estimated_context_tokens()
+                        .map_or(plan.persistent_context_tokens, |(_, fixed)| fixed);
+                    let active_context_limit = run
+                        .coordinator
+                        .current_context_limit()
+                        .unwrap_or(plan.active_context_limit);
                     if let Err(error) = run
                         .coordinator
                         .run_mut()
@@ -7250,12 +7317,11 @@ impl BlocklistAIController {
                         if let Ok(mut messages_sent) = run.messages_sent.lock() {
                             *messages_sent = retained.clone();
                         }
-                        let new_context_tokens = plan
-                            .persistent_context_tokens
+                        let new_context_tokens = persistent_context_tokens
                             .saturating_add(summary_prefix_tokens)
                             .saturating_add(estimated_history_tokens(&retained));
                         let new_usage =
-                            new_context_tokens as f32 / plan.active_context_limit.max(1) as f32;
+                            new_context_tokens as f32 / active_context_limit.max(1) as f32;
                         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _| {
                             let Some(conversation) = history.conversation_mut(&conversation_id)
                             else {
@@ -7273,7 +7339,7 @@ impl BlocklistAIController {
                             summarizer_model_id,
                             new_context_tokens,
                             new_usage * 100.0,
-                            plan.active_context_limit,
+                            active_context_limit,
                             retained_count,
                         );
                         recorded_usage = Some((usage, summarizer_model_id));
@@ -7286,9 +7352,13 @@ impl BlocklistAIController {
                     "[progressive-summary] Failed for active conversation {:?}: {error:#}",
                     conversation_id,
                 );
+                failure = Some(error.to_string());
             }
         }
 
+        let failure_context_tokens = self
+            .active_provider_context_estimate(conversation_id, ctx)
+            .map_or(plan.trigger_context_tokens, |(tokens, _)| tokens);
         if let Some(run) = self
             .active_provider_runs
             .get_mut(&conversation_id)
@@ -7298,11 +7368,22 @@ impl BlocklistAIController {
                 None
             } else {
                 // Fail open and suppress another request at this unchanged context boundary.
-                Some(plan.trigger_context_tokens)
+                Some(failure_context_tokens)
             };
         }
         if let Some((usage, summarizer_model_id)) = recorded_usage {
             self.record_progressive_summary_usage(conversation_id, usage, summarizer_model_id, ctx);
+        }
+        if waiting_for_context && !summary_applied {
+            self.fail_active_provider_run(
+                conversation_id,
+                format!(
+                    "context compaction could not recover enough space: {}",
+                    failure.unwrap_or_else(|| "could not replace the summarized history".to_string())
+                ),
+                ctx,
+            );
+            return true;
         }
         if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
             self.fail_active_provider_run(
@@ -7459,18 +7540,55 @@ impl BlocklistAIController {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
+        // A follow-up owns a new generation. Its history must never be blocked
+        // by, or replaced with, a detached summary from the previous generation.
+        // Cancellation also discards summaries before they can fail recovery.
+        let stale_summary = self
+            .active_provider_progressive_summaries
+            .get(&conversation_id)
+            .zip(self.active_provider_runs.get(&conversation_id))
+            .is_some_and(|(summary, slot)| {
+                let identity = summary.identity();
+                slot.stream_id != identity.stream_id || slot.run_id != identity.run_id
+            });
+        let cancelling = self
+            .active_provider_runs
+            .get(&conversation_id)
+            .is_some_and(|slot| slot.cancellation_reason.is_some());
+        if (stale_summary || cancelling)
+            && self
+                .active_provider_progressive_summaries
+                .remove(&conversation_id)
+                .is_some()
+        {
+            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _| {
+                if let Some(conversation) = history.conversation_mut(&conversation_id) {
+                    conversation.set_has_pending_progressive_summary(false);
+                }
+            });
+        }
         if self.apply_ready_active_provider_progressive_summary(conversation_id, ctx) {
             return;
         }
         self.schedule_provider_command_output_poll(conversation_id, ctx);
-        self.begin_active_provider_progressive_summary(conversation_id, false, ctx);
+        // Ordinary background work never blocks the agent. Once a model has
+        // exhausted its context, polling must not relaunch that same request
+        // while its recovery summary is still running. Cancellation still drives.
         if matches!(
-            self.active_provider_progressive_summaries
-                .get(&conversation_id),
-            Some(ActiveProviderProgressiveSummaryState::InFlight { .. })
-        ) {
+            self.active_provider_progressive_summaries.get(&conversation_id),
+            Some(ActiveProviderProgressiveSummaryState::InFlight {
+                waiting_for_context: true,
+                ..
+            })
+        ) && self.active_provider_runs.get(&conversation_id).is_some_and(|slot| {
+            slot.cancellation_reason.is_none()
+                && slot.run.as_ref().is_some_and(|run| {
+                    matches!(run.coordinator.run().state(), ProviderRunState::ReadyToCallModel)
+                })
+        }) {
             return;
         }
+        self.begin_active_provider_progressive_summary(conversation_id, false, ctx);
         let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
             return;
         };
@@ -7972,6 +8090,24 @@ impl BlocklistAIController {
                     );
                     return;
                 }
+                match self.active_provider_progressive_summaries.get_mut(&conversation_id) {
+                    Some(ActiveProviderProgressiveSummaryState::InFlight {
+                        waiting_for_context,
+                        ..
+                    }) => {
+                        *waiting_for_context = true;
+                        return;
+                    }
+                    Some(ActiveProviderProgressiveSummaryState::Ready {
+                        waiting_for_context,
+                        ..
+                    }) => {
+                        *waiting_for_context = true;
+                        self.drive_active_provider_run(conversation_id, ctx);
+                        return;
+                    }
+                    None => {}
+                }
                 if !self.begin_active_provider_progressive_summary(conversation_id, true, ctx) {
                     self.fail_active_provider_run(
                         conversation_id,
@@ -8325,7 +8461,10 @@ impl BlocklistAIController {
                     matches!(
                         pending.call.name.as_str(),
                         "request_computer_use" | "use_computer"
-                    )
+                    ) && pending.state.result().or_else(|| match event {
+                        galaxy_agent_core::ToolEvent::Completed { result } if result.call_id == pending.call.id => Some(result),
+                        _ => None,
+                    }).is_some_and(|result| result.status == galaxy_agent_core::ToolResultStatus::Success)
                 });
                 used_computer.then_some(COMPUTER_USE_PROVIDER_PROFILE)
             }
@@ -8821,6 +8960,11 @@ impl BlocklistAIController {
                 &outcome,
             ),
         );
+        let completed_cleanly = matches!(
+            &outcome,
+            ProviderRunOutcome::Completed(completion)
+                if completion.stop_reason == StopReason::Completed
+        );
         match outcome {
             ProviderRunOutcome::Completed(completion) => match completion.stop_reason {
                 StopReason::Completed => {
@@ -8885,7 +9029,140 @@ impl BlocklistAIController {
                 }
             }
         }
+        // A background checkpoint remains useful after the answer finishes. Detach
+        // it while cleanup releases this generation, then retain it only if no
+        // successor has started or claimed its own summary in the meantime.
+        let pending_summary = if completed_cleanly {
+            self.active_provider_progressive_summaries
+                .remove(&conversation_id)
+        } else {
+            None
+        };
         self.cleanup_active_provider_run(conversation_id, &stream_id, &response_stream, ctx);
+        if let Some(summary) = pending_summary {
+            let conversation_succeeded = BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation_status(&conversation_id)
+                == Some(&ConversationStatus::Success);
+            if conversation_succeeded
+                && !self.active_provider_runs.contains_key(&conversation_id)
+                && !self
+                    .active_provider_progressive_summaries
+                    .contains_key(&conversation_id)
+            {
+                self.active_provider_progressive_summaries
+                    .insert(conversation_id, summary);
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _| {
+                    if let Some(conversation) = history.conversation_mut(&conversation_id) {
+                        conversation.set_has_pending_progressive_summary(true);
+                    }
+                });
+                self.apply_ready_idle_provider_progressive_summary(conversation_id, ctx);
+            }
+        }
+    }
+
+    fn apply_ready_idle_provider_progressive_summary(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if self.active_provider_runs.contains_key(&conversation_id)
+            || !matches!(
+                self.active_provider_progressive_summaries
+                    .get(&conversation_id),
+                Some(ActiveProviderProgressiveSummaryState::Ready { .. })
+            )
+        {
+            return;
+        }
+        let Some(ActiveProviderProgressiveSummaryState::Ready { plan, result, .. }) = self
+            .active_provider_progressive_summaries
+            .remove(&conversation_id)
+        else {
+            return;
+        };
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _| {
+            if let Some(conversation) = history.conversation_mut(&conversation_id) {
+                conversation.set_has_pending_progressive_summary(false);
+            }
+        });
+        if BlocklistAIHistoryModel::as_ref(ctx).conversation_status(&conversation_id)
+            != Some(&ConversationStatus::Success)
+        {
+            return;
+        }
+
+        match result {
+            Ok((summary, usage, summarizer_model_id)) => {
+                let summary_prefix_tokens =
+                    estimated_history_tokens(&progressive_summary_messages(summary.clone()));
+                let summary_reduces_context =
+                    summary_prefix_tokens < estimated_history_tokens(&plan.summarized_prefix);
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    let Some(conversation) = history.conversation_mut(&conversation_id) else {
+                        return;
+                    };
+                    let mut transcript = conversation
+                        .progressive_summary()
+                        .map(|existing| progressive_summary_messages(existing.to_owned()))
+                        .unwrap_or_default();
+                    transcript.extend_from_slice(conversation.bedrock_message_history());
+                    if transcript.get(..plan.split_point)
+                        != Some(plan.summarized_prefix.as_slice())
+                    {
+                        log::warn!(
+                            "[progressive-summary] Discarding stale idle summary for conversation {:?}; the snapshotted prefix no longer matches",
+                            conversation_id,
+                        );
+                        return;
+                    }
+                    if !summary_reduces_context {
+                        log::warn!(
+                            "[progressive-summary] Idle summary did not reduce context for conversation {:?}",
+                            conversation_id,
+                        );
+                        return;
+                    }
+
+                    let retained = transcript.split_off(plan.split_point);
+                    let retained_count = retained.len();
+                    let new_context_tokens = plan
+                        .persistent_context_tokens
+                        .saturating_add(summary_prefix_tokens)
+                        .saturating_add(estimated_history_tokens(&retained));
+                    let new_usage =
+                        new_context_tokens as f32 / plan.active_context_limit.max(1) as f32;
+                    conversation.archive_tool_results(transcript);
+                    *conversation.bedrock_message_history_mut() = retained;
+                    conversation.set_progressive_summary(Some(summary), 0);
+                    conversation.set_current_context_tokens(new_context_tokens);
+                    conversation.set_context_window_usage(new_usage.clamp(0.0, 1.0));
+                    conversation.write_updated_conversation_state(ctx);
+                    log::info!(
+                        "[progressive-summary] Applied background summary after active run completion {:?}: ~{} tokens ({:.1}% of {} context), {} tail messages preserved",
+                        conversation_id,
+                        new_context_tokens,
+                        new_usage * 100.0,
+                        plan.active_context_limit,
+                        retained_count,
+                    );
+                });
+                // This Ready result is consumed once, even when its prefix became
+                // stale or its response could not reduce the retained context.
+                self.record_progressive_summary_usage(
+                    conversation_id,
+                    usage,
+                    summarizer_model_id,
+                    ctx,
+                );
+            }
+            Err(error) => {
+                log::error!(
+                    "[progressive-summary] Failed after active conversation {:?} completed: {error:#}",
+                    conversation_id,
+                );
+            }
+        }
     }
 
     fn finalize_failed_provider_conversation(
@@ -8917,6 +9194,21 @@ impl BlocklistAIController {
         message: String,
         ctx: &mut ModelContext<Self>,
     ) {
+        self.fail_provider_startup_with_error(
+            conversation_id,
+            stream_id,
+            RenderableAIError::other(message, false),
+            ctx,
+        );
+    }
+
+    fn fail_provider_startup_with_error(
+        &mut self,
+        conversation_id: AIConversationId,
+        stream_id: ResponseStreamId,
+        error: RenderableAIError,
+        ctx: &mut ModelContext<Self>,
+    ) {
         let response_stream = self
             .active_provider_runs
             .get(&conversation_id)
@@ -8925,14 +9217,10 @@ impl BlocklistAIController {
         let Some(response_stream) = response_stream else {
             return;
         };
+        let message = error.to_string();
         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
             history_model.mark_response_stream_completed_with_error(
-                RenderableAIError::Other {
-                    error_message: message.clone(),
-                    will_attempt_resume: false,
-                    waiting_for_network: false,
-                    is_user_error: false,
-                },
+                error,
                 false,
                 &stream_id,
                 conversation_id,

@@ -35,8 +35,6 @@ pub struct AwsBedrockCredentialsErrorView {
     model_name: String,
     login_command: String,
 
-    /// Whether auto-login was triggered, which shows a simpler "running command" message.
-    auto_login_triggered: bool,
 
     // Run button
     run_button: ViewHandle<ActionButton>,
@@ -52,7 +50,6 @@ impl AwsBedrockCredentialsErrorView {
     pub fn new(
         model_name: String,
         login_command: String,
-        auto_login_triggered: bool,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         // Run button
@@ -83,7 +80,6 @@ impl AwsBedrockCredentialsErrorView {
         Self {
             model_name,
             login_command,
-            auto_login_triggered,
             run_button,
             configure_button,
             auto_login_checkbox_handle: MouseStateHandle::default(),
@@ -104,23 +100,6 @@ impl View for AwsBedrockCredentialsErrorView {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
 
-        // If auto-login was triggered, show a simple "running command" message
-        if self.auto_login_triggered {
-            return Flex::row()
-                .with_spacing(8.)
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(
-                    Text::new(
-                        format!("Running `{}`...", self.login_command),
-                        appearance.ui_font_family(),
-                        14.,
-                    )
-                    .with_color(blended_colors::text_sub(theme, theme.surface_1()))
-                    .with_selectable(false)
-                    .finish(),
-                )
-                .finish();
-        }
 
         let auto_login_enabled = *AISettings::as_ref(app).bedrock_auto_login.value();
 
@@ -149,11 +128,19 @@ impl View for AwsBedrockCredentialsErrorView {
 
         let make_detail_text = || {
             Text::new(
-                format!(
-                    "Failed to authenticate with AWS Bedrock when using {}. \
-                     Run `{}` to refresh credentials.",
-                    self.model_name, self.login_command
-                ),
+                if self.login_command.is_empty() {
+                    format!(
+                        "Failed to authenticate with AWS Bedrock when using {}. \
+                         Refresh credentials for the AWS profile selected in Providers, then retry.",
+                        self.model_name
+                    )
+                } else {
+                    format!(
+                        "Failed to authenticate with AWS Bedrock when using {}. \
+                         Run `{}` to refresh credentials.",
+                        self.model_name, self.login_command
+                    )
+                },
                 appearance.ui_font_family(),
                 14.,
             )

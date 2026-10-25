@@ -38,6 +38,22 @@ impl CachingConfig {
             extended_ttl_requested: external.enable_prompt_caching_1h,
         }
     }
+
+    pub fn for_model(mut self, model_id: &str) -> Self {
+        let model = galaxy_bedrock_model_catalog::model_metadata(model_id);
+        let known_claude_4 = model.is_some_and(|metadata| {
+            metadata.provider_name == "Anthropic"
+                && metadata.supports_agent_runtime() == Some(true)
+                && (metadata.model_id.starts_with("anthropic.claude-opus-4")
+                    || metadata.model_id.starts_with("anthropic.claude-sonnet-4")
+                    || metadata.model_id.starts_with("anthropic.claude-haiku-4"))
+        });
+        self.enabled &= known_claude_4;
+        self.extended_ttl_requested &= self.enabled && model.is_some_and(|metadata| {
+            ["4-5", "4-6", "4-7", "4-8"].iter().any(|version| metadata.model_id.contains(version))
+        });
+        self
+    }
 }
 
 pub struct ConvertedRequest {

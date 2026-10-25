@@ -461,6 +461,7 @@ async fn coordinator_awaiting_tools(
 fn tool_result(call_id: &str, content: &str, status: ToolResultStatus) -> ToolEvent {
     ToolEvent::Completed {
         result: ToolResult {
+            images: Vec::new(),
             call_id: call_id.to_string(),
             content: content.to_string(),
             status,
@@ -514,6 +515,7 @@ async fn one_run_drives_model_tool_and_followup_turns_with_atomic_history() {
         .complete_tool(
             &batch.work_id,
             ToolResult {
+                images: Vec::new(),
                 call_id: "read-1".to_string(),
                 content: "manifest contents".to_string(),
                 status: ToolResultStatus::Success,
@@ -943,6 +945,50 @@ async fn inline_tool_batches_commit_before_the_next_model_boundary() {
             ..
         }] if tool_use_id == "recall-1"
     ));
+}
+
+#[tokio::test]
+async fn task_progress_reaches_the_next_model_after_compaction_and_restore() {
+    use galaxy_agent_core::{TaskListItem, TaskListSnapshot, TaskListStatus};
+    use crate::ai::runtime::task_progress::{add_task_list_context, initial_task_list, task_list_tool};
+
+    let initial = TaskListSnapshot { tasks: vec![TaskListItem {
+        id: "verify".to_owned(), title: "Build the change".to_owned(), status: TaskListStatus::InProgress,
+    }] };
+    let current = TaskListSnapshot { tasks: vec![TaskListItem {
+        status: TaskListStatus::Completed, ..initial.tasks[0].clone()
+    }] };
+    let runtime = Arc::new(ScriptedRuntime::new(vec![
+        tool_turn_with_calls(vec![ToolCall {
+            id: "progress".to_owned(),
+            name: galaxy_agent_core::UPDATE_TASK_LIST_NAME.to_owned(),
+            arguments: serde_json::to_value(&current).unwrap(),
+        }]),
+        answer_turn(),
+    ]));
+    let mut template = request();
+    template.tools.push(task_list_tool());
+    add_task_list_context(&mut template, Some(&initial));
+    let mut coordinator = ProviderRunCoordinator::from_request(
+        "run", ProviderRunProfile::new(runtime.clone(), template.clone()), Vec::new(), ProviderRunLimits::default(),
+    ).unwrap();
+    let (_sender, control) = turn_control();
+    assert!(matches!(coordinator.drive_until_blocked(control, |_| Ok(())).await.unwrap(), ProviderRunBlock::ReadyToCallModel));
+    assert_eq!(coordinator.run().task_list(), Some(&current));
+    let length = coordinator.run().transcript().len();
+    coordinator.run_mut().compact_transcript_at_model_boundary(length, vec![ConversationMessage {
+        role: MessageRole::User, content: MessageContent::Text("Prior work summarized.".to_owned()),
+    }]).unwrap();
+    coordinator.run_mut().replace_tool_result_archive(Vec::new());
+    let restored: ProviderRun = serde_json::from_str(&serde_json::to_string(coordinator.run()).unwrap()).unwrap();
+    restored.validate_restored_state().unwrap();
+    let mut coordinator = ProviderRunCoordinator::new(restored, BTreeMap::from([
+        (BASE_PROVIDER_PROFILE.to_owned(), ProviderRunProfile::new(runtime.clone(), template)),
+    ])).unwrap();
+    let (_sender, control) = turn_control();
+    coordinator.drive_until_blocked(control, |_| Ok(())).await.unwrap();
+    assert_eq!(initial_task_list(&runtime.requests()[1]), Some(current));
+    assert_eq!(runtime.requests()[1].messages.len(), 1);
 }
 
 #[tokio::test]
@@ -1556,6 +1602,168 @@ fn context_estimate_tracks_live_transcript_and_reserves_fixed_context() {
     let (after, fixed_after) = coordinator.estimated_context_tokens().unwrap();
     assert!(after > before + 4_000);
     assert_eq!(fixed_before, fixed_after);
+}
+
+#[tokio::test]
+async fn compaction_boundary_keeps_the_monitor_context_limit() {
+    let base_runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let cli_runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let run = ProviderRun::new(
+        "monitor-compaction-budget",
+        vec![ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("history".repeat(5_000)),
+        }],
+        CLI_MONITOR_PROVIDER_PROFILE,
+        ProviderRunLimits::default(),
+    );
+    let mut profiles = BTreeMap::new();
+    profiles.insert(
+        BASE_PROVIDER_PROFILE.to_string(),
+        ProviderRunProfile::new(base_runtime.clone(), request()),
+    );
+    profiles.insert(
+        CLI_MONITOR_PROVIDER_PROFILE.to_string(),
+        ProviderRunProfile::new(cli_runtime.clone(), request())
+            .with_max_context_tokens(Some(8_000)),
+    );
+    let mut coordinator = ProviderRunCoordinator::new(run, profiles).unwrap();
+    coordinator.set_max_context_tokens(Some(100_000));
+    let (_sender, control) = turn_control();
+
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+
+    assert_eq!(block, ProviderRunBlock::ContextWindowExceeded);
+    assert_eq!(coordinator.run().state(), &ProviderRunState::ReadyToCallModel);
+    assert_eq!(coordinator.current_context_limit(), Some(8_000));
+    assert!(base_runtime.requests().is_empty());
+    assert!(cli_runtime.requests().is_empty());
+
+    let work_id = coordinator.run().ready_work_id().unwrap();
+    coordinator
+        .run_mut()
+        .continue_ready_with_observation(
+            &work_id,
+            MessageContent::Text("Command finished".to_string()),
+            BASE_PROVIDER_PROFILE,
+        )
+        .unwrap();
+    assert_eq!(coordinator.current_context_limit(), Some(100_000));
+}
+
+#[test]
+fn progressive_summary_budget_anticipates_switching_to_a_smaller_monitor() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let mut coordinator = coordinator(runtime.clone());
+    coordinator.set_max_context_tokens(Some(500_000));
+    coordinator
+        .insert_profile(
+            CLI_MONITOR_PROVIDER_PROFILE,
+            ProviderRunProfile::new(runtime, request()).with_max_context_tokens(Some(275_000)),
+        )
+        .unwrap();
+
+    assert_eq!(coordinator.current_context_limit(), Some(500_000));
+    assert_eq!(
+        coordinator
+            .progressive_summary_context_budget()
+            .map(|(limit, _)| limit),
+        Some(275_000)
+    );
+
+    coordinator
+        .run_mut()
+        .set_ready_profile(CLI_MONITOR_PROVIDER_PROFILE)
+        .unwrap();
+    assert_eq!(coordinator.current_context_limit(), Some(275_000));
+    assert_eq!(
+        coordinator
+            .progressive_summary_context_budget()
+            .map(|(limit, _)| limit),
+        Some(275_000)
+    );
+
+    coordinator
+        .run_mut()
+        .set_ready_profile(BASE_PROVIDER_PROFILE)
+        .unwrap();
+    assert_eq!(coordinator.current_context_limit(), Some(500_000));
+    assert_eq!(
+        coordinator
+            .progressive_summary_context_budget()
+            .map(|(limit, _)| limit),
+        Some(275_000)
+    );
+}
+
+#[test]
+fn progressive_summary_budget_respects_smaller_active_limits_and_profile_fallbacks() {
+    for (base_limit, monitor_limit, fallback_limit, expected) in [
+        (
+            Some(200_000),
+            Some(Some(275_000)),
+            Some(500_000),
+            Some(200_000),
+        ),
+        (Some(500_000), Some(None), Some(275_000), Some(275_000)),
+        (Some(500_000), None, Some(275_000), Some(500_000)),
+        (None, None, None, None),
+    ] {
+        let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+        let mut coordinator = ProviderRunCoordinator::from_request(
+            "progressive-summary-budget",
+            ProviderRunProfile::new(runtime.clone(), request()).with_max_context_tokens(base_limit),
+            Vec::new(),
+            ProviderRunLimits::default(),
+        )
+        .unwrap();
+        coordinator.set_max_context_tokens(fallback_limit);
+        if let Some(monitor_limit) = monitor_limit {
+            coordinator
+                .insert_profile(
+                    CLI_MONITOR_PROVIDER_PROFILE,
+                    ProviderRunProfile::new(runtime, request())
+                        .with_max_context_tokens(monitor_limit),
+                )
+                .unwrap();
+        }
+
+        assert_eq!(
+            coordinator.current_context_limit(),
+            base_limit.or(fallback_limit)
+        );
+        assert_eq!(
+            coordinator
+                .progressive_summary_context_budget()
+                .map(|(limit, _)| limit),
+            expected
+        );
+    }
+}
+
+#[test]
+fn progressive_summary_budget_accounts_for_output_reservations_when_selecting_a_profile() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let mut coordinator = coordinator(runtime.clone());
+    coordinator.set_max_context_tokens(Some(275_000));
+    let mut monitor_request = request();
+    monitor_request.max_output_tokens = Some(300_000);
+    coordinator
+        .insert_profile(
+            CLI_MONITOR_PROVIDER_PROFILE,
+            ProviderRunProfile::new(runtime, monitor_request)
+                .with_max_context_tokens(Some(500_000)),
+        )
+        .unwrap();
+
+    let (limit, persistent_tokens) = coordinator.progressive_summary_context_budget().unwrap();
+
+    assert_eq!(coordinator.current_context_limit(), Some(275_000));
+    assert_eq!(limit, 500_000);
+    assert!(persistent_tokens > 300_000);
 }
 
 #[tokio::test]

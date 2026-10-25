@@ -243,6 +243,58 @@ fn plan_turn_requires_a_plan_tool_result() {
 }
 
 #[test]
+fn normal_and_plan_turns_advertise_clarifications_only_for_interactive_permission_modes() {
+    use crate::ai::execution_profiles::{
+        AIExecutionProfile, AskUserQuestionPermission, PermissionMode,
+    };
+
+    let _flag = galaxy_core::features::FeatureFlag::AskUserQuestion.override_enabled(true);
+    for (permission_mode, expected) in [
+        (PermissionMode::AskFirst, true),
+        (PermissionMode::AllowAll, true),
+        (PermissionMode::GalaxyDecides, false),
+        (PermissionMode::ReadOnly, false),
+    ] {
+        for plan_mode in [false, true] {
+            let mut profile = AIExecutionProfile {
+                permission_mode,
+                ..Default::default()
+            };
+            profile.project_permission_mode();
+            let mut params = RequestParams::new_for_test();
+            params.permission_mode = permission_mode;
+            params.ask_user_question_enabled =
+                profile.ask_user_question != AskUserQuestionPermission::Never;
+            let mut input = user_query("Clarify the requested destination before proceeding");
+            if plan_mode {
+                let AIAgentInput::UserQuery {
+                    user_query_mode, ..
+                } = &mut input
+                else {
+                    unreachable!("user_query returns a user query input");
+                };
+                *user_query_mode = UserQueryMode::Plan;
+            }
+            params.input = vec![input];
+            let (normal, cli) =
+                crate::ai::agent::api::prepare_direct_provider_params(&mut params);
+            assert!(!cli.contains(&ToolType::AskUserQuestion));
+
+            let prepared = prepare_rig_turn(&config(), params, normal, cli);
+            assert_eq!(
+                prepared
+                    .request
+                    .tools
+                    .iter()
+                    .any(|tool| tool.name == "ask_user_question"),
+                expected,
+                "{permission_mode:?}, plan_mode={plan_mode}"
+            );
+        }
+    }
+}
+
+#[test]
 fn no_tools_turn_flattens_historical_tool_protocol_messages() {
     let mut params = RequestParams::new_for_test();
     params.message_history = vec![
@@ -270,8 +322,9 @@ fn no_tools_turn_flattens_historical_tool_protocol_messages() {
 
     let prepared = prepare_rig_turn(&config(), params, Vec::new(), Vec::new());
 
-    assert_eq!(prepared.request.tools.len(), 1);
-    assert_eq!(prepared.request.tools[0].name, "recall_tool_history");
+    assert_eq!(prepared.request.tools.len(), 2);
+    assert!(prepared.request.tools.iter().any(|tool| tool.name == "recall_tool_history"));
+    assert!(prepared.request.tools.iter().any(|tool| tool.name == "update_task_list"));
     assert!(prepared
         .request
         .messages
@@ -499,6 +552,20 @@ fn forced_cli_profile_uses_monitor_prompt_and_tools_for_an_initial_query() {
         .tools
         .iter()
         .any(|tool| tool.name == "recall_tool_history"));
+    assert!(!prepared.request.tools.iter().any(|tool| tool.name == "update_task_list"));
+}
+
+#[test]
+fn task_progress_is_available_with_explicit_status_guidance_and_ui_title() {
+    let mut params = RequestParams::new_for_test();
+    params.input = vec![user_query("Implement and verify the fix")];
+    let prepared = prepare_rig_turn(&config(), params, vec![ToolType::ReadFiles], Vec::new());
+    let tool = prepared.request.tools.iter().find(|tool| tool.name == "update_task_list").unwrap();
+    assert!(tool.input_schema["required"].as_array().unwrap().iter().any(|value| value == "_galaxy_tool_title"));
+    let prompt = prepared.request.system_prompt.unwrap();
+    assert!(prompt.contains("## Task List Progress"));
+    assert!(prompt.contains("reconcile the list before the final response"));
+    assert!(prompt.contains("Planning or returning a draft does not complete"));
 }
 
 #[test]
@@ -518,6 +585,7 @@ fn lrc_snapshot_follow_up_uses_the_cli_monitor_prompt_and_tools() {
         ),
     };
     let snapshot_tool_result = ToolResult {
+        images: Vec::new(),
         call_id: "run-call".to_string(),
         content: result.result.model_content(),
         status: ToolResultStatus::Success,
@@ -827,6 +895,7 @@ fn normalized_tool_outcomes_are_the_only_action_results_sent_to_rig() {
     let tool_results = statuses
         .iter()
         .map(|(call_id, status, _)| ToolResult {
+            images: Vec::new(),
             call_id: (*call_id).to_string(),
             content: format!("normalized-{call_id}"),
             status: *status,

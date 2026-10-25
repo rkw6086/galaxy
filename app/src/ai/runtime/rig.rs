@@ -133,20 +133,25 @@ pub(crate) async fn prepare_provider_run(
     let skill_path_origin = params.session_context.skill_path_origin();
     let mut cli_params = params.clone();
     let computer_use_model = params.computer_use_model.as_str();
-    let computer_use_profile = if params.computer_use_enabled
-        && !computer_use_model.is_empty()
-        && computer_use_model != "computer-use-agent-auto"
-        && computer_use_model != params.model.as_str()
-        && !matches!(
-            &computer_use_provider_config,
-            crate::ai::provider::ProviderConfig::None
-        ) {
+    let computer_use_profile = if supported_tools.contains(&ToolType::RequestComputerUse) {
         let mut computer_params = params.clone();
-        computer_params.model = params.computer_use_model.clone();
+        let computer_provider = if computer_use_model.is_empty()
+            || computer_use_model == "computer-use-agent-auto"
+            || computer_use_model == params.model.as_str()
+            || matches!(&computer_use_provider_config, crate::ai::provider::ProviderConfig::None)
+        {
+            base_provider_config.clone()
+        } else {
+            computer_params.model = params.computer_use_model.clone();
+            computer_use_provider_config
+        };
+        let mut computer_tools = supported_tools.clone();
+        computer_tools.retain(|tool| *tool != ToolType::RequestComputerUse);
+        computer_tools.push(ToolType::UseComputer);
         let (runtime, prepared) = prepare_provider_profile(
-            computer_use_provider_config,
+            computer_provider,
             computer_params,
-            supported_tools.clone(),
+            computer_tools,
             supported_cli_agent_tools.clone(),
             None,
         )
@@ -315,9 +320,8 @@ pub(crate) async fn provider_runtime_for_request(
                     model,
                     reasoning_effort: config.reasoning_effort,
                     max_output_tokens: config.max_output_tokens.map(u64::from),
-                    auth_file: None,
                 },
-            )),
+            ).with_credential_resolver(crate::ai::chatgpt_auth::credential_resolver())),
             OpenAIProviderKind::Anthropic => {
                 let credential = config.api_key.unwrap_or_default();
                 let stored = crate::ai::claude_subscription::is_stored_credential(&credential);
@@ -354,14 +358,15 @@ pub(crate) async fn provider_runtime_for_request(
         },
         crate::ai::provider::ProviderConfig::Bedrock(config) => {
             let max_output_tokens = Some(bedrock_max_output_tokens(&model));
-            let cross_region_inference = config.cross_region_inference;
+            let cross_region_inference = config.invocation_model_id.is_none() && config.cross_region_inference;
             let caching_config =
-                CachingConfig::from_external_config(&ExternalBedrockConfig::load());
+                CachingConfig::from_external_config(&ExternalBedrockConfig::load()).for_model(&model);
+            let invocation_model = config.invocation_model_id.clone().unwrap_or(model);
             let client = BedrockClient::from_config(config).await?;
             Arc::new(BedrockRuntime::from_aws_client(
                 client.runtime_client(),
                 BedrockRigConfig {
-                    model,
+                    model: invocation_model,
                     region: client.region().to_string(),
                     cross_region_inference,
                     prompt_caching: caching_config.enabled,

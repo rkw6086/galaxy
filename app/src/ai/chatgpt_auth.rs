@@ -2,12 +2,17 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use futures::channel::oneshot;
+use futures::StreamExt;
+use galaxy_agent_rig::ChatGPTCredentialResolver;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
+use galaxyui_extras::secure_storage::AppContextExt as _;
 use instant::Instant;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
@@ -21,6 +26,10 @@ const CALLBACK_HOST: &str = "localhost";
 const CALLBACK_PORTS: [u16; 2] = [1455, 1457];
 const CALLBACK_PATH: &str = "/auth/callback";
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(2 * 60);
+const AUTH_STORAGE_KEY: &str = "galaxy.chatgpt.oauth";
+const SIGN_IN_REQUIRED: &str = "ChatGPT sign-in required. Connect or reconnect ChatGPT in Providers.";
+type Reply = oneshot::Sender<Result<ChatGPTAuthCredentials, String>>;
+static RESOLVER: OnceLock<Mutex<Option<async_channel::Sender<Reply>>>> = OnceLock::new();
 
 /// Current state of the local ChatGPT subscription connection.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,26 +54,42 @@ struct OAuthCallback {
 /// Coordinates browser-based OAuth authorization for ChatGPT subscriptions.
 pub(crate) struct ChatGPTAuthModel {
     state: ChatGPTAuthState,
+    record: Option<AuthRecord>,
+    refresh: RefreshCoordinator,
+    sign_in_generation: u64,
+    sign_in_cancel: Option<Arc<AtomicBool>>,
 }
 
 impl ChatGPTAuthModel {
-    pub(crate) fn new() -> Self {
-        let state = match has_or_import_auth_credentials() {
-            Ok(()) => ChatGPTAuthState::Connected,
-            Err(error) => {
-                log::debug!(
-                    "[chatgpt/auth] No usable persisted ChatGPT credentials at startup: {error}"
-                );
-                ChatGPTAuthState::NotConnected
-            }
+    pub(crate) fn new(ctx: &mut ModelContext<Self>) -> Self {
+        let (tx, rx) = async_channel::bounded(64);
+        *RESOLVER.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(tx);
+        ctx.spawn_stream_local(rx, |model, reply, ctx| model.resolve(reply, ctx), |_, _| {});
+        let record = ctx.secure_storage().read_value(AUTH_STORAGE_KEY).ok()
+            .and_then(|json| serde_json::from_str::<AuthRecord>(&json).ok())
+            .filter(|record| record.credentials(now()).is_ok() || record.can_refresh());
+        let state = if record.is_some() {
+            ChatGPTAuthState::Connected
+        } else {
+            ChatGPTAuthState::NotConnected
         };
-        Self { state }
+        Self {
+            state,
+            record,
+            refresh: RefreshCoordinator::default(),
+            sign_in_generation: 0,
+            sign_in_cancel: None,
+        }
     }
 
     #[cfg(test)]
     pub(crate) fn new_for_test() -> Self {
         Self {
             state: ChatGPTAuthState::NotConnected,
+            record: None,
+            refresh: RefreshCoordinator::default(),
+            sign_in_generation: 0,
+            sign_in_cancel: None,
         }
     }
 
@@ -72,22 +97,26 @@ impl ChatGPTAuthModel {
         &self.state
     }
 
-    /// Reuses persisted credentials when possible, otherwise starts browser OAuth with PKCE.
-    pub(crate) fn connect(&mut self, ctx: &mut ModelContext<Self>) {
+    fn begin_sign_in(&mut self) -> Option<u64> {
         if matches!(
             self.state,
             ChatGPTAuthState::AwaitingBrowser | ChatGPTAuthState::ExchangingToken
         ) {
-            return;
+            return None;
         }
 
-        if has_or_import_auth_credentials().is_ok() {
-            self.state = ChatGPTAuthState::Connected;
-            ctx.emit(ChatGPTAuthModelEvent::StateChanged);
-            return;
-        }
+        self.refresh.invalidate();
+        self.sign_in_generation += 1;
+        Some(self.sign_in_generation)
+    }
 
-        let (redirect_uri, callback_rx) = match start_oauth_callback_server() {
+    /// Explicit connection always starts a fresh browser OAuth flow with PKCE.
+    pub(crate) fn connect(&mut self, ctx: &mut ModelContext<Self>) {
+        let Some(generation) = self.begin_sign_in() else {
+            return;
+        };
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let (redirect_uri, callback_rx) = match start_oauth_callback_server(cancelled.clone()) {
             Ok(server) => server,
             Err(error) => {
                 self.fail(error, ctx);
@@ -106,8 +135,8 @@ impl ChatGPTAuthModel {
             }
         };
 
-        self.state = ChatGPTAuthState::AwaitingBrowser;
-        ctx.emit(ChatGPTAuthModelEvent::StateChanged);
+        self.sign_in_cancel = Some(cancelled);
+        self.set_state(ChatGPTAuthState::AwaitingBrowser, ctx);
         ctx.open_url(authorize_url.as_str());
 
         let _ = ctx.spawn(
@@ -117,6 +146,9 @@ impl ChatGPTAuthModel {
                 })?
             },
             move |model, callback, ctx| {
+                if model.sign_in_generation != generation {
+                    return;
+                }
                 let callback = match callback {
                     Ok(callback) => callback,
                     Err(error) => {
@@ -129,19 +161,27 @@ impl ChatGPTAuthModel {
                     return;
                 }
 
-                model.state = ChatGPTAuthState::ExchangingToken;
-                ctx.emit(ChatGPTAuthModelEvent::StateChanged);
+                model.set_state(ChatGPTAuthState::ExchangingToken, ctx);
                 let _ = ctx.spawn(
                     async move {
                         exchange_code_for_tokens(&callback.code, &code_verifier, &redirect_uri)
                             .await
                     },
-                    |model, result, ctx| match result {
-                        Ok(()) => {
-                            model.state = ChatGPTAuthState::Connected;
-                            ctx.emit(ChatGPTAuthModelEvent::StateChanged);
+                    move |model, result, ctx| {
+                        if model.sign_in_generation != generation {
+                            return;
                         }
-                        Err(error) => model.fail(error, ctx),
+                        match result.and_then(|record| {
+                            save_auth_record(&record, ctx)?;
+                            Ok(record)
+                        }) {
+                            Ok(record) => {
+                                model.record = Some(record);
+                                model.sign_in_cancel = None;
+                                model.set_state(ChatGPTAuthState::Connected, ctx);
+                            }
+                            Err(error) => model.fail(error, ctx),
+                        }
                     },
                 );
             },
@@ -149,8 +189,77 @@ impl ChatGPTAuthModel {
     }
 
     fn fail(&mut self, error: String, ctx: &mut ModelContext<Self>) {
-        self.state = ChatGPTAuthState::Failed(error);
-        ctx.emit(ChatGPTAuthModelEvent::StateChanged);
+        if let Some(cancelled) = self.sign_in_cancel.take() {
+            cancelled.store(true, Ordering::SeqCst);
+        }
+        self.set_state(ChatGPTAuthState::Failed(error), ctx);
+    }
+
+    fn set_state(&mut self, state: ChatGPTAuthState, ctx: &mut ModelContext<Self>) {
+        if self.state != state {
+            self.state = state;
+            ctx.emit(ChatGPTAuthModelEvent::StateChanged);
+        }
+    }
+
+    pub(crate) fn cancel_sign_in(&mut self, ctx: &mut ModelContext<Self>) {
+        if let Some(cancelled) = self.sign_in_cancel.take() {
+            cancelled.store(true, Ordering::SeqCst);
+            self.sign_in_generation += 1;
+            self.refresh.invalidate();
+            self.set_state(ChatGPTAuthState::NotConnected, ctx);
+        }
+    }
+
+    fn resolve(&mut self, reply: Reply, ctx: &mut ModelContext<Self>) {
+        if reply.is_canceled() {
+            return;
+        }
+        if matches!(self.state, ChatGPTAuthState::AwaitingBrowser | ChatGPTAuthState::ExchangingToken) {
+            let _ = reply.send(Err("ChatGPT sign-in is in progress.".to_owned()));
+            return;
+        }
+        let Some(record) = self.record.as_ref() else {
+            let _ = reply.send(Err(SIGN_IN_REQUIRED.to_owned()));
+            return;
+        };
+        if let Ok(credentials) = record.credentials(now()) {
+            let _ = reply.send(Ok(credentials));
+            return;
+        }
+        if !record.can_refresh() {
+            let _ = reply.send(Err(SIGN_IN_REQUIRED.to_owned()));
+            self.fail(SIGN_IN_REQUIRED.to_owned(), ctx);
+            return;
+        }
+        let record = record.clone();
+        let Some(generation) = self.refresh.begin(reply) else {
+            return;
+        };
+        let _ = ctx.spawn(
+            async move { refresh_tokens(&record).await },
+            move |model, result, ctx| {
+                let completed = model.refresh.complete(generation, result, |record| {
+                    save_auth_record(record, ctx)
+                });
+                match completed {
+                    None => {}
+                    Some(Ok(record)) => {
+                        model.record = Some(record);
+                        model.set_state(ChatGPTAuthState::Connected, ctx);
+                    }
+                    Some(Err(error)) => {
+                        if error.reauthenticate {
+                            model.record = None;
+                            if save_auth_record(&AuthRecord::default(), ctx).is_err() {
+                                log::warn!("[chatgpt/auth] Could not persist reconnect-required state");
+                            }
+                        }
+                        model.fail(error.message, ctx);
+                    }
+                }
+            },
+        );
     }
 }
 
@@ -194,6 +303,7 @@ fn random_hex_string(byte_count: usize) -> String {
 }
 
 fn start_oauth_callback_server(
+    cancelled: Arc<AtomicBool>,
 ) -> Result<(String, oneshot::Receiver<Result<OAuthCallback, String>>), String> {
     let mut bind_errors = Vec::new();
     let mut bound = None;
@@ -222,6 +332,10 @@ fn start_oauth_callback_server(
         .spawn(move || {
             let deadline = Instant::now() + CALLBACK_TIMEOUT;
             loop {
+                if cancelled.load(Ordering::SeqCst) {
+                    let _ = callback_tx.send(Err("ChatGPT sign-in was cancelled.".to_owned()));
+                    return;
+                }
                 match listener.accept() {
                     Ok((stream, _)) => {
                         let _ = callback_tx.send(handle_callback_connection(stream));
@@ -323,26 +437,19 @@ fn parse_callback_request_line(request_line: &str) -> Result<OAuthCallback, Stri
 
     let mut code = None;
     let mut state = None;
-    let mut oauth_error = None;
-    let mut error_description = None;
+    let mut oauth_error = false;
     for (key, value) in url.query_pairs() {
         match key.as_ref() {
             "code" if !value.is_empty() => code = Some(value.into_owned()),
             "state" if !value.is_empty() => state = Some(value.into_owned()),
-            "error" if !value.is_empty() => oauth_error = Some(value.into_owned()),
-            "error_description" if !value.is_empty() => {
-                error_description = Some(value.into_owned())
-            }
+            "error" if !value.is_empty() => oauth_error = true,
             "code" | "state" | "error" | "error_description" => {}
             _ => {}
         }
     }
 
-    if let Some(error) = oauth_error {
-        return Err(format!(
-            "ChatGPT authorization failed: {error} ({})",
-            error_description.as_deref().unwrap_or("no description")
-        ));
+    if oauth_error {
+        return Err("ChatGPT browser authorization failed. Please try signing in again.".to_owned());
     }
     Ok(OAuthCallback {
         code: code.ok_or("ChatGPT OAuth callback did not include an authorization code.")?,
@@ -358,157 +465,101 @@ fn callback_response_page(title: &str, message: &str, is_error: bool) -> String 
         .replace("__ACCENT__", accent)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ChatGPTAuthCredentials {
-    pub(crate) access_token: String,
-    pub(crate) account_id: Option<String>,
-}
+pub(crate) use galaxy_agent_rig::ChatGPTSubscriptionCredentials as ChatGPTAuthCredentials;
 
-/// Attempts to read tokens from `~/.codex/auth.json` and write them to Rig's auth file.
-/// Returns `Ok(())` if credentials were found and successfully imported.
-pub(crate) fn import_codex_credentials() -> Result<(), String> {
-    let codex_path = codex_auth_file_path().ok_or("Cannot determine codex auth path")?;
-    let bytes = std::fs::read(&codex_path).map_err(|e| format!("{e}"))?;
-    let doc: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("{e}"))?;
-
-    let tokens = doc.get("tokens").ok_or("No tokens object")?;
-    let access_token = tokens
-        .get("access_token")
-        .and_then(|value| value.as_str())
-        .filter(|token| !token.is_empty());
-    let refresh_token = tokens
-        .get("refresh_token")
-        .and_then(|value| value.as_str())
-        .filter(|token| !token.is_empty())
-        .map(ToOwned::to_owned);
-    if access_token.is_none() && refresh_token.is_none() {
-        return Err("Codex auth file does not contain an access or refresh token".to_string());
-    }
-    let expires_at = access_token.and_then(extract_expiration_timestamp);
-    let id_token = tokens
-        .get("id_token")
-        .and_then(|v| v.as_str())
-        .map(ToOwned::to_owned);
-    let account_id = tokens
-        .get("account_id")
-        .and_then(|v| v.as_str())
-        .map(ToOwned::to_owned)
-        .or_else(|| extract_account_id(id_token.as_deref()))
-        .or_else(|| extract_account_id(access_token));
-
-    let record = AuthRecord {
-        access_token: access_token.map(ToOwned::to_owned),
-        refresh_token,
-        id_token,
-        expires_at,
-        account_id,
-    };
-
-    write_auth_file(&record)
+pub(crate) fn credential_resolver() -> ChatGPTCredentialResolver {
+    Arc::new(|| Box::pin(load_or_refresh_auth_credentials()))
 }
 
 pub(crate) async fn load_or_refresh_auth_credentials() -> Result<ChatGPTAuthCredentials, String> {
-    if let Ok(credentials) = load_auth_credentials() {
-        return Ok(credentials);
-    }
-
-    let _ = import_codex_credentials();
-    if let Ok(credentials) = load_auth_credentials() {
-        return Ok(credentials);
-    }
-
-    galaxy_agent_rig::refresh_chatgpt_subscription_credentials().await?;
-    load_auth_credentials()
-}
-
-fn has_or_import_auth_credentials() -> Result<(), String> {
-    if has_auth_credentials() {
-        return Ok(());
-    }
-    import_codex_credentials()?;
-    if has_auth_credentials() {
-        Ok(())
-    } else {
-        Err("ChatGPT credentials are missing an access or refresh token.".to_string())
+    let (tx, rx) = oneshot::channel();
+    RESOLVER.get_or_init(|| Mutex::new(None)).lock().unwrap()
+        .as_ref().ok_or("ChatGPT authorization service is unavailable.")?
+        .try_send(tx).map_err(|_| "ChatGPT authorization service is busy or unavailable.")?;
+    match futures::future::select(
+        Box::pin(rx),
+        Box::pin(async_io::Timer::after(Duration::from_secs(35))),
+    ).await {
+        futures::future::Either::Left((result, _)) => {
+            result.map_err(|_| "ChatGPT authorization service stopped.".to_owned())?
+        }
+        futures::future::Either::Right(_) => {
+            Err("ChatGPT credential refresh timed out. Retry or sign in again.".to_owned())
+        }
     }
 }
 
-fn has_auth_credentials() -> bool {
-    let Some(path) = auth_file_path() else {
-        return false;
-    };
-    let Ok(bytes) = std::fs::read(path) else {
-        return false;
-    };
-    let Ok(record) = serde_json::from_slice::<AuthRecord>(&bytes) else {
-        return false;
-    };
-    record
-        .refresh_token
-        .as_deref()
-        .is_some_and(|token| !token.trim().is_empty())
-        || record.access_token.as_deref().is_some_and(|token| {
-            !token.trim().is_empty()
-                && !token_is_expired(
-                    record
-                        .expires_at
-                        .or_else(|| extract_expiration_timestamp(token)),
-                )
-        })
+#[derive(Clone, Debug)]
+struct AuthFailure {
+    message: String,
+    reauthenticate: bool,
 }
 
-fn load_auth_credentials() -> Result<ChatGPTAuthCredentials, String> {
-    let path = auth_file_path().ok_or("Cannot determine ChatGPT auth file path")?;
-    let bytes = std::fs::read(&path)
-        .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
-    let record: AuthRecord = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("Failed to parse {}: {error}", path.display()))?;
-    let access_token = record
-        .access_token
-        .as_deref()
-        .filter(|token| !token.trim().is_empty())
-        .ok_or("ChatGPT auth file does not contain an access token")?;
+#[derive(Default)]
+struct RefreshCoordinator {
+    generation: u64,
+    active: Option<(u64, Vec<Reply>)>,
+}
 
-    let expires_at = record
-        .expires_at
-        .or_else(|| extract_expiration_timestamp(access_token));
-    if token_is_expired(expires_at) {
-        return Err("ChatGPT access token is expired".to_string());
+impl RefreshCoordinator {
+    fn begin(&mut self, reply: Reply) -> Option<u64> {
+        if let Some((_, replies)) = &mut self.active {
+            replies.push(reply);
+            return None;
+        }
+        self.generation += 1;
+        self.active = Some((self.generation, vec![reply]));
+        Some(self.generation)
     }
 
-    let account_id = record
-        .account_id
-        .clone()
-        .filter(|account_id| !account_id.trim().is_empty())
-        .or_else(|| extract_account_id(record.id_token.as_deref()))
-        .or_else(|| extract_account_id(Some(access_token)));
-
-    Ok(ChatGPTAuthCredentials {
-        access_token: access_token.to_string(),
-        account_id,
-    })
-}
-
-fn codex_auth_file_path() -> Option<std::path::PathBuf> {
-    if let Some(codex_home) = std::env::var_os("CODEX_HOME") {
-        return Some(std::path::PathBuf::from(codex_home).join("auth.json"));
+    fn invalidate(&mut self) {
+        self.generation += 1;
+        if let Some((_, replies)) = self.active.take() {
+            for reply in replies {
+                let _ = reply.send(Err("ChatGPT session was replaced. Please sign in again.".to_owned()));
+            }
+        }
     }
-    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".codex").join("auth.json"))
+
+    fn complete(
+        &mut self,
+        generation: u64,
+        result: Result<AuthRecord, AuthFailure>,
+        persist: impl FnOnce(&AuthRecord) -> Result<(), String>,
+    ) -> Option<Result<AuthRecord, AuthFailure>> {
+        if self.active.as_ref().is_none_or(|(active, _)| *active != generation) {
+            return None;
+        }
+        let (_, replies) = self.active.take()?;
+        let result = result.and_then(|record| {
+            let credentials = record.access_context().map_err(|message| AuthFailure {
+                message, reauthenticate: true,
+            })?;
+            persist(&record).map_err(|_| AuthFailure {
+                message: "Could not securely save refreshed ChatGPT credentials. Please sign in again.".to_owned(),
+                reauthenticate: true,
+            })?;
+            Ok((record, credentials))
+        });
+        for reply in replies {
+            let response = result.as_ref().map(|(_, credentials)| credentials.clone())
+                .map_err(|error| error.message.clone());
+            let _ = reply.send(response);
+        }
+        Some(result.map(|(record, _)| record))
+    }
 }
 
-fn token_is_expired(expires_at: Option<i64>) -> bool {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or_default();
-    expires_at.is_none_or(|expires_at| now >= expires_at - 60)
+fn now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64).unwrap_or_default()
 }
 
 async fn exchange_code_for_tokens(
     code: &str,
     code_verifier: &str,
     redirect_uri: &str,
-) -> Result<(), String> {
+) -> Result<AuthRecord, String> {
     let body = url::form_urlencoded::Serializer::new(String::new())
         .append_pair("grant_type", "authorization_code")
         .append_pair("client_id", CHATGPT_CLIENT_ID)
@@ -516,7 +567,34 @@ async fn exchange_code_for_tokens(
         .append_pair("redirect_uri", redirect_uri)
         .append_pair("code_verifier", code_verifier)
         .finish();
-    let response = reqwest::Client::new()
+    let tokens = token_request(body).await.map_err(|error| error.message)?;
+    record_from_tokens(tokens, None, now()).map_err(|error| error.message)
+}
+
+async fn refresh_tokens(previous: &AuthRecord) -> Result<AuthRecord, AuthFailure> {
+    let refresh_token = previous.refresh_token.as_deref().filter(|token| !token.trim().is_empty())
+        .ok_or_else(|| AuthFailure {
+            message: SIGN_IN_REQUIRED.to_owned(),
+            reauthenticate: true,
+        })?;
+    let body = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("grant_type", "refresh_token")
+        .append_pair("client_id", CHATGPT_CLIENT_ID)
+        .append_pair("refresh_token", refresh_token)
+        .finish();
+    let tokens = token_request(body).await?;
+    record_from_tokens(tokens, Some(previous), now())
+}
+
+async fn token_request(body: String) -> Result<TokenResponse, AuthFailure> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .build().map_err(|_| AuthFailure {
+            message: "Could not create the ChatGPT authorization client.".to_owned(),
+            reauthenticate: false,
+        })?;
+    let response = client
         .post(CHATGPT_TOKEN_URL)
         .header(
             reqwest::header::CONTENT_TYPE,
@@ -525,67 +603,83 @@ async fn exchange_code_for_tokens(
         .body(body)
         .send()
         .await
-        .map_err(|error| format!("ChatGPT token exchange request failed: {error}"))?;
-
-    let status = response.status();
-    if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!("ChatGPT token exchange failed: {status} {body}"));
+        .map_err(|_| AuthFailure {
+            message: "ChatGPT authorization request failed. Retry the connection.".to_owned(),
+            reauthenticate: false,
+        })?;
+    let status = response.status().as_u16();
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| AuthFailure {
+            message: "Could not read the ChatGPT authorization response.".to_owned(),
+            reauthenticate: (200..300).contains(&status),
+        })?;
+        if bytes.len().saturating_add(chunk.len()) > 64 * 1024 {
+            return Err(AuthFailure {
+                message: "ChatGPT authorization returned an oversized response.".to_owned(),
+                reauthenticate: (200..300).contains(&status),
+            });
+        }
+        bytes.extend_from_slice(&chunk);
     }
-    let tokens: TokenResponse = response
-        .json()
-        .await
-        .map_err(|error| format!("Could not parse the ChatGPT token response: {error}"))?;
+    parse_token_response(status, &bytes)
+}
+
+fn parse_token_response(status: u16, bytes: &[u8]) -> Result<TokenResponse, AuthFailure> {
+    if (200..300).contains(&status) {
+        return serde_json::from_slice(bytes).map_err(|_| AuthFailure {
+            message: "ChatGPT returned invalid credentials. Please sign in again.".to_owned(),
+            reauthenticate: true,
+        });
+    }
+    let body = serde_json::from_slice::<serde_json::Value>(bytes).unwrap_or_default();
+    let code = body.get("error").and_then(|error| {
+        error.as_str().or_else(|| error.get("code").and_then(|code| code.as_str()))
+    });
+    let reauthenticate = matches!(status, 401 | 403)
+        || (status == 400 && matches!(code,
+            Some("invalid_grant" | "refresh_token_reused" | "refresh_token_expired" | "refresh_token_invalid")
+        ));
+    let message = if reauthenticate {
+        format!("ChatGPT authorization expired or was rejected (HTTP {status}). Please sign in again.")
+    } else {
+        format!("ChatGPT authorization failed (HTTP {status}). Retry the connection.")
+    };
+    Err(AuthFailure { message, reauthenticate })
+}
+
+fn record_from_tokens(
+    tokens: TokenResponse,
+    previous: Option<&AuthRecord>,
+    now: i64,
+) -> Result<AuthRecord, AuthFailure> {
     let expires_at = extract_expiration_timestamp(&tokens.access_token).or_else(|| {
-        tokens.expires_in.map(|expires_in| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|duration| duration.as_secs() as i64)
-                .unwrap_or_default()
-                + expires_in as i64
-        })
+        tokens.expires_in.and_then(|expires| i64::try_from(expires).ok())
+            .map(|expires| now.saturating_add(expires))
     });
     let account_id = extract_account_id(tokens.id_token.as_deref())
-        .or_else(|| extract_account_id(Some(&tokens.access_token)));
-    write_auth_file(&AuthRecord {
+        .or_else(|| extract_account_id(Some(&tokens.access_token)))
+        .or_else(|| previous.and_then(|record| record.account_id.clone()));
+    let record = AuthRecord {
         access_token: Some(tokens.access_token),
-        refresh_token: tokens.refresh_token,
-        id_token: tokens.id_token,
+        refresh_token: tokens.refresh_token.or_else(|| previous.and_then(|record| record.refresh_token.clone())),
+        id_token: tokens.id_token.or_else(|| previous.and_then(|record| record.id_token.clone())),
         expires_at,
         account_id,
-    })
+    };
+    record.credentials(now).map_err(|_| AuthFailure {
+        message: "ChatGPT returned invalid or expired credentials. Please sign in again.".to_owned(),
+        reauthenticate: true,
+    })?;
+    Ok(record)
 }
 
-fn write_auth_file(record: &AuthRecord) -> Result<(), String> {
-    let path = auth_file_path().ok_or("Cannot determine auth file path")?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create auth directory: {e}"))?;
-    }
-    let json =
-        serde_json::to_vec_pretty(record).map_err(|e| format!("Failed to serialize auth: {e}"))?;
-    std::fs::write(&path, json).map_err(|e| format!("Failed to write auth file: {e}"))?;
-    Ok(())
-}
-
-fn auth_file_path() -> Option<std::path::PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        std::env::var_os("APPDATA").map(|d| {
-            std::path::PathBuf::from(d)
-                .join("chatgpt")
-                .join("auth.json")
-        })
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        std::env::var_os("XDG_CONFIG_HOME")
-            .map(std::path::PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config"))
-            })
-            .map(|d| d.join("chatgpt").join("auth.json"))
-    }
+fn save_auth_record(record: &AuthRecord, ctx: &galaxyui::AppContext) -> Result<(), String> {
+    let json = serde_json::to_string(record)
+        .map_err(|_| "Could not encode ChatGPT credentials.".to_owned())?;
+    ctx.secure_storage().write_value_with_owner_only_fallback(AUTH_STORAGE_KEY, &json)
+        .map_err(|_| "Could not securely save ChatGPT credentials. Please sign in again.".to_owned())
 }
 
 fn extract_expiration_timestamp(token: &str) -> Option<i64> {
@@ -633,7 +727,7 @@ struct TokenResponse {
     expires_in: Option<u64>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Default, serde::Deserialize, serde::Serialize)]
 struct AuthRecord {
     access_token: Option<String>,
     refresh_token: Option<String>,
@@ -641,3 +735,41 @@ struct AuthRecord {
     expires_at: Option<i64>,
     account_id: Option<String>,
 }
+
+impl std::fmt::Debug for AuthRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatGPTAuthRecord")
+            .field("credentials", &"<redacted>")
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
+impl AuthRecord {
+    fn can_refresh(&self) -> bool {
+        self.refresh_token.as_deref().is_some_and(|token| !token.trim().is_empty())
+    }
+
+    fn access_context(&self) -> Result<ChatGPTAuthCredentials, String> {
+        let access_token = self.access_token.as_deref().filter(|token| !token.trim().is_empty())
+            .ok_or_else(|| SIGN_IN_REQUIRED.to_owned())?;
+        let account_id = self.account_id.clone().filter(|id| !id.trim().is_empty())
+            .or_else(|| extract_account_id(self.id_token.as_deref()))
+            .or_else(|| extract_account_id(Some(access_token)));
+        Ok(ChatGPTAuthCredentials { access_token: access_token.to_owned(), account_id })
+    }
+
+    fn credentials(&self, now: i64) -> Result<ChatGPTAuthCredentials, String> {
+        let expiry = self.expires_at.or_else(|| {
+            self.access_token.as_deref().and_then(extract_expiration_timestamp)
+        });
+        if expiry.is_none_or(|expiry| now >= expiry.saturating_sub(60)) {
+            return Err(SIGN_IN_REQUIRED.to_owned());
+        }
+        self.access_context()
+    }
+}
+
+#[cfg(test)]
+#[path = "chatgpt_auth_tests.rs"]
+mod tests;

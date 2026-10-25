@@ -16,7 +16,8 @@ use super::entry::{
 use super::{
     record_earliest_rtc_task_refresh_timestamp, AgentConversationsModel,
     AgentConversationsModelEvent, AgentManagementFilters, AgentRunDisplayStatus, ArtifactFilter,
-    ConversationMetadata, ConversationUpdateKind, EnvironmentFilter, HarnessFilter, OwnerFilter,
+    ConversationMetadata, ConversationUpdateKind, CreatedOnFilter, CreatorFilter,
+    EnvironmentFilter, HarnessFilter, OwnerFilter, SourceFilter,
     RtcTaskRefreshThrottleState, StatusFilter, TaskFetchError, TaskFetchState, MAX_PERSONAL_TASKS,
     MAX_TEAM_TASKS,
 };
@@ -28,11 +29,12 @@ use crate::ai::agent::conversation::{
 };
 use crate::ai::ambient_agents::task::{HarnessConfig, TaskPrincipalInfo, TaskStatusMessage};
 use crate::ai::ambient_agents::{
-    AgentConfigSnapshot, AmbientAgentTask, AmbientAgentTaskId, AmbientAgentTaskState,
+    AgentConfigSnapshot, AgentSource, AmbientAgentTask, AmbientAgentTaskId, AmbientAgentTaskState,
 };
 use crate::ai::artifacts::Artifact;
 use crate::ai::blocklist::history_model::{
-    BlocklistAIHistoryEvent, BlocklistAIHistoryModel, ConversationStatusUpdate,
+    BlocklistAIHistoryEvent, BlocklistAIHistoryModel, CloudConversationData,
+    ConversationStatusUpdate,
 };
 use crate::ai::conversation_navigation::ConversationNavigationData;
 use crate::auth::AuthStateProvider;
@@ -812,6 +814,216 @@ fn create_server_conversation_metadata(
         server_conversation_token: ServerConversationToken::new(server_token.to_string()),
         artifacts: Vec::new(),
     }
+}
+
+#[test]
+fn local_history_discards_obsolete_filters_but_preserves_status_and_date() {
+    let filters = AgentManagementFilters {
+        owners: OwnerFilter::All,
+        status: StatusFilter::Failed,
+        source: SourceFilter::Specific(AgentSource::CloudMode),
+        created_on: CreatedOnFilter::LastWeek,
+        creator: CreatorFilter::Specific {
+            name: "Former team".to_string(),
+            uid: "former-user".to_string(),
+        },
+        artifact: ArtifactFilter::PullRequest,
+        environment: EnvironmentFilter::Specific("old-environment".to_string()),
+        harness: HarnessFilter::Specific(Harness::Oz),
+    };
+    assert_eq!(
+        filters.for_local_history(),
+        AgentManagementFilters {
+            status: StatusFilter::Failed,
+            created_on: CreatedOnFilter::LastWeek,
+            ..Default::default()
+        }
+    );
+}
+
+#[test]
+fn local_history_keeps_saved_legacy_sessions_and_excludes_hosted_rows() {
+    App::test((), |mut app| async move {
+        app.add_singleton_model(|_| AuthStateProvider::new_for_test());
+        app.add_singleton_model(|_| ActiveAgentViewsModel::new());
+        let conversation_id = AIConversationId::new();
+        let task_id = "saved-root-task";
+        let saved = persistence::model::AgentConversation {
+            conversation: persistence::model::AgentConversationRecord {
+                id: 0,
+                conversation_id: conversation_id.to_string(),
+                conversation_data: serde_json::to_string(&AgentConversationData {
+                    server_conversation_token: Some("legacy-saved-token".to_string()),
+                    ..Default::default()
+                })
+                .unwrap(),
+                last_modified_at: Utc::now().naive_utc(),
+            },
+            tasks: vec![create_api_task(
+                task_id,
+                vec![create_message("saved-message", task_id)],
+            )],
+        };
+        let history =
+            app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[saved]));
+        history.update(&mut app, |model, _| {
+            model.merge_cloud_conversation_metadata(vec![create_server_conversation_metadata(
+                "Remote-only conversation",
+                "remote-only-token",
+                None,
+            )]);
+        });
+        app.add_singleton_model(|_| {
+            let mut model = create_test_model();
+            let task = create_test_task(&make_uuid(8400), "user-a", Utc::now());
+            model.tasks.insert(task.task_id, task);
+            model
+        });
+        app.update(|ctx| {
+            let model = AgentConversationsModel::as_ref(ctx);
+            let entries = model.get_local_entries(&AgentManagementFilters::default(), ctx);
+            assert_eq!(entries.len(), 1);
+            let entry = &entries[0];
+            assert_eq!(entry.identity.local_conversation_id, Some(conversation_id));
+            assert!(entry.identity.server_conversation_token.is_none());
+            assert!(entry.display.harness.is_none());
+            assert!(!entry.capabilities.can_share);
+            assert!(!entry.capabilities.can_copy_link);
+            assert!(model.get_local_entry_by_id(&entry.id, ctx).is_some());
+            assert!(matches!(
+                AgentConversationsModel::resolve_local_open_action(entry.id, None, ctx),
+                Some(WorkspaceAction::RestoreOrNavigateToConversation {
+                    conversation_id: restored_id,
+                    local_only: true,
+                    ..
+                }) if restored_id == conversation_id
+            ));
+            let remote_id = history
+                .as_ref(ctx)
+                .find_conversation_id_by_server_token(&ServerConversationToken::new(
+                    "remote-only-token".to_string(),
+                ))
+                .unwrap();
+            assert!(AgentConversationsModel::resolve_local_open_action(
+                AgentConversationEntryId::Conversation(remote_id), None, ctx,
+            ).is_none());
+        });
+    });
+}
+
+#[test]
+fn local_history_loader_does_not_fetch_missing_cloud_data() {
+    App::test((), |mut app| async move {
+        add_entry_projection_test_models(&mut app);
+        let history = BlocklistAIHistoryModel::handle(&app);
+        history.update(&mut app, |model, _| {
+            model.merge_cloud_conversation_metadata(vec![create_server_conversation_metadata(
+                "Remote-only conversation",
+                "remote-only-token",
+                None,
+            )]);
+        });
+        let future = app.update(|ctx| {
+            let model = history.as_ref(ctx);
+            let id = model
+                .find_conversation_id_by_server_token(&ServerConversationToken::new(
+                    "remote-only-token".to_string(),
+                ))
+                .unwrap();
+            model.load_local_conversation_data(id)
+        });
+        // No ServerApiProvider is installed: any accidental server fallback would fail.
+        assert!(future.await.is_none());
+    });
+}
+
+#[test]
+fn local_history_recovers_current_live_state_without_hosted_task_shadowing() {
+    App::test((), |mut app| async move {
+        add_entry_projection_test_models(&mut app);
+        let conversation_id = AIConversationId::new();
+        let run_id = make_uuid(8401);
+        let conversation = create_restored_conversation(
+            conversation_id,
+            "live-root-task",
+            AgentConversationData {
+                run_id: Some(run_id.clone()),
+                ..Default::default()
+            },
+        );
+        let history = BlocklistAIHistoryModel::handle(&app);
+        history.update(&mut app, |model, ctx| {
+            model.restore_conversations(EntityId::new(), vec![conversation], ctx);
+            model
+                .conversation_mut(&conversation_id)
+                .unwrap()
+                .set_last_event_sequence(42);
+        });
+        let mut model = create_test_model();
+        let task = create_test_task(&run_id, "user-a", Utc::now());
+        model.tasks.insert(task.task_id, task);
+        let future = app.update(|ctx| {
+            let entries = model.get_local_entries(&AgentManagementFilters::default(), ctx);
+            assert_eq!(entries.len(), 1);
+            assert_eq!(
+                entries[0].id,
+                AgentConversationEntryId::Conversation(conversation_id)
+            );
+            assert!(entries[0].identity.ambient_agent_task_id.is_none());
+            assert!(model.get_local_entry_by_id(&entries[0].id, ctx).is_some());
+            history
+                .as_ref(ctx)
+                .load_local_conversation_data(conversation_id)
+        });
+        let Some(CloudConversationData::Oz(restored)) = future.await else {
+            panic!("live local session should restore without disk or server access");
+        };
+        assert_eq!(restored.id(), conversation_id);
+        assert_eq!(restored.last_event_sequence(), Some(42));
+    });
+}
+
+#[test]
+fn local_history_excludes_cached_ambient_sessions_from_list_and_lookup() {
+    App::test((), |mut app| async move {
+        add_entry_projection_test_models(&mut app);
+        let conversation_id = AIConversationId::new();
+        let task_id = make_uuid(8402).parse().unwrap();
+        let mut conversation = create_restored_conversation(
+            conversation_id,
+            "ambient-root-task",
+            AgentConversationData::default(),
+        );
+        conversation.set_server_metadata(create_server_conversation_metadata(
+            "Cached hosted run",
+            "cached-ambient-token",
+            Some(task_id),
+        ));
+        let history = BlocklistAIHistoryModel::handle(&app);
+        history.update(&mut app, |model, ctx| {
+            model.restore_conversations(EntityId::new(), vec![conversation], ctx);
+        });
+        let mut model = create_test_model();
+        model.conversations.insert(
+            conversation_id,
+            create_test_conversation_metadata(conversation_id, "Cached hosted run"),
+        );
+        let future = app.update(|ctx| {
+            assert!(model
+                .get_local_entries(&AgentManagementFilters::default(), ctx)
+                .is_empty());
+            assert!(model
+                .get_local_entry_by_id(
+                    &AgentConversationEntryId::Conversation(conversation_id),
+                    ctx,
+                )
+                .is_none());
+            history
+                .as_ref(ctx)
+                .load_local_conversation_data(conversation_id)
+        });
+        assert!(future.await.is_none());
+    });
 }
 
 #[test]

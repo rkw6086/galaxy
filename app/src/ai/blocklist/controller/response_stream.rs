@@ -187,30 +187,14 @@ impl ResponseStream {
 
         // Fall back to Bedrock
         if *settings.bedrock_enabled.value() {
-            let auth_method = *settings.bedrock_auth_method.value();
-            let region = settings.bedrock_region.value().clone();
-            let cross_region_inference = *settings.bedrock_cross_region_inference.value();
             let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
-            let mut config = BedrockClientConfig {
-                auth_method,
-                profile: settings.bedrock_profile.value().clone(),
-                region,
-                access_key_id: settings.bedrock_access_key_id.value().clone(),
-                secret_access_key: settings.bedrock_secret_access_key.value().clone(),
-                session_token: None,
-                cross_region_inference,
-            };
-
-            if let ::ai::api_keys::AwsCredentialsState::Loaded { credentials, .. } =
-                api_key_manager.aws_credentials_state()
-            {
-                config.auth_method = crate::settings::BedrockAuthMethod::StaticKeys;
-                config.access_key_id = credentials.access_key().to_string();
-                config.secret_access_key = credentials.secret_key().to_string();
-                config.session_token = credentials.session_token().map(|s| s.to_string());
-            }
-
-            return ProviderConfig::Bedrock(config.with_external_fallbacks());
+            let config = BedrockClientConfig::from_settings(settings)
+                .with_model_route(model_id, settings.bedrock_models.value())
+                .with_managed_credentials(
+                &api_key_manager.aws_credentials_refresh_strategy(),
+                api_key_manager.aws_credentials_state(),
+            );
+            return ProviderConfig::Bedrock(config);
         }
 
         ProviderConfig::None

@@ -158,6 +158,12 @@ fn make_new_app_menu(ctx: &AppContext) -> Menu {
 
     let preferences_menu_items = vec![
         updateable_custom_item_without_checkmark(CustomAction::ShowSettings, ctx),
+        MenuItem::Custom(CustomMenuItem::new(
+            "Full Disk Access Settings...",
+            crate::full_disk_access::open_settings,
+            no_updates,
+            None,
+        )),
         MenuItem::Separator,
         updateable_custom_item_without_checkmark(CustomAction::ToggleKeybindingsPage, ctx),
         updateable_custom_item_without_checkmark(CustomAction::ConfigureKeybindings, ctx),

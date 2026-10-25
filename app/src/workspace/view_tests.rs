@@ -928,7 +928,7 @@ fn restore_conversation_in_active_pane_enters_existing_live_conversation_without
         workspace.update(&mut app, |workspace, ctx| {
             assert_eq!(workspace.tab_count(), 1);
 
-            workspace.restore_conversation_in_active_pane(conversation_id, ctx);
+            workspace.restore_conversation_in_active_pane(conversation_id, false, ctx);
 
             assert_eq!(workspace.tab_count(), 1);
         });
@@ -3577,7 +3577,7 @@ fn test_standard_tab_context_menu_shows_hover_only_tab_bar() {
 }
 
 #[test]
-fn test_open_cloud_agent_setup_guide_action_opens_management_view_and_is_idempotent() {
+fn test_legacy_cloud_setup_guide_action_opens_local_history_without_onboarding() {
     let _agent_management_guard = FeatureFlag::AgentManagementView.override_enabled(true);
 
     App::test((), |mut app| async move {
@@ -3598,7 +3598,7 @@ fn test_open_cloud_agent_setup_guide_action_opens_management_view_and_is_idempot
                     .current_workspace_state
                     .is_agent_management_view_open
             );
-            assert!(workspace
+            assert!(!workspace
                 .agent_management_view
                 .as_ref(ctx)
                 .is_showing_setup_guide());
@@ -3609,7 +3609,7 @@ fn test_open_cloud_agent_setup_guide_action_opens_management_view_and_is_idempot
                     .current_workspace_state
                     .is_agent_management_view_open
             );
-            assert!(workspace
+            assert!(!workspace
                 .agent_management_view
                 .as_ref(ctx)
                 .is_showing_setup_guide());

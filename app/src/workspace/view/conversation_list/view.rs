@@ -30,7 +30,7 @@ use super::view_model::{ConversationEntry, ConversationListViewModel};
 use crate::ai::active_agent_views_model::{ActiveAgentViewsModel, ConversationOrTaskId};
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent_conversations_model::{
-    AgentConversationEntryId, AgentConversationNavigationSubject, AgentConversationsModel,
+    AgentConversationEntryId, AgentConversationsModel,
 };
 use crate::ai::agent_management::telemetry::{AgentManagementTelemetryEvent, OpenedFrom};
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
@@ -707,8 +707,8 @@ impl ConversationListView {
                 ctx.emit(Event::NewConversationInNewTab);
             }
             ListItem::Conversation { entry, .. } => {
-                if let Some(action) = AgentConversationsModel::resolve_open_action(
-                    AgentConversationNavigationSubject::Entry(entry.id),
+                if let Some(action) = AgentConversationsModel::resolve_local_open_action(
+                    entry.id,
                     None,
                     ctx,
                 ) {
@@ -1404,8 +1404,8 @@ impl TypedActionView for ConversationListView {
                 });
             }
             ConversationListViewAction::OpenItem { id } => {
-                let Some(action) = AgentConversationsModel::resolve_open_action(
-                    AgentConversationNavigationSubject::Entry(*id),
+                let Some(action) = AgentConversationsModel::resolve_local_open_action(
+                    *id,
                     None,
                     ctx,
                 ) else {

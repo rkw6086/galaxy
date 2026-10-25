@@ -61,6 +61,7 @@ mod experiments;
 mod external_secrets;
 #[cfg(target_family = "wasm")]
 mod font_fallback;
+mod full_disk_access;
 pub mod galaxy_managed_paths_watcher;
 pub use galaxy_managed_paths_watcher as warp_managed_paths_watcher;
 mod global_resource_handles;
@@ -2079,6 +2080,7 @@ pub(crate) fn initialize_app(
 
     // AIDocumentModel subscribes to UpdateManager so that it can be notified when notebooks are created on the server.
     ctx.add_singleton_model(AIDocumentModel::new);
+    ctx.add_singleton_model(ai::document::plan_archival::PlanArchivalModel::new);
 
     // AgentConversationsModel subscribes to UpdateManager for RTC task updates.
     ctx.add_singleton_model(AgentConversationsModel::new);
@@ -2824,6 +2826,10 @@ fn launch(ctx: &mut galaxyui::AppContext, app_state: Option<AppState>, launch_mo
             IntervalTimer::handle(ctx).update(ctx, |timer, _| {
                 timer.mark_interval_end("WINDOWS_CREATED");
             });
+
+            if cfg!(target_os = "macos") && matches!(launch_mode, LaunchMode::App { .. }) {
+                full_disk_access::prompt_on_startup(ctx);
+            }
 
             #[cfg(feature = "local_fs")]
             if matches!(launch_mode, LaunchMode::App { .. })

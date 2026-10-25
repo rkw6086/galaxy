@@ -663,6 +663,8 @@ fn estimate_cost_cents(
 }
 
 const KNOWN_TOOLS: &[&str] = &[
+    "request_computer_use",
+    "use_computer",
     "run_shell_command",
     "read_files",
     "apply_file_diffs",

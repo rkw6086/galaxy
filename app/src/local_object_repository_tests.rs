@@ -173,6 +173,269 @@ fn create_update_and_delete_notebook_are_local_and_persisted() {
 }
 
 #[test]
+fn notebook_content_edit_events_exclude_title_edits_and_unchanged_autosaves() {
+    App::test((), |mut app| async move {
+        let receiver = initialize_app(&mut app);
+        let repository = LocalObjectRepository::handle(&app);
+        let id = SyncId::ClientId(ClientId::new());
+        repository.update(&mut app, |repository, ctx| {
+            repository.create_notebook_with_id(
+                id,
+                None,
+                CloudNotebookModel {
+                    title: "Plan".to_string(),
+                    data: "Initial content".to_string(),
+                    ..Default::default()
+                },
+                ctx,
+            );
+        });
+        receiver.recv().unwrap();
+        let (edit_sender, edits) = sync_channel(10);
+        app.update(|ctx| {
+            ctx.subscribe_to_model(&repository, move |_, event, _| {
+                if let LocalObjectRepositoryEvent::NotebookContentEdited { id } = event {
+                    edit_sender.send(*id).unwrap();
+                }
+            });
+        });
+
+        assert!(repository.update(&mut app, |repository, ctx| {
+            repository.update_notebook_title(id, "Renamed plan".to_string(), ctx)
+        }));
+        receiver.recv().unwrap();
+        assert!(edits.try_recv().is_err());
+
+        assert!(repository.update(&mut app, |repository, ctx| {
+            repository.update_notebook_data(id, "Initial content".to_string(), ctx)
+        }));
+        assert!(receiver.try_recv().is_err());
+        assert!(edits.try_recv().is_err());
+
+        assert!(repository.update(&mut app, |repository, ctx| {
+            repository.update_notebook_data(id, "Changed content".to_string(), ctx)
+        }));
+        assert!(matches!(
+            receiver.recv().unwrap(),
+            ModelEvent::UpsertNotebook { notebook } if notebook.model().data == "Changed content"
+        ));
+        assert_eq!(edits.try_recv().unwrap(), id);
+        assert!(edits.try_recv().is_err());
+
+        assert!(!repository.update(&mut app, |repository, ctx| {
+            repository.update_notebook_data(
+                SyncId::ClientId(ClientId::new()),
+                "Missing notebook".to_string(),
+                ctx,
+            )
+        }));
+        assert!(receiver.try_recv().is_err());
+        assert!(edits.try_recv().is_err());
+    });
+}
+
+#[test]
+fn move_local_plan_between_folders_and_root_is_persisted() {
+    App::test((), |mut app| async move {
+        let receiver = initialize_app(&mut app);
+        let repository = LocalObjectRepository::handle(&app);
+        let plans_id = SyncId::ClientId(ClientId::new());
+        let projects_id = SyncId::ClientId(ClientId::new());
+        let notebook_id = SyncId::ClientId(ClientId::new());
+        let document_id = crate::ai::document::ai_document_model::AIDocumentId::new();
+        repository.update(&mut app, |repository, ctx| {
+            repository.create_folder_with_id(plans_id, "Plans".to_string(), None, ctx);
+            repository.create_folder_with_id(projects_id, "Projects".to_string(), None, ctx);
+            repository.create_notebook_with_id(
+                notebook_id,
+                Some(plans_id),
+                CloudNotebookModel {
+                    title: "Release plan".to_string(),
+                    data: "- [ ] Ship the release".to_string(),
+                    ai_document_id: Some(document_id),
+                    conversation_id: None,
+                },
+                ctx,
+            );
+        });
+        for _ in 0..3 {
+            receiver.recv().unwrap();
+        }
+
+        for (location, expected_parent) in [
+            (CloudObjectLocation::Folder(projects_id), Some(projects_id)),
+            (CloudObjectLocation::Space(Space::Personal), None),
+            (CloudObjectLocation::Folder(plans_id), Some(plans_id)),
+        ] {
+            assert!(repository.update(&mut app, |repository, ctx| {
+                repository.move_object_to_location(
+                    CloudObjectTypeAndId::Notebook(notebook_id),
+                    location,
+                    ctx,
+                )
+            }));
+            let ModelEvent::UpsertNotebook { notebook } = receiver.recv().unwrap() else {
+                panic!("expected the moved plan to be persisted locally");
+            };
+            assert_eq!(notebook.id, notebook_id);
+            assert_eq!(notebook.metadata.folder_id, expected_parent);
+            assert_eq!(notebook.model().ai_document_id, Some(document_id));
+            assert_eq!(notebook.model().data, "- [ ] Ship the release");
+            assert!(!notebook.metadata.has_pending_content_changes());
+            assert!(!notebook.metadata.has_pending_online_only_change());
+            assert_eq!(
+                repository.read(&app, |repository, app| {
+                    repository
+                        .notebook(&notebook_id, app)
+                        .unwrap()
+                        .metadata
+                        .folder_id
+                }),
+                expected_parent,
+            );
+        }
+    });
+}
+
+#[test]
+fn local_folder_moves_reject_cycles_and_missing_or_trashed_destinations() {
+    App::test((), |mut app| async move {
+        let receiver = initialize_app(&mut app);
+        let repository = LocalObjectRepository::handle(&app);
+        let parent_id = SyncId::ClientId(ClientId::new());
+        let child_id = SyncId::ClientId(ClientId::new());
+        let trashed_id = SyncId::ClientId(ClientId::new());
+        repository.update(&mut app, |repository, ctx| {
+            repository.create_folder_with_id(parent_id, "Plans".to_string(), None, ctx);
+            repository.create_folder_with_id(
+                child_id,
+                "Nested".to_string(),
+                Some(parent_id),
+                ctx,
+            );
+            repository.create_folder_with_id(trashed_id, "Deleted".to_string(), None, ctx);
+            repository.set_folder_trashed(trashed_id, true, ctx);
+        });
+        for _ in 0..4 {
+            receiver.recv().unwrap();
+        }
+
+        for location in [
+            CloudObjectLocation::Folder(parent_id),
+            CloudObjectLocation::Folder(child_id),
+            CloudObjectLocation::Folder(trashed_id),
+            CloudObjectLocation::Folder(SyncId::ClientId(ClientId::new())),
+            CloudObjectLocation::Space(Space::Shared),
+        ] {
+            assert!(!repository.update(&mut app, |repository, ctx| {
+                repository.move_object_to_location(
+                    CloudObjectTypeAndId::Folder(parent_id),
+                    location,
+                    ctx,
+                )
+            }));
+        }
+        assert!(receiver.try_recv().is_err());
+
+        assert!(repository.update(&mut app, |repository, ctx| {
+            repository.move_object_to_location(
+                CloudObjectTypeAndId::Folder(child_id),
+                CloudObjectLocation::Space(Space::Personal),
+                ctx,
+            )
+        }));
+        assert!(matches!(
+            receiver.recv().unwrap(),
+            ModelEvent::UpsertFolder { folder }
+                if folder.id == child_id && folder.metadata.folder_id.is_none()
+        ));
+    });
+}
+
+#[test]
+fn moving_local_objects_to_trash_is_persisted() {
+    App::test((), |mut app| async move {
+        let receiver = initialize_app(&mut app);
+        let repository = LocalObjectRepository::handle(&app);
+        let id = SyncId::ClientId(ClientId::new());
+        repository.update(&mut app, |repository, ctx| {
+            repository.create_workflow_with_id(
+                id,
+                None,
+                Workflow::new("Build", "cargo build"),
+                ctx,
+            );
+        });
+        receiver.recv().unwrap();
+
+        assert!(repository.update(&mut app, |repository, ctx| {
+            repository.move_object_to_location(
+                CloudObjectTypeAndId::Workflow(id),
+                CloudObjectLocation::Trash,
+                ctx,
+            )
+        }));
+        assert!(matches!(
+            receiver.recv().unwrap(),
+            ModelEvent::UpsertWorkflow { workflow }
+                if workflow.id == id && workflow.metadata.trashed_ts.is_some()
+        ));
+    });
+}
+
+#[test]
+fn local_moves_do_not_transfer_objects_across_ownership_boundaries() {
+    App::test((), |mut app| async move {
+        let receiver = initialize_app(&mut app);
+        let repository = LocalObjectRepository::handle(&app);
+        let local_id = SyncId::ClientId(ClientId::new());
+        let cloud_id = ClientId::new();
+        let cloud_folder_id = ClientId::new();
+        repository.update(&mut app, |repository, ctx| {
+            repository.create_notebook_with_id(local_id, None, CloudNotebookModel::default(), ctx);
+        });
+        receiver.recv().unwrap();
+        CloudModel::handle(&app).update(&mut app, |cloud_model, ctx| {
+            cloud_model.create_object(
+                SyncId::ClientId(cloud_id),
+                CloudNotebook::new_local(
+                    CloudNotebookModel::default(),
+                    Owner::mock_current_user(),
+                    None,
+                    cloud_id,
+                ),
+                ctx,
+            );
+            cloud_model.create_object(
+                SyncId::ClientId(cloud_folder_id),
+                CloudFolder::new_local(
+                    CloudFolderModel::new("Shared", false),
+                    Owner::mock_current_user(),
+                    None,
+                    cloud_folder_id,
+                ),
+                ctx,
+            );
+        });
+        assert!(!repository.update(&mut app, |repository, ctx| {
+            repository.move_object_to_location(
+                CloudObjectTypeAndId::Notebook(local_id),
+                CloudObjectLocation::Folder(SyncId::ClientId(cloud_folder_id)),
+                ctx,
+            )
+        }));
+        assert!(!repository.update(&mut app, |repository, ctx| {
+            repository.move_object_to_location(
+                CloudObjectTypeAndId::Notebook(SyncId::ClientId(cloud_id)),
+                CloudObjectLocation::Space(Space::Personal),
+                ctx,
+            )
+        }));
+        assert!(receiver.try_recv().is_err());
+    });
+}
+
+#[test]
 fn create_update_open_trash_and_delete_folder_are_local_and_persisted() {
     App::test((), |mut app| async move {
         let receiver = initialize_app(&mut app);

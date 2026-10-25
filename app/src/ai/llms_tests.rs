@@ -1,3 +1,4 @@
+use serde_json::json;
 use warpui::App;
 
 use super::*;
@@ -159,6 +160,51 @@ fn openai_model(model_id: &str) -> OpenAIModelConfig {
     }
 }
 
+#[test]
+fn live_bedrock_models_are_not_hidden_by_missing_catalog_metadata() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let id = "future.new-live-model";
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings.bedrock_enabled.set_value(true, ctx).unwrap();
+            settings.bedrock_models.set_value(
+                vec![bedrock_model("future.other-model"), bedrock_model(id)], ctx,
+            ).unwrap();
+        });
+        let mut preferences = empty_preferences();
+        preferences.models_by_feature.agent_mode.default_id = id.into();
+        preferences.models_by_feature.coding.default_id = id.into();
+        app.read(|ctx| {
+            preferences.bedrock_verified_config =
+                Some(super::bedrock_discovery_config(AISettings::as_ref(ctx)));
+            preferences.bedrock_verified_model_ids.insert(id.to_owned());
+            preferences.bedrock_verified_model_ids.insert("future.other-model".to_owned());
+            preferences.inject_bedrock_models(ctx);
+        });
+        assert!(preferences.models_by_feature.agent_mode.choices.iter().any(|model| model.id.as_str() == id));
+        assert_eq!(preferences.models_by_feature.agent_mode.default_id.as_str(), id);
+        assert_eq!(preferences.models_by_feature.coding.default_id.as_str(), id);
+    });
+}
+
+#[test]
+fn newer_bedrock_discovery_invalidates_older_results() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let preferences = app.add_model(|_| empty_preferences());
+        let models = [bedrock_model("future.new-live-model")];
+        preferences.update(&mut app, |preferences, ctx| {
+            let first = preferences.begin_bedrock_verification();
+            let latest = preferences.begin_bedrock_verification();
+            let config = super::bedrock_discovery_config(AISettings::as_ref(ctx));
+            assert!(!preferences.record_bedrock_verification(first, config.clone(), &models, ctx));
+            assert!(preferences.bedrock_verified_model_ids.is_empty());
+            assert!(preferences.record_bedrock_verification(latest, config, &models, ctx));
+            assert!(preferences.bedrock_verified_model_ids.contains("future.new-live-model"));
+        });
+    });
+}
+
 fn bedrock_model(model_id: &str) -> BedrockModelConfig {
     BedrockModelConfig {
         enabled: true,
@@ -166,6 +212,7 @@ fn bedrock_model(model_id: &str) -> BedrockModelConfig {
         model_id: model_id.to_string(),
         display_name: model_id.to_string(),
         vision_supported: false,
+        ..Default::default()
     }
 }
 
@@ -235,6 +282,7 @@ fn empty_preferences() -> LLMPreferences {
         catalog_refresh_generations: HashMap::new(),
         chatgpt_subscription_models_refresh_in_flight: false,
         bedrock_models_refresh_in_flight: false,
+        bedrock_verification_generation: 0,
         bedrock_verified_config: None,
         bedrock_verified_model_ids: HashSet::new(),
         acp_selections: HashMap::new(),
@@ -452,6 +500,7 @@ fn acp_models_are_injected_only_while_acp_is_enabled() {
             catalog_refresh_generations: HashMap::new(),
             chatgpt_subscription_models_refresh_in_flight: false,
             bedrock_models_refresh_in_flight: false,
+            bedrock_verification_generation: 0,
             bedrock_verified_config: None,
             bedrock_verified_model_ids: HashSet::new(),
             acp_selections: HashMap::new(),
@@ -1140,6 +1189,155 @@ fn chatgpt_default_window_limits_routing_without_a_separate_input_limit() {
         openai_model_context_size(&model, OpenAIProviderKind::ChatGPTSubscription),
         272_000
     );
+}
+
+#[test]
+fn litellm_efficient_windows_limit_model_picker_and_provider_routing() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let models = [("terminal-model", 272_000), ("main-model", 500_000)]
+            .into_iter()
+            .map(|(id, efficient_window)| {
+                let mut model = openai_model(id);
+                model.context_size = 872_000;
+                model.max_input_tokens = Some(872_000);
+                model.default_context_size = Some(efficient_window);
+                model
+            })
+            .collect();
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings.openai_enabled.set_value(true, ctx).unwrap();
+            settings
+                .openai_providers
+                .set_value(
+                    vec![OpenAIProviderConfig {
+                        kind: OpenAIProviderKind::LiteLLM,
+                        enabled: true,
+                        name: "LiteLLM".to_owned(),
+                        base_url: "https://proxy.test/v1".to_owned(),
+                        api_key: None,
+                        project_id: None,
+                        location: None,
+                        models,
+                    }],
+                    ctx,
+                )
+                .unwrap();
+        });
+        let mut preferences = empty_preferences();
+        app.read(|ctx| preferences.inject_openai_models(ctx));
+        for (id, efficient_window) in [("terminal-model", 272_000), ("main-model", 500_000)] {
+            let route = preferences.openai_client_config_for_model(id).unwrap();
+            assert_eq!(route.max_input_tokens, Some(efficient_window));
+            let model = preferences
+                .models_by_feature
+                .agent_mode
+                .choices
+                .iter()
+                .find(|model| model.id.as_str() == id)
+                .unwrap();
+            assert_eq!(model.context_window.max, efficient_window);
+            assert_eq!(model.context_window.default_max, efficient_window);
+            assert!(!model.context_window.is_configurable);
+        }
+    });
+}
+
+#[tokio::test]
+async fn litellm_discovery_preserves_efficient_windows_across_catalog_endpoints() {
+    let mut server = mockito::Server::new_async().await;
+    for (model_metadata, rich_metadata, maximum, efficient_window, request_budget) in [
+        (
+            json!({"id": "model"}),
+            Some(json!({
+                "context_window": 500000,
+                "max_context_window": 872000,
+                "max_input_tokens": 872000
+            })),
+            872_000,
+            500_000,
+            500_000,
+        ),
+        (
+            json!({"id": "model", "context_window": 272000, "max_context_window": 872000}),
+            Some(json!({"max_context_window": 872000})),
+            872_000,
+            272_000,
+            272_000,
+        ),
+        (
+            json!({"id": "model", "context_window": 272000, "max_context_window": 872000}),
+            None,
+            872_000,
+            272_000,
+            272_000,
+        ),
+        (
+            json!({"id": "model", "context_window": 500000, "max_context_window": 872000}),
+            Some(json!({"supports_vision": true})),
+            872_000,
+            500_000,
+            500_000,
+        ),
+        (
+            json!({"id": "model"}),
+            Some(json!({
+                "context_window": 272000,
+                "max_context_window": 872000,
+                "max_input_tokens": 258400,
+                "effective_context_window_percent": 95
+            })),
+            872_000,
+            258_400,
+            258_400,
+        ),
+        (
+            json!({"id": "model"}),
+            Some(json!({
+                "context_window": 272000,
+                "max_context_window": 872000,
+                "max_input_tokens": 128000
+            })),
+            872_000,
+            272_000,
+            128_000,
+        ),
+    ] {
+        let catalog = server
+            .mock("GET", "/models")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"data": [model_metadata]}).to_string())
+            .create_async()
+            .await;
+        let metadata = server
+            .mock("GET", "/model/info")
+            .with_status(if rich_metadata.is_some() { 200 } else { 404 })
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({"data": [{"model_name": "model", "model_info": rich_metadata}]}).to_string(),
+            )
+            .create_async()
+            .await;
+        let models = fetch_litellm_catalog(&server.url(), None, &reqwest::Client::new())
+            .await
+            .unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].context_size, maximum);
+        assert_eq!(models[0].default_context_size, Some(efficient_window));
+        assert_eq!(
+            openai_model_context_size(&models[0], OpenAIProviderKind::LiteLLM),
+            request_budget
+        );
+        let window = openai_model_context_window(&models[0], OpenAIProviderKind::LiteLLM);
+        assert_eq!(window.default_max, request_budget);
+        assert_eq!(window.max, request_budget);
+        assert!(!window.is_configurable);
+        catalog.assert_async().await;
+        metadata.assert_async().await;
+        catalog.remove_async().await;
+        metadata.remove_async().await;
+    }
 }
 
 #[test]

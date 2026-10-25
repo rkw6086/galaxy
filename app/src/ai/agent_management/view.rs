@@ -36,7 +36,7 @@ use siphasher::sip::SipHasher;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent_conversations_model::{
-    AgentConversationEntry, AgentConversationEntryId, AgentConversationNavigationSubject,
+    AgentConversationEntry, AgentConversationEntryId,
     AgentConversationsModel, AgentConversationsModelEvent, AgentManagementFilters, ArtifactFilter,
     ConversationUpdateKind, CreatedOnFilter, CreatorFilter, EnvironmentFilter, HarnessFilter,
     OwnerFilter, SessionStatus, SourceFilter, StatusFilter,
@@ -55,7 +55,6 @@ use crate::ai::agent_management::telemetry::{
 };
 use crate::ai::ambient_agents::{cancel_task_with_toast, AgentSource};
 use crate::ai::artifacts::{Artifact, ArtifactButtonsRow, ArtifactButtonsRowEvent};
-use crate::ai::blocklist::format_credits;
 use crate::ai::conversation_details_panel::{
     ConversationDetailsData, ConversationDetailsPanel, ConversationDetailsPanelEvent,
 };
@@ -89,7 +88,6 @@ use crate::workflows::WorkflowType;
 use crate::workspace::{
     ForkedConversationDestination, RestoreConversationLayout, ToastStack, WorkspaceAction,
 };
-use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{send_telemetry_from_ctx, AgentModeEntrypoint};
 
 lazy_static! {
@@ -311,7 +309,7 @@ impl AgentManagementView {
                 },
                 ctx,
             );
-            editor.set_placeholder_text("Search", ctx);
+            editor.set_placeholder_text("Search local sessions", ctx);
             editor
         });
         ctx.subscribe_to_view(&search_editor, |me, _handle, event, ctx| {
@@ -319,7 +317,7 @@ impl AgentManagementView {
         });
 
         let new_agent_button = CompactibleActionButton::new(
-            "New agent".to_string(),
+            "New session".to_string(),
             None,
             ButtonSize::Small,
             AgentManagementViewAction::ShowAgentTypeSelector,
@@ -333,7 +331,9 @@ impl AgentManagementView {
 
         let has_dismissed_setup_guide = *AISettings::as_ref(ctx).did_dismiss_cloud_setup_guide;
 
-        let filters = persisted_filters.map(|p| p.filters).unwrap_or_default();
+        let filters = persisted_filters
+            .map(|persisted| persisted.filters.for_local_history())
+            .unwrap_or_default();
 
         let details_panel: ViewHandle<ConversationDetailsPanel> =
             ctx.add_typed_action_view(|ctx| {
@@ -378,28 +378,17 @@ impl AgentManagementView {
         view.update_creator_dropdown(ctx);
         view.update_environment_dropdown(ctx);
 
-        // Trigger server fetch if persisted filters differ from defaults
-        // (team tasks are not loaded at startup, so we need to fetch them)
-        if view.filters != AgentManagementFilters::default() {
-            view.trigger_filter_fetch(ctx);
-        }
-
         view.get_tasks_from_model(ctx);
         view
     }
 
     fn get_view_state(&self, app: &AppContext) -> ViewState {
         let model = AgentConversationsModel::as_ref(app);
-        let has_items = model.has_items();
+        let has_items = !model
+            .get_local_entries(&AgentManagementFilters::default(), app)
+            .is_empty();
 
-        // If loading with zero items, show skeleton cards
-        // If loading with items, show list of interactive conversations (with loading indicator in header)
-        if model.is_loading() && !has_items {
-            return ViewState::Loading;
-        }
-
-        // Show setup guide if: no items (zero state) or user clicked button to toggle on the guide
-        if !has_items || self.is_viewing_setup_guide {
+        if !has_items {
             return ViewState::SetupGuide { has_items };
         }
 
@@ -866,7 +855,7 @@ impl AgentManagementView {
 
     /// Common handler for filter changes: fetch, refresh tasks, and save.
     fn on_filter_changed(&mut self, ctx: &mut ViewContext<Self>) {
-        self.trigger_filter_fetch(ctx);
+        self.filters = self.filters.for_local_history();
         self.get_tasks_from_model(ctx);
         ctx.dispatch_global_action("workspace:save_app", ());
     }
@@ -888,11 +877,9 @@ impl AgentManagementView {
 
     /// Shows the setup guide from a deep-link/action without toggling it off on repeated calls.
     pub(crate) fn show_setup_guide_from_link(&mut self, ctx: &mut ViewContext<Self>) {
-        if !self.is_viewing_setup_guide {
-            send_telemetry_from_ctx!(AgentManagementTelemetryEvent::OpenSetupGuide, ctx);
-        }
-        self.is_viewing_setup_guide = true;
-        ctx.notify();
+        // Older links may target cloud onboarding. Keep them within local history.
+        self.is_viewing_setup_guide = false;
+        self.get_tasks_from_model(ctx);
     }
 
     #[cfg(test)]
@@ -905,10 +892,10 @@ impl AgentManagementView {
         environment_id: String,
         ctx: &mut ViewContext<Self>,
     ) {
-        // This navigation should show the team/global task runs list.
-        self.filters.owners = OwnerFilter::All;
+        // A legacy environment link must not invisibly filter local sessions.
+        let _ = environment_id;
+        self.filters.owners = OwnerFilter::PersonalOnly;
         self.filters.reset_all_but_owner();
-        self.filters.environment = EnvironmentFilter::Specific(environment_id);
         self.update_filter_buttons(ctx);
 
         // Clear search query.
@@ -952,7 +939,7 @@ impl AgentManagementView {
         let model = AgentConversationsModel::as_ref(ctx);
         let search_query = self.search_query.trim().to_lowercase();
         let cards: Vec<CardData> = model
-            .get_entries(&self.filters, ctx)
+            .get_local_entries(&self.filters, ctx)
             .into_iter()
             .filter(|entry| {
                 if search_query.is_empty() {
@@ -962,16 +949,7 @@ impl AgentManagementView {
             })
             .map(|entry| {
                 let item_id = entry.id;
-                let copy_link_url = entry
-                    .capabilities
-                    .can_copy_link
-                    .then(|| {
-                        AgentConversationsModel::resolve_copy_link(
-                            AgentConversationNavigationSubject::Entry(entry.id),
-                            ctx,
-                        )
-                    })
-                    .flatten();
+                let copy_link_url = None;
                 let mut config = Self::action_buttons_config_for_entry(&entry, None, copy_link_url);
                 if FeatureFlag::AgentManagementDetailsView.is_enabled() {
                     config.view_details_item_id = Some(item_id);
@@ -1100,6 +1078,9 @@ impl AgentManagementView {
         {
             config.delete_conversation_id = None;
         }
+        if !entry.capabilities.can_fork_locally {
+            config.fork_conversation_id = None;
+        }
 
         config
     }
@@ -1184,7 +1165,7 @@ impl AgentManagementView {
             AgentDetailsButtonEvent::DeleteConversation { conversation_id } => {
                 let model = AgentConversationsModel::as_ref(ctx);
                 let conversation_title = model
-                    .get_entry_by_id(item_id, ctx)
+                    .get_local_entry_by_id(item_id, ctx)
                     .map(|entry| entry.display.title)
                     .unwrap_or_else(|| "Conversation".to_string());
                 ctx.emit(AgentManagementViewEvent::ShowDeleteConfirmationDialog {
@@ -1341,18 +1322,15 @@ impl AgentManagementView {
         ctx: &mut ViewContext<Self>,
     ) {
         let model = AgentConversationsModel::as_ref(ctx);
-        let Some(entry) = model.get_entry_by_id(item_id, ctx) else {
+        let Some(entry) = model.get_local_entry_by_id(item_id, ctx) else {
             return;
         };
-        let open_action = AgentConversationsModel::resolve_open_action(
-            AgentConversationNavigationSubject::Entry(*item_id),
+        let open_action = AgentConversationsModel::resolve_local_open_action(
+            *item_id,
             Some(RestoreConversationLayout::NewTab),
             ctx,
         );
-        let copy_link_url = AgentConversationsModel::resolve_copy_link(
-            AgentConversationNavigationSubject::Entry(*item_id),
-            ctx,
-        );
+        let copy_link_url = None;
         let task = entry
             .identity
             .ambient_agent_task_id
@@ -1362,7 +1340,8 @@ impl AgentManagementView {
             task.as_ref(),
             open_action,
             copy_link_url,
-        );
+        )
+        .for_local_history();
 
         self.details_panel.update(ctx, |p, ctx| {
             p.set_conversation_details(data, ctx);
@@ -1377,7 +1356,7 @@ impl AgentManagementView {
     ) {
         let model = AgentConversationsModel::as_ref(ctx);
         let Some((index, entry)) = self.items.iter().enumerate().find_map(|(index, card)| {
-            let entry = model.get_entry_by_id(&card.item_id, ctx)?;
+            let entry = model.get_local_entry_by_id(&card.item_id, ctx)?;
             (entry.identity.local_conversation_id == Some(conversation_id))
                 .then_some((index, entry))
         }) else {
@@ -1638,7 +1617,7 @@ impl AgentManagementView {
         };
 
         let model = AgentConversationsModel::as_ref(app);
-        let Some(entry) = model.get_entry_by_id(&card_state.item_id, app) else {
+        let Some(entry) = model.get_local_entry_by_id(&card_state.item_id, app) else {
             return Empty::new().finish();
         };
 
@@ -1673,7 +1652,7 @@ impl AgentManagementView {
             let mut card_content = Flex::column()
                 .with_spacing(CARD_ROW_SPACING)
                 .with_child(Self::render_header_row(card_state, entry, appearance))
-                .with_child(Self::render_metadata_row(entry, appearance, app));
+                .with_child(Self::render_metadata_row(entry, appearance));
 
             // Add artifacts row if there is a buttons view
             if let Some(buttons_element) = artifact_buttons_element {
@@ -1816,25 +1795,14 @@ impl AgentManagementView {
     fn render_metadata_row(
         entry: &AgentConversationEntry,
         appearance: &Appearance,
-        app: &AppContext,
     ) -> Box<dyn Element> {
         let theme = appearance.theme();
         let font_family = appearance.ui_font_family();
         let font_size = appearance.ui_font_size();
         let mut metadata_parts = Vec::new();
 
-        if let Some(source) = &entry.display.source {
-            metadata_parts.push(format!("Source: {}", source.display_name()));
-        }
-
-        let availability = HarnessAvailabilityModel::as_ref(app);
-        if availability.should_show_harness_selector() {
-            if let Some(harness) = entry.display.harness {
-                metadata_parts.push(format!(
-                    "Harness: {}",
-                    availability.display_name_for(harness)
-                ));
-            }
+        if let Some(directory) = &entry.display.working_directory {
+            metadata_parts.push(directory.clone());
         }
 
         if let Some(executor) = &entry.display.executor {
@@ -1859,8 +1827,8 @@ impl AgentManagementView {
             metadata_parts.push(format!("Run time: {run_time}"));
         }
 
-        if let Some(usage) = entry.display.request_usage.map(format_credits) {
-            metadata_parts.push(format!("Credits used: {usage}"));
+        if metadata_parts.is_empty() {
+            metadata_parts.push("Saved on this device".to_string());
         }
 
         Text::new(metadata_parts.join(" • "), font_family, font_size)
@@ -1870,13 +1838,7 @@ impl AgentManagementView {
 
     // Render the main page header based on the current view state
     fn render_header(&self, app: &AppContext) -> Box<dyn Element> {
-        match self.get_view_state(app) {
-            ViewState::Loading => self.render_loading_header(app),
-            ViewState::SetupGuide {
-                has_items: has_tasks,
-            } => self.render_setup_guide_header(has_tasks, app),
-            ViewState::NoFilterMatches | ViewState::HasTasks => self.render_task_list_header(app),
-        }
+        self.render_task_list_header(app)
     }
 
     fn render_setup_guide_header(&self, has_tasks: bool, app: &AppContext) -> Box<dyn Element> {
@@ -1920,29 +1882,17 @@ impl AgentManagementView {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
 
-        let is_loading = AgentConversationsModel::handle(app)
-            .as_ref(app)
-            .is_loading();
-
-        let is_on_team = UserWorkspaces::as_ref(app).current_team().is_some();
-
         let size_switch_threshold = MEDIUM_SIZE_SWITCH_THRESHOLD * appearance.monospace_ui_scalar();
 
         let build_header = |use_expanded: bool| {
             let title = Text::new_inline(
-                "Runs",
+                "AI sessions",
                 appearance.ui_font_family(),
                 appearance.ui_font_size() + 4.,
             )
             .with_style(Properties::default().weight(Weight::Semibold))
             .with_color(theme.active_ui_text_color().into())
             .finish();
-
-            let setup_guide_button = if use_expanded {
-                self.setup_guide_button.expanded_button()
-            } else {
-                self.setup_guide_button.compact_button()
-            };
 
             let new_agent_button = if use_expanded {
                 self.new_agent_button.expanded_button()
@@ -1956,17 +1906,7 @@ impl AgentManagementView {
                 .with_spacing(4.)
                 .with_child(Container::new(title).with_margin_right(12.).finish());
 
-            if is_on_team {
-                header_top.add_child(ChildView::new(&self.personal_filter_button).finish());
-                header_top.add_child(ChildView::new(&self.all_filter_button).finish());
-            }
-
-            if is_loading {
-                header_top.add_child(self.render_cloud_loading_icon(appearance));
-            }
-
             header_top.add_child(Expanded::new(1., Empty::new().finish()).finish());
-            header_top.add_child(ChildView::new(setup_guide_button).finish());
 
             if !cfg!(target_family = "wasm") {
                 header_top.add_child(ChildView::new(new_agent_button).finish());
@@ -1976,19 +1916,7 @@ impl AgentManagementView {
                 .with_spacing(4.)
                 .with_cross_axis_alignment(CrossAxisAlignment::Center)
                 .with_child(ChildView::new(&self.status_dropdown).finish())
-                .with_child(ChildView::new(&self.source_dropdown).finish())
-                .with_child(ChildView::new(&self.created_on_dropdown).finish())
-                .with_child(ChildView::new(&self.artifact_dropdown).finish());
-
-            if HarnessAvailabilityModel::as_ref(app).should_show_harness_selector() {
-                filters_wrap.add_child(ChildView::new(&self.harness_dropdown).finish());
-            }
-
-            filters_wrap.add_child(ChildView::new(&self.environment_dropdown).finish());
-
-            if self.filters.owners != OwnerFilter::PersonalOnly {
-                filters_wrap.add_child(ChildView::new(&self.creator_dropdown).finish());
-            }
+                .with_child(ChildView::new(&self.created_on_dropdown).finish());
 
             if self.filters.is_filtering() {
                 filters_wrap.add_child(ChildView::new(&self.clear_all_filters_button).finish());
@@ -2198,7 +2126,19 @@ impl View for AgentManagementView {
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let main_content = match self.get_view_state(app) {
             ViewState::Loading => self.render_loading_state(app),
-            ViewState::SetupGuide { .. } => ChildView::new(&self.cloud_setup_guide_view).finish(),
+            ViewState::SetupGuide { .. } => {
+                let appearance = Appearance::as_ref(app);
+                Align::new(
+                    Text::new(
+                        "No saved AI sessions on this device. Start a session to keep its history here.",
+                        appearance.ui_font_family(),
+                        appearance.ui_font_size(),
+                    )
+                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                    .finish(),
+                )
+                .finish()
+            }
             ViewState::NoFilterMatches => self.render_no_results_view(app),
             ViewState::HasTasks => self.render_default_scroll_view(app),
         };
@@ -2388,16 +2328,17 @@ impl TypedActionView for AgentManagementView {
             }
             AgentManagementViewAction::ShowAgentTypeSelector => {
                 send_telemetry_from_ctx!(
-                    AgentManagementTelemetryEvent::AgentTypeSelectorOpened,
+                    AgentManagementTelemetryEvent::SpawnNewLocalAgent,
                     ctx
                 );
-                self.is_agent_type_selector_open = true;
-                ctx.focus(&self.agent_type_selector);
-                ctx.notify();
+                ctx.dispatch_typed_action(&WorkspaceAction::NewTabInAgentMode {
+                    entrypoint: AgentModeEntrypoint::AgentManagementView,
+                    zero_state_prompt_suggestion_type: None,
+                });
             }
             AgentManagementViewAction::OpenSession { item_id } => {
-                let Some(action) = AgentConversationsModel::resolve_open_action(
-                    AgentConversationNavigationSubject::Entry(*item_id),
+                let Some(action) = AgentConversationsModel::resolve_local_open_action(
+                    *item_id,
                     Some(RestoreConversationLayout::NewTab),
                     ctx,
                 ) else {
