@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent};
@@ -35,7 +36,7 @@ use crate::ai::blocklist::{
 };
 use crate::ai::cloud_agent_settings::CloudAgentSettings;
 use crate::ai::execution_profiles::model_menu_items::{
-    available_model_menu_items, has_reasoning_variants, is_auto,
+    available_model_menu_items, has_reasoning_variants, is_auto, reasoning_choices_for_model,
 };
 use crate::ai::execution_profiles::profiles::{
     AIExecutionProfilesModel, AIExecutionProfilesModelEvent, ClientProfileId,
@@ -44,8 +45,8 @@ use crate::ai::harness_availability::{
     HarnessAvailabilityEvent, HarnessAvailabilityModel, HarnessModelInfo,
 };
 use crate::ai::llms::{
-    dedupe_model_display_names, is_using_api_key_for_provider, LLMId, LLMInfo, LLMPreferences,
-    LLMPreferencesEvent, LLMSpec,
+    dedupe_model_display_names, is_using_api_key_for_provider, DisableReason, LLMId, LLMInfo,
+    LLMPreferences, LLMPreferencesEvent, LLMSpec,
 };
 use crate::appearance::Appearance;
 use crate::cloud_object::model::generic_string_model::StringModel;
@@ -82,6 +83,9 @@ const PROFILE_SELECTOR_POSITION_ID: &str = "profile_selector";
 
 const PROFILE_PICKER_TOOLTIP: &str = "Choose an AI execution profile";
 const MODEL_PICKER_TOOLTIP: &str = "Choose an agent model";
+const REASONING_PICKER_TOOLTIP: &str = "Choose a reasoning level";
+const REASONING_SELECTOR_POSITION_ID: &str = "profile_model_selector_reasoning_button";
+const REASONING_MENU_WIDTH: f32 = 220.;
 const MODEL_LOCKED_FOR_FOLLOWUP_TOOLTIP: &str = "Follow-ups use the original run's model";
 const MODEL_REQUIRES_EDIT_ACCESS_TOOLTIP: &str = "Request edit access to change model";
 const HARNESS_DEFAULT_MODEL_LABEL: &str = "default";
@@ -167,12 +171,15 @@ pub struct ProfileModelSelector {
     model_compact_button: ViewHandle<ActionButton>,
     profile_dropdown: ViewHandle<Menu<ProfileModelSelectorAction>>,
     model_dropdown: ViewHandle<Menu<ProfileModelSelectorAction>>,
+    reasoning_dropdown: ViewHandle<Menu<ProfileModelSelectorAction>>,
     model_spec_sidecar: ModelSpecSidecar,
     is_profile_menu_open: bool,
     is_model_menu_open: bool,
+    is_reasoning_menu_open: bool,
     terminal_view_id: EntityId,
     profile_mouse_state: MouseStateHandle,
     model_mouse_state: MouseStateHandle,
+    reasoning_mouse_state: MouseStateHandle,
     menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
     is_blurred: bool,
     new_model_popup: ViewHandle<FeaturePopup>,
@@ -196,6 +203,10 @@ pub enum ProfileModelSelectorAction {
     SelectModel(LLMId),
     SelectAutoModel,
     SelectReasoningModel(String),
+    SelectReasoningLevel {
+        id: LLMId,
+        cli: bool,
+    },
     SelectHarnessModel {
         model_id: String,
         reasoning_level: Option<String>,
@@ -203,6 +214,7 @@ pub enum ProfileModelSelectorAction {
     ManageProfiles,
     ToggleProfileMenu,
     ToggleModelMenu,
+    ToggleReasoningMenu,
 }
 
 /// Menu type for get_selected_llm_info lookups
@@ -223,6 +235,17 @@ struct ModelSpecSidecar {
     dropdown: ViewHandle<Menu<ProfileModelSelectorAction>>,
     hovered_info: Option<LLMInfo>,
     active_kind: Option<ModelSpecSidecarKind>,
+}
+
+struct ReasoningChoice {
+    label: String,
+    action: ProfileModelSelectorAction,
+    disable_reason: Option<DisableReason>,
+}
+
+struct ReasoningSelection {
+    action: ProfileModelSelectorAction,
+    choices: Vec<ReasoningChoice>,
 }
 
 impl ProfileModelSelectorAction {
@@ -333,6 +356,12 @@ impl ProfileModelSelector {
                 .with_drop_shadow()
         });
 
+        let reasoning_dropdown = ctx.add_typed_action_view(|_| {
+            Menu::new()
+                .prevent_interaction_with_other_elements()
+                .with_drop_shadow()
+        });
+
         let sidecar_dropdown = ctx.add_typed_action_view(|_ctx| Menu::new());
 
         let new_model_popup = ctx.add_typed_action_view(|_ctx| {
@@ -369,6 +398,12 @@ impl ProfileModelSelector {
         ctx.subscribe_to_view(&profile_dropdown, |me, _, event, ctx| {
             if let MenuEvent::Close { .. } = event {
                 me.set_profile_menu_visibility(false, ctx);
+            }
+        });
+
+        ctx.subscribe_to_view(&reasoning_dropdown, |me, _, event, ctx| {
+            if let MenuEvent::Close { .. } = event {
+                me.set_reasoning_menu_visibility(false, ctx);
             }
         });
 
@@ -495,6 +530,7 @@ impl ProfileModelSelector {
                     && event.terminal_surface_id() == Some(me.terminal_view_id)
                 {
                     me.is_model_menu_open = false;
+                    me.set_reasoning_menu_visibility(false, ctx);
                     ctx.notify();
                 }
             },
@@ -508,6 +544,7 @@ impl ProfileModelSelector {
             &ApiKeyManager::handle(ctx),
             |me, _model, _event: &ApiKeyManagerEvent, ctx| {
                 me.refresh_model_menu(ctx);
+                me.refresh_reasoning_menu(ctx);
                 ctx.notify();
             },
         );
@@ -576,6 +613,7 @@ impl ProfileModelSelector {
             model_compact_button,
             profile_dropdown,
             model_dropdown,
+            reasoning_dropdown,
             model_spec_sidecar: ModelSpecSidecar {
                 dropdown: sidecar_dropdown,
                 hovered_info: None,
@@ -583,9 +621,11 @@ impl ProfileModelSelector {
             },
             is_profile_menu_open: false,
             is_model_menu_open: false,
+            is_reasoning_menu_open: false,
             terminal_view_id,
             profile_mouse_state: Default::default(),
             model_mouse_state: Default::default(),
+            reasoning_mouse_state: Default::default(),
             menu_positioning_provider,
             is_blurred: false,
             new_model_popup,
@@ -607,6 +647,7 @@ impl ProfileModelSelector {
 
         self.is_profile_menu_open = is_open;
         self.is_model_menu_open = false;
+        self.is_reasoning_menu_open = false;
         if is_open {
             ctx.focus(&self.profile_dropdown);
         }
@@ -620,6 +661,7 @@ impl ProfileModelSelector {
         }
         self.is_model_menu_open = is_open;
         self.is_profile_menu_open = false;
+        self.is_reasoning_menu_open = false;
         if is_open {
             LLMPreferences::handle(ctx).update(ctx, |preferences, _| {
                 preferences.hide_llm_popup(self.terminal_view_id)
@@ -639,7 +681,21 @@ impl ProfileModelSelector {
     }
 
     pub fn is_open(&self) -> bool {
-        self.is_profile_menu_open || self.is_model_menu_open
+        self.is_profile_menu_open || self.is_model_menu_open || self.is_reasoning_menu_open
+    }
+
+    fn set_reasoning_menu_visibility(&mut self, is_open: bool, ctx: &mut ViewContext<Self>) {
+        if self.is_reasoning_menu_open == is_open {
+            return;
+        }
+        self.is_reasoning_menu_open = is_open;
+        self.is_profile_menu_open = false;
+        self.is_model_menu_open = false;
+        if is_open {
+            ctx.focus(&self.reasoning_dropdown);
+        }
+        ctx.emit(ProfileModelSelectorEvent::MenuVisibilityChanged { open: is_open });
+        ctx.notify();
     }
 
     pub fn model_menu_item_position_id(&self, llm_id: &LLMId) -> String {
@@ -680,9 +736,149 @@ impl ProfileModelSelector {
         })
     }
 
+    fn displays_cli_model(&self) -> bool {
+        FeatureFlag::InlineMenuHeaders.is_enabled()
+            && self
+                .terminal_model
+                .lock()
+                .block_list()
+                .active_block()
+                .is_agent_in_control_or_tagged_in()
+    }
+
+    fn has_model_edit_access(&self, app: &AppContext) -> bool {
+        let is_composing = self
+            .ambient_agent_view_model
+            .as_ref()
+            .is_some_and(|model| model.as_ref(app).is_configuring_ambient_agent());
+        let terminal = self.terminal_model.lock();
+        is_composing
+            || !terminal.shared_session_status().is_viewer()
+            || terminal.shared_session_status().is_executor()
+    }
+
+    fn reasoning_selection(&self, app: &AppContext) -> Option<ReasoningSelection> {
+        let (action, choices) = if self.is_third_party_harness(app) {
+            let selected = self.active_harness_model_info(app)?;
+            let harness = self
+                .ambient_agent_view_model
+                .as_ref()?
+                .as_ref(app)
+                .selected_harness();
+            let mut seen = HashSet::new();
+            let choices = HarnessAvailabilityModel::as_ref(app)
+                .models_for(harness)?
+                .iter()
+                .filter(|model| model.id == selected.id)
+                .filter(|model| seen.insert(model.reasoning_level.as_deref()))
+                .map(|model| ReasoningChoice {
+                    label: model
+                        .reasoning_level
+                        .clone()
+                        .unwrap_or_else(|| "Provider default".to_owned()),
+                    action: ProfileModelSelectorAction::SelectHarnessModel {
+                        model_id: model.id.clone(),
+                        reasoning_level: model.reasoning_level.clone(),
+                    },
+                    disable_reason: None,
+                })
+                .collect::<Vec<_>>();
+            (
+                ProfileModelSelectorAction::SelectHarnessModel {
+                    model_id: selected.id.clone(),
+                    reasoning_level: selected.reasoning_level.clone(),
+                },
+                choices,
+            )
+        } else {
+            let preferences = LLMPreferences::as_ref(app);
+            let cli = self.displays_cli_model();
+            let (selected, choices) = if cli {
+                (
+                    preferences.get_active_cli_agent_model(app, Some(self.terminal_view_id)),
+                    preferences
+                        .get_cli_agent_llm_choices(app)
+                        .collect::<Vec<_>>(),
+                )
+            } else {
+                (
+                    preferences.get_active_base_model(app, Some(self.terminal_view_id)),
+                    preferences
+                        .get_base_llm_choices_for_agent_mode(app)
+                        .collect::<Vec<_>>(),
+                )
+            };
+            let choices = reasoning_choices_for_model(&selected.id, &choices)
+                .into_iter()
+                .map(|model| ReasoningChoice {
+                    label: model
+                        .reasoning_level
+                        .clone()
+                        .unwrap_or_else(|| "Provider default".to_owned()),
+                    action: ProfileModelSelectorAction::SelectReasoningLevel {
+                        id: model.id.clone(),
+                        cli,
+                    },
+                    disable_reason: model.disable_reason.clone(),
+                })
+                .collect::<Vec<_>>();
+            (
+                ProfileModelSelectorAction::SelectReasoningLevel {
+                    id: selected.id.clone(),
+                    cli,
+                },
+                choices,
+            )
+        };
+        (choices.len() > 1).then_some(ReasoningSelection { action, choices })
+    }
+
+    fn refresh_reasoning_menu(&mut self, ctx: &mut ViewContext<Self>) {
+        let selection = self.reasoning_selection(ctx);
+        if selection.is_none() {
+            self.set_reasoning_menu_visibility(false, ctx);
+        }
+        self.reasoning_dropdown.update(ctx, |menu, ctx| {
+            let mut items = Vec::new();
+            if let Some(selection) = selection {
+                for choice in selection.choices {
+                    let mut fields = MenuItemFields::new(choice.label)
+                        .with_disabled(choice.disable_reason.is_some())
+                        .with_on_select_action(choice.action.clone());
+                    if choice.action == selection.action {
+                        fields = fields.with_icon(Icon::Check);
+                    } else {
+                        fields = fields.with_indent();
+                    }
+                    if let Some(reason) = choice.disable_reason {
+                        fields = fields.with_tooltip(reason.tooltip_text());
+                    }
+                    items.push(fields.into_item());
+                }
+                menu.set_width(REASONING_MENU_WIDTH);
+                menu.set_items(items, ctx);
+                menu.set_selected_by_action(&selection.action, ctx);
+            } else {
+                menu.set_items(items, ctx);
+            }
+        });
+    }
+
+    fn can_select_reasoning(&self, action: &ProfileModelSelectorAction, app: &AppContext) -> bool {
+        !self.is_model_locked(app)
+            && self.has_model_edit_access(app)
+            && self.reasoning_selection(app).is_some_and(|selection| {
+                selection
+                    .choices
+                    .iter()
+                    .any(|choice| &choice.action == action && choice.disable_reason.is_none())
+            })
+    }
+
     fn refresh_state(&mut self, ctx: &mut ViewContext<Self>) {
         self.refresh_profile_menu(ctx);
         self.refresh_model_menu(ctx);
+        self.refresh_reasoning_menu(ctx);
 
         let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
         if profiles_model.has_multiple_profiles() {
@@ -1611,7 +1807,7 @@ impl ProfileModelSelector {
         .finish()
     }
 
-    fn render_model_section(&self, app: &AppContext) -> Box<dyn Element> {
+    fn render_model_section(&self, show_reasoning: bool, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
         let llm_preferences = LLMPreferences::as_ref(app);
@@ -1639,14 +1835,17 @@ impl ProfileModelSelector {
 
         let model_display_name = if self.is_third_party_harness(app) {
             self.harness_model_display_name(app)
-        } else if is_lrc {
-            llm_preferences
-                .get_active_cli_agent_model(app, Some(self.terminal_view_id))
-                .menu_display_name()
         } else {
-            llm_preferences
-                .get_active_base_model(app, Some(self.terminal_view_id))
-                .menu_display_name()
+            let model = if is_lrc {
+                llm_preferences.get_active_cli_agent_model(app, Some(self.terminal_view_id))
+            } else {
+                llm_preferences.get_active_base_model(app, Some(self.terminal_view_id))
+            };
+            if show_reasoning {
+                model.label_with_provider(model.base_model_name())
+            } else {
+                model.menu_display_name()
+            }
         };
 
         let text_color = if self.is_blurred {
@@ -1728,9 +1927,11 @@ impl ProfileModelSelector {
             if state.is_hovered() && can_interact {
                 let button_with_hover = Container::new(button_with_save_position)
                     .with_background(theme.surface_2())
-                    .with_corner_radius(CornerRadius::with_right(Radius::Pixels(
-                        INNER_CORNER_RADIUS,
-                    )))
+                    .with_corner_radius(if show_reasoning {
+                        CornerRadius::with_all(Radius::Pixels(0.))
+                    } else {
+                        CornerRadius::with_right(Radius::Pixels(INNER_CORNER_RADIUS))
+                    })
                     .finish();
 
                 let tooltip = appearance
@@ -1792,6 +1993,137 @@ impl ProfileModelSelector {
         }
     }
 
+    fn render_reasoning_section(&self, level: &str, app: &AppContext) -> Box<dyn Element> {
+        let appearance = Appearance::as_ref(app);
+        let theme = appearance.theme();
+        let text_color = if self.is_blurred {
+            theme.disabled_text_color(theme.surface_1()).into()
+        } else {
+            theme.sub_text_color(theme.surface_1()).into()
+        };
+        let font_size = calculate_scaled_font_size(appearance);
+        let (vertical_padding, horizontal_padding) = self.get_padding_values(font_size);
+        let label = if self.render_compact {
+            level.to_owned()
+        } else {
+            format!("Reasoning: {level}")
+        };
+        let text = Text::new_inline(label, appearance.ui_font_family(), font_size)
+            .with_color(text_color)
+            .with_line_height_ratio(appearance.line_height_ratio())
+            .finish();
+        let mut row = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(text);
+        let can_interact = !self.is_model_locked(app) && self.has_model_edit_access(app);
+        if can_interact {
+            let icon_size = if FeatureFlag::AgentView.is_enabled() {
+                udi_icon_size(appearance, app)
+            } else {
+                appearance.monospace_font_size() - 1.0
+            };
+            row.add_child(
+                Container::new(
+                    ConstrainedBox::new(
+                        Icon::ChevronDown
+                            .to_galaxyui_icon(Fill::Solid(text_color))
+                            .finish(),
+                    )
+                    .with_width(icon_size)
+                    .with_height(icon_size)
+                    .finish(),
+                )
+                .with_margin_left(ICON_SPACING)
+                .finish(),
+            );
+        }
+        let button = SavePosition::new(
+            Container::new(row.finish())
+                .with_vertical_padding(vertical_padding)
+                .with_horizontal_padding(horizontal_padding)
+                .finish(),
+            REASONING_SELECTOR_POSITION_ID,
+        )
+        .finish();
+        let hoverable = Hoverable::new(self.reasoning_mouse_state.clone(), move |state| {
+            if !state.is_hovered() {
+                return button;
+            }
+            let tooltip = if can_interact {
+                Some(REASONING_PICKER_TOOLTIP)
+            } else if self.is_locked_for_cloud_followup(app) {
+                Some(MODEL_LOCKED_FOR_FOLLOWUP_TOOLTIP)
+            } else if self.is_locked_for_non_oz_run(app) {
+                None
+            } else {
+                Some(MODEL_REQUIRES_EDIT_ACCESS_TOOLTIP)
+            };
+            let button = if can_interact {
+                Container::new(button)
+                    .with_background(theme.surface_2())
+                    .with_corner_radius(if self.render_compact {
+                        CornerRadius::with_all(Radius::Pixels(INNER_CORNER_RADIUS))
+                    } else {
+                        CornerRadius::with_right(Radius::Pixels(INNER_CORNER_RADIUS))
+                    })
+                    .finish()
+            } else {
+                button
+            };
+            let mut stack = Stack::new();
+            stack.add_child(button);
+            if let Some(tooltip) = tooltip {
+                stack.add_positioned_overlay_child(
+                    appearance
+                        .ui_builder()
+                        .tool_tip(tooltip.to_owned())
+                        .build()
+                        .finish(),
+                    OffsetPositioning::offset_from_parent(
+                        vec2f(0., -10.),
+                        ParentOffsetBounds::WindowByPosition,
+                        ParentAnchor::TopLeft,
+                        ChildAnchor::BottomLeft,
+                    ),
+                );
+            }
+            stack.finish()
+        });
+        if can_interact {
+            hoverable
+                .on_click(|ctx, _, _| {
+                    ctx.dispatch_typed_action(ProfileModelSelectorAction::ToggleReasoningMenu);
+                })
+                .with_cursor(Cursor::PointingHand)
+                .finish()
+        } else {
+            hoverable.finish()
+        }
+    }
+
+    fn reasoning_menu_positioning(&self, app: &AppContext) -> OffsetPositioning {
+        let (offset, anchor, child_anchor) = match self.menu_positioning_provider.menu_position(app)
+        {
+            MenuPositioning::BelowInputBox => (
+                4.,
+                PositionedElementAnchor::BottomLeft,
+                ChildAnchor::TopLeft,
+            ),
+            MenuPositioning::AboveInputBox => (
+                -4.,
+                PositionedElementAnchor::TopLeft,
+                ChildAnchor::BottomLeft,
+            ),
+        };
+        OffsetPositioning::offset_from_save_position_element(
+            REASONING_SELECTOR_POSITION_ID,
+            vec2f(0., offset),
+            PositionedElementOffsetBounds::WindowByPosition,
+            anchor,
+            child_anchor,
+        )
+    }
+
     fn render_separator(&self, app: &AppContext, visible: bool) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
@@ -1842,6 +2174,27 @@ impl TypedActionView for ProfileModelSelector {
                     preferences.update_preferred_agent_mode_llm(llm_id, self.terminal_view_id, ctx);
                 });
                 self.set_model_menu_visibility(false, ctx);
+                self.set_reasoning_menu_visibility(false, ctx);
+            }
+            ProfileModelSelectorAction::SelectReasoningLevel { id, cli } => {
+                if !self.can_select_reasoning(action, ctx) {
+                    self.set_reasoning_menu_visibility(false, ctx);
+                    return;
+                }
+                if *cli {
+                    let profile_id = *AIExecutionProfilesModel::as_ref(ctx)
+                        .active_profile(Some(self.terminal_view_id), ctx)
+                        .id();
+                    AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
+                        profiles.set_cli_agent_model(profile_id, Some(id.clone()), ctx);
+                    });
+                } else {
+                    LLMPreferences::handle(ctx).update(ctx, |preferences, ctx| {
+                        preferences.update_preferred_agent_mode_llm(id, self.terminal_view_id, ctx);
+                    });
+                }
+                self.set_reasoning_menu_visibility(false, ctx);
+                self.refresh_state(ctx);
             }
             ProfileModelSelectorAction::SelectAutoModel
             | ProfileModelSelectorAction::SelectReasoningModel(_) => {
@@ -1851,6 +2204,13 @@ impl TypedActionView for ProfileModelSelector {
                 model_id,
                 reasoning_level,
             } => {
+                if self.is_model_locked(ctx)
+                    || !self.has_model_edit_access(ctx)
+                    || (self.is_reasoning_menu_open && !self.can_select_reasoning(action, ctx))
+                {
+                    self.set_reasoning_menu_visibility(false, ctx);
+                    return;
+                }
                 let is_default = model_id.is_empty();
                 if let Some(ambient_agent_model) = self.ambient_agent_view_model.clone() {
                     ambient_agent_model.update(ctx, |model, ctx| {
@@ -1875,6 +2235,7 @@ impl TypedActionView for ProfileModelSelector {
                     });
                 }
                 self.set_model_menu_visibility(false, ctx);
+                self.set_reasoning_menu_visibility(false, ctx);
             }
             ProfileModelSelectorAction::ManageProfiles => {
                 self.set_profile_menu_visibility(false, ctx);
@@ -1889,12 +2250,22 @@ impl TypedActionView for ProfileModelSelector {
                 if self.is_model_locked(ctx) {
                     return;
                 }
+                self.set_reasoning_menu_visibility(false, ctx);
                 if self.is_third_party_harness(ctx) {
                     self.set_model_menu_visibility(!self.is_model_menu_open, ctx);
                 } else if FeatureFlag::InlineMenuHeaders.is_enabled() {
                     ctx.emit(ProfileModelSelectorEvent::ToggleInlineModelSelector);
                 } else {
                     self.set_model_menu_visibility(!self.is_model_menu_open, ctx);
+                }
+            }
+            ProfileModelSelectorAction::ToggleReasoningMenu => {
+                if self.is_model_locked(ctx) || !self.has_model_edit_access(ctx) {
+                    return;
+                }
+                self.refresh_reasoning_menu(ctx);
+                if self.reasoning_selection(ctx).is_some() {
+                    self.set_reasoning_menu_visibility(!self.is_reasoning_menu_open, ctx);
                 }
             }
         }
@@ -1911,6 +2282,14 @@ impl View for ProfileModelSelector {
         let theme = appearance.theme();
         let profiles_model = AIExecutionProfilesModel::as_ref(app);
         let has_multiple_profiles = profiles_model.has_multiple_profiles();
+        let reasoning = self.reasoning_selection(app);
+        let reasoning_label = reasoning.as_ref().and_then(|selection| {
+            selection
+                .choices
+                .iter()
+                .find(|choice| choice.action == selection.action)
+                .map(|choice| choice.label.as_str())
+        });
 
         // Check if user is a viewer in a shared session
         let is_viewer = self
@@ -1940,6 +2319,9 @@ impl View for ProfileModelSelector {
         )
         .finish();
         compact_row.add_child(model_button_with_save_position);
+        if let Some(level) = reasoning_label {
+            compact_row.add_child(self.render_reasoning_section(level, app));
+        }
 
         let compact_layout = compact_row.finish();
 
@@ -1957,7 +2339,14 @@ impl View for ProfileModelSelector {
             chip_content.add_child(self.render_profile_section(app));
             chip_content.add_child(self.render_separator(app, show_separator));
         }
-        chip_content.add_child(self.render_model_section(app));
+        chip_content.add_child(self.render_model_section(reasoning_label.is_some(), app));
+        if let Some(level) = reasoning_label {
+            let model_hovered = self.model_mouse_state.lock().unwrap().is_hovered();
+            let reasoning_hovered = self.reasoning_mouse_state.lock().unwrap().is_hovered();
+            chip_content
+                .add_child(self.render_separator(app, !(model_hovered || reasoning_hovered)));
+            chip_content.add_child(self.render_reasoning_section(level, app));
+        }
 
         let unified_chip = Container::new(
             Container::new(chip_content.finish())
@@ -1989,6 +2378,20 @@ impl View for ProfileModelSelector {
             let model_menu = ChildView::new(&self.model_dropdown).finish();
             let positioning = self.get_menu_positioning(app, false);
             stack.add_positioned_overlay_child(model_menu, positioning);
+        }
+
+        if self.is_reasoning_menu_open {
+            // Keep an open menu dismissible if the active block changes model
+            // roles and the new model no longer exposes reasoning choices.
+            let positioning = if reasoning_label.is_some() {
+                self.reasoning_menu_positioning(app)
+            } else {
+                self.get_menu_positioning(app, false)
+            };
+            stack.add_positioned_overlay_child(
+                ChildView::new(&self.reasoning_dropdown).finish(),
+                positioning,
+            );
         }
 
         let is_udi_enabled =
