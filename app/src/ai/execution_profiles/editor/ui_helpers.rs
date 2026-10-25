@@ -12,7 +12,7 @@ use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::ui_components::text::Span;
 use warpui::{AppContext, Element, SingletonEntity, ViewHandle};
 
-use super::{ExecutionProfileEditorView, ExecutionProfileEditorViewAction};
+use super::{ExecutionProfileEditorView, ExecutionProfileEditorViewAction, ProfileModelRole};
 use crate::ai::blocklist::BlocklistAIPermissions;
 use crate::ai::execution_profiles::{
     long_context_pricing_warning_title, AIExecutionProfile, AIExecutionProfileAppExt as _,
@@ -247,6 +247,29 @@ fn render_permission_row<T: DropdownItemAction>(
         .finish()
 }
 
+fn render_reasoning_dropdown_row(
+    appearance: &Appearance,
+    dropdown: &ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
+) -> Box<dyn Element> {
+    Container::new(
+        Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(
+                Container::new(
+                    Text::new("Reasoning level", appearance.ui_font_family(), 12.)
+                        .with_color(appearance.theme().active_ui_text_color().into())
+                        .finish(),
+                )
+                .with_margin_right(12.)
+                .finish(),
+            )
+            .with_child(ChildView::new(dropdown).finish())
+            .finish(),
+    )
+    .with_margin_bottom(16.)
+    .finish()
+}
+
 pub fn render_models_section(
     appearance: &Appearance,
     view: &ExecutionProfileEditorView,
@@ -262,6 +285,10 @@ pub fn render_models_section(
             &view.base_model_dropdown,
         ));
 
+    if view.reasoning_roles.contains(&ProfileModelRole::Base) {
+        column.add_child(render_reasoning_dropdown_row(appearance, &view.base_reasoning_dropdown));
+    }
+
     if let Some(row) = render_context_window_row(appearance, view, app) {
         column.add_child(row);
     }
@@ -273,6 +300,10 @@ pub fn render_models_section(
         &view.full_terminal_use_model_dropdown,
     ));
 
+    if view.reasoning_roles.contains(&ProfileModelRole::FullTerminalUse) {
+        column.add_child(render_reasoning_dropdown_row(appearance, &view.full_terminal_reasoning_dropdown));
+    }
+
     if FeatureFlag::LocalComputerUse.is_enabled() {
         column.add_child(render_filterable_dropdown_row(
             appearance,
@@ -280,6 +311,9 @@ pub fn render_models_section(
             "The model used when the agent takes control of your computer to interact with graphical applications through mouse movements, clicks, and keyboard input.",
             &view.computer_use_model_dropdown,
         ));
+        if view.reasoning_roles.contains(&ProfileModelRole::ComputerUse) {
+            column.add_child(render_reasoning_dropdown_row(appearance, &view.computer_use_reasoning_dropdown));
+        }
     }
 
     Container::new(column.finish())

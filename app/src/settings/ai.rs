@@ -904,7 +904,7 @@ pub struct OpenAIModelConfig {
     pub capability_overrides: HashMap<String, ModelCapabilityOverride>,
     #[serde(default)]
     #[schemars(
-        description = "Reasoning effort modes supported by this model when using the ChatGPT subscription provider."
+        description = "Discrete reasoning effort modes explicitly supported by this model and provider."
     )]
     pub reasoning_efforts: Vec<String>,
     #[serde(default = "default_enabled")]

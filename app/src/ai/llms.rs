@@ -386,6 +386,8 @@ pub struct AvailableLLMs {
     /// The Warp "default" LLM.
     default_id: LLMId,
     choices: Vec<LLMInfo>,
+    #[serde(skip)]
+    legacy_reasoning_aliases: HashMap<LLMId, LLMId>,
 
     #[serde(default)]
     preferred_codex_model_id: Option<LLMId>,
@@ -423,12 +425,16 @@ impl AvailableLLMs {
         Ok(Self {
             default_id,
             choices: choices.into_iter().collect(),
+            legacy_reasoning_aliases: HashMap::new(),
             preferred_codex_model_id,
         })
     }
 
     fn info_for_id(&self, id: &LLMId) -> Option<&LLMInfo> {
-        self.choices.iter().find(|info| info.id == *id)
+        self.choices.iter().find(|info| info.id == *id).or_else(|| {
+            let resolved = self.legacy_reasoning_aliases.get(id)?;
+            self.choices.iter().find(|info| info.id == *resolved)
+        })
     }
 
     /// Returns the info for the given id only if the model is usable (present
@@ -516,6 +522,7 @@ impl ModelsByFeature {
 /// Used both in `ModelsByFeature::default()` and as a fallback in `get_computer_use_available()`.
 fn default_computer_use_llms() -> AvailableLLMs {
     AvailableLLMs {
+        legacy_reasoning_aliases: HashMap::new(),
         default_id: "computer-use-agent-auto".to_owned().into(),
         choices: vec![LLMInfo {
             display_name: "auto".to_owned(),
@@ -546,6 +553,7 @@ impl Default for ModelsByFeature {
     /// `inject_bedrock_models` once real models are loaded.
     fn default() -> Self {
         let placeholder = || AvailableLLMs {
+            legacy_reasoning_aliases: HashMap::new(),
             default_id: "placeholder".to_owned().into(),
             choices: vec![LLMInfo {
                 display_name: "No models configured".to_owned(),
@@ -1131,6 +1139,11 @@ impl LLMPreferences {
             cli.choices.retain(|m| m.provider != LLMProvider::LiteLLM);
         }
         self.openai_provider_routing.clear();
+        self.models_by_feature.agent_mode.legacy_reasoning_aliases.clear();
+        self.models_by_feature.coding.legacy_reasoning_aliases.clear();
+        if let Some(cli) = &mut self.models_by_feature.cli_agent {
+            cli.legacy_reasoning_aliases.clear();
+        }
 
         let settings = AISettings::as_ref(ctx);
         self.inject_acp_models(ctx);
@@ -1241,6 +1254,8 @@ impl LLMPreferences {
 
         let mut total_injected = 0;
         let mut seen_model_ids: HashSet<String> = HashSet::new();
+        let mut legacy_reserved_model_ids = HashSet::new();
+        let mut legacy_reasoning_aliases = HashMap::new();
         let mut seen_connections = HashSet::new();
         for (
             provider_name,
@@ -1263,31 +1278,33 @@ impl LLMPreferences {
                     continue;
                 }
 
-                let reasoning_efforts: Vec<Option<&String>> =
-                    if provider_kind == OpenAIProviderKind::ChatGPTSubscription {
-                        // Keep the base model as the provider-default mode, then expose each
-                        // explicitly supported effort as a separate selectable variant.
-                        std::iter::once(None)
-                            .chain(model.reasoning_efforts.iter().map(Some))
-                            .collect()
-                    } else {
-                        vec![None]
-                    };
+                // All providers may advertise discrete effort choices. Keep the
+                // default model key stable and route explicit choices separately.
+                let reasoning_efforts = std::iter::once(None)
+                    .chain(model.reasoning_efforts.iter().map(Some));
 
+                // Choose a namespace once for the whole family. Otherwise a
+                // colliding base with unique efforts would split one connection
+                // into multiple groups in the model/reasoning selectors.
+                let connection_suffix = if seen_model_ids.contains(&model.model_id) {
+                    use sha2::{Digest, Sha256};
+                    Some(format!("{:x}", Sha256::digest(connection_identity.as_bytes())))
+                } else {
+                    None
+                };
                 for reasoning_effort in reasoning_efforts {
                     let reasoning_effort = reasoning_effort.cloned();
                     let mut model_key = reasoning_effort.as_deref().map_or_else(
                         || model.model_id.clone(),
                         |effort| openai_model_variant_id(&model.model_id, effort),
                     );
+                    let legacy_key = model_key.clone();
+                    let legacy_unclaimed = legacy_reserved_model_ids.insert(legacy_key.clone());
+                    if let Some(suffix) = &connection_suffix {
+                        model_key = format!("{model_key}::connection::{suffix}");
+                    }
                     if !seen_model_ids.insert(model_key.clone()) {
-                        use sha2::{Digest, Sha256};
-                        let connection_hash =
-                            format!("{:x}", Sha256::digest(connection_identity.as_bytes()));
-                        model_key = format!("{model_key}::connection::{connection_hash}");
-                        if !seen_model_ids.insert(model_key.clone()) {
-                            continue;
-                        }
+                        continue;
                     }
                     // Disabled entries still reserve their selection keys so
                     // toggling a connection cannot silently reroute another
@@ -1296,6 +1313,9 @@ impl LLMPreferences {
                         continue;
                     }
 
+                    if legacy_unclaimed && reasoning_effort.is_some() && legacy_key != model_key {
+                        legacy_reasoning_aliases.insert(LLMId::from(legacy_key), LLMId::from(model_key.clone()));
+                    }
                     // Register the routing entry. Reasoning variants keep the provider's
                     // actual model ID while using their synthetic key only for selection.
                     let client_config = OpenAIClientConfig {
@@ -1354,6 +1374,18 @@ impl LLMPreferences {
             }
         }
 
+        // An exact key, including one reserved by a disabled model, always wins.
+        legacy_reasoning_aliases.retain(|legacy_id, _| !seen_model_ids.contains(legacy_id.as_str()));
+        for (legacy_id, canonical_id) in &legacy_reasoning_aliases {
+            if let Some(config) = self.openai_provider_routing.get(canonical_id.as_str()).cloned() {
+                self.openai_provider_routing.entry(legacy_id.to_string()).or_insert(config);
+            }
+        }
+        self.models_by_feature.agent_mode.legacy_reasoning_aliases = legacy_reasoning_aliases.clone();
+        self.models_by_feature.coding.legacy_reasoning_aliases = legacy_reasoning_aliases.clone();
+        if let Some(cli) = &mut self.models_by_feature.cli_agent {
+            cli.legacy_reasoning_aliases = legacy_reasoning_aliases;
+        }
         log::info!("[openai/litellm] Injected {total_injected} model(s) into available choices");
     }
 
@@ -1998,7 +2030,7 @@ impl LLMPreferences {
                 provider: None,
                 supports_system_messages: Some(true),
                 capability_overrides: std::collections::HashMap::new(),
-                reasoning_efforts: Vec::new(),
+                reasoning_efforts: model.reasoning_efforts,
                 enabled: true,
             })
             .collect()
@@ -2974,6 +3006,36 @@ fn u32_from_json_any(value: &serde_json::Value, keys: &[&str]) -> Option<u32> {
         .and_then(|value| u32::try_from(value).ok())
 }
 
+/// Read enumerated effort support, never infer choices from model names or a
+/// generic supports_reasoning flag. Explicit lists take precedence over flags.
+#[cfg(not(target_family = "wasm"))]
+fn advertised_reasoning_efforts(value: &serde_json::Value) -> Vec<String> {
+    for key in [
+        "reasoning_effort_levels",
+        "supported_reasoning_efforts",
+        "reasoning_efforts",
+        "supported_reasoning_levels",
+    ] {
+        if let Some(levels) = value[key].as_array() {
+            let mut result = Vec::new();
+            for level in levels {
+                if let Some(effort) = level.as_str().or_else(|| level["effort"].as_str()) {
+                    let effort = effort.trim();
+                    if !effort.is_empty() && !result.iter().any(|entry| entry == effort) {
+                        result.push(effort.to_string());
+                    }
+                }
+            }
+            return result;
+        }
+    }
+    ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
+        .into_iter()
+        .filter(|level| value[format!("supports_{level}_reasoning_effort")].as_bool() == Some(true))
+        .map(str::to_string)
+        .collect()
+}
+
 #[cfg(not(target_family = "wasm"))]
 fn normalize_codex_release_version(version: &str) -> Option<String> {
     let version = version.trim();
@@ -3125,17 +3187,7 @@ fn chatgpt_models_from_codex_response(body: &serde_json::Value) -> Vec<OpenAIMod
                         .any(|modality| modality.as_str() == Some("image"))
                 })
                 .unwrap_or(true);
-            let reasoning_efforts = model["supported_reasoning_levels"]
-                .as_array()
-                .map(|levels| {
-                    levels
-                        .iter()
-                        .filter_map(|level| level["effort"].as_str())
-                        .filter(|effort| !effort.trim().is_empty())
-                        .map(str::to_string)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
+            let reasoning_efforts = advertised_reasoning_efforts(model);
 
             Some(OpenAIModelConfig {
                 model_id: model_id.to_string(),
@@ -3283,7 +3335,7 @@ async fn fetch_from_litellm_model_info(
                     model_info["supports_system_messages"].as_bool()
                 },
                 capability_overrides: std::collections::HashMap::new(),
-                reasoning_efforts: Vec::new(),
+                reasoning_efforts: advertised_reasoning_efforts(model_info),
                 enabled: true,
             })
         })
@@ -3322,6 +3374,12 @@ async fn fetch_litellm_catalog(
                 .iter()
                 .find(|info| info.model_id == model.model_id)
                 .cloned()
+                .map(|mut info| {
+                    if info.reasoning_efforts.is_empty() {
+                        info.reasoning_efforts = model.reasoning_efforts.clone();
+                    }
+                    info
+                })
                 .unwrap_or(model)
         })
         .collect())
@@ -3442,7 +3500,7 @@ async fn fetch_from_openai_models(
                     m["supports_system_messages"].as_bool()
                 },
                 capability_overrides: std::collections::HashMap::new(),
-                reasoning_efforts: Vec::new(),
+                reasoning_efforts: advertised_reasoning_efforts(m),
                 enabled: true,
             })
         })

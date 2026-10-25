@@ -23,9 +23,15 @@ pub struct OpenAICompatibleRuntimeConfig {
 pub struct OpenAICompatibleRuntime {
     config: OpenAICompatibleRuntimeConfig,
     descriptor: RuntimeDescriptor,
+    reasoning_effort: Option<String>,
 }
 
 impl OpenAICompatibleRuntime {
+    pub fn with_reasoning_effort(mut self, effort: Option<String>) -> Self {
+        self.reasoning_effort = effort;
+        self
+    }
+
     pub fn new(config: OpenAICompatibleRuntimeConfig) -> Self {
         let descriptor = RuntimeDescriptor {
             id: format!("rig-openai-compatible:{}", config.model),
@@ -33,7 +39,11 @@ impl OpenAICompatibleRuntime {
             kind: RuntimeKind::Provider,
             capabilities: RuntimeCapabilities::provider(),
         };
-        Self { config, descriptor }
+        Self {
+            config,
+            descriptor,
+            reasoning_effort: None,
+        }
     }
 }
 
@@ -62,6 +72,7 @@ impl AgentRuntime for OpenAICompatibleRuntime {
             control,
             self.config.max_output_tokens,
             self.config.supports_system_messages,
+            self.reasoning_effort.as_deref(),
         )
         .await
     }
@@ -73,6 +84,7 @@ async fn start_model_turn<M>(
     control: TurnControl,
     configured_max_output_tokens: Option<u64>,
     supports_system_messages: bool,
+    reasoning_effort: Option<&str>,
 ) -> Result<AgentEventStream, AgentError>
 where
     M: CompletionModel + Send + Sync + 'static,
@@ -82,6 +94,7 @@ where
         request,
         configured_max_output_tokens,
         supports_system_messages,
+        reasoning_effort,
     )?;
     start_provider_model_turn(model, completion_request, control, max_output_tokens).await
 }
@@ -90,15 +103,18 @@ fn build_completion_request(
     request: TurnRequest,
     configured_max_output_tokens: Option<u64>,
     supports_system_messages: bool,
+    reasoning_effort: Option<&str>,
 ) -> Result<CompletionRequest, AgentError> {
+    let mut params = serde_json::json!({ "stream_options": { "include_usage": true } });
+    if let Some(effort) = reasoning_effort {
+        params["reasoning_effort"] = effort.into();
+    }
     build_provider_completion_request(
         request,
         configured_max_output_tokens,
         supports_system_messages,
         true,
-        Some(serde_json::json!({
-            "stream_options": { "include_usage": true }
-        })),
+        Some(params),
     )
 }
 

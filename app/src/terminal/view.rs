@@ -2742,6 +2742,7 @@ pub struct TerminalView {
     pending_user_query_kind: Option<PendingUserQueryKind>,
     queued_prompt_callback: Option<ConversationFinishedCallback>,
     last_observed_conversation_status: HashMap<AIConversationId, ConversationStatus>,
+    last_desktop_notification_status: HashMap<AIConversationId, ConversationStatus>,
     last_observed_active_subagent: HashMap<AIConversationId, bool>,
     usage_footer_view_ids: HashMap<EntityId, EntityId>,
 
@@ -4415,6 +4416,7 @@ impl TerminalView {
             pending_user_query_kind: None,
             queued_prompt_callback: None,
             last_observed_conversation_status: Default::default(),
+            last_desktop_notification_status: Default::default(),
             last_observed_active_subagent: Default::default(),
             usage_footer_view_ids: Default::default(),
             block_onboarding_active: false,
@@ -6466,6 +6468,9 @@ impl TerminalView {
                         ConversationStatusUpdate::Restored => None,
                     });
 
+                if !new_status.should_trigger_notification() {
+                    self.last_desktop_notification_status.remove(conversation_id);
+                }
                 // Don't send notifications or insert ambient agent session ended tombstone
                 // if we're restoring this conversation on startup.
                 if matches!(update, ConversationStatusUpdate::Restored) {
@@ -6579,6 +6584,7 @@ impl TerminalView {
                 // The singleton's own history subscriber drops queue state for cleared
                 // conversations, so no `clear_all` call is needed here.
                 self.last_observed_conversation_status.clear();
+                self.last_desktop_notification_status.clear();
                 self.last_observed_active_subagent.clear();
                 if let Some(active_conversation_id) = active_conversation_id {
                     self.ai_controller.update(ctx, |controller, ctx| {
@@ -6645,6 +6651,7 @@ impl TerminalView {
                 // needed here.
                 self.last_observed_conversation_status
                     .remove(conversation_id);
+                self.last_desktop_notification_status.remove(conversation_id);
                 self.last_observed_active_subagent.remove(conversation_id);
             }
             BlocklistAIHistoryEvent::CreatedSubtask {
@@ -13719,6 +13726,11 @@ impl TerminalView {
         // Desktop notifications — only when navigated away and not in-progress.
         if !self.is_navigated_away_from_window(ctx)
             || matches!(status, CLIAgentSessionStatus::InProgress)
+            // Linked workers use conversation notifications, which suppress
+            // routine completions and retain actionable permission requests.
+            || self
+                .child_conversation_id_for_cli_status_updates(ctx)
+                .is_some()
         {
             return;
         }
@@ -16128,7 +16140,17 @@ impl TerminalView {
             return;
         };
         if conversation.is_entirely_passive()
-            || !conversation.status().should_trigger_notification()
+            || !conversation
+                .status()
+                .should_notify_for_agent(conversation.is_child_agent_conversation())
+            || self.last_desktop_notification_status.get(conversation_id)
+                == Some(conversation.status())
+        {
+            return;
+        }
+
+        if matches!(conversation.status(), ConversationStatus::Success)
+            && QueuedQueryModel::as_ref(ctx).has_autofireable_prompt(*conversation_id)
         {
             return;
         }
@@ -16142,6 +16164,8 @@ impl TerminalView {
         } else {
             NotificationsTrigger::AgentTaskCompleted(block_summary.success)
         };
+        self.last_desktop_notification_status
+            .insert(*conversation_id, conversation.status().clone());
         self.send_agent_desktop_notification_or_show_banner(
             trigger,
             block_summary.title,

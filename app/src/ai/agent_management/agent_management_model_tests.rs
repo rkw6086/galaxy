@@ -297,6 +297,36 @@ fn should_trigger_notification_returns_false_for_cancelled() {
     assert!(!ConversationStatus::Cancelled.should_trigger_notification());
 }
 
+#[test]
+fn worker_results_do_not_interrupt_the_orchestrator() {
+    for status in [ConversationStatus::Success, ConversationStatus::Error] {
+        assert!(!status.should_notify_for_agent(true));
+        assert!(status.should_notify_for_agent(false));
+    }
+}
+
+#[test]
+fn worker_permission_requests_still_notify() {
+    let status = ConversationStatus::Blocked {
+        blocked_action: "Approve deployment".to_owned(),
+    };
+    assert!(status.should_notify_for_agent(true));
+    assert!(status.should_notify_for_agent(false));
+}
+
+#[test]
+fn running_recovering_and_cancelled_agents_do_not_notify() {
+    for status in [
+        ConversationStatus::InProgress,
+        ConversationStatus::TransientError,
+        ConversationStatus::WaitingForEvents,
+        ConversationStatus::Cancelled,
+    ] {
+        assert!(!status.should_notify_for_agent(true));
+        assert!(!status.should_notify_for_agent(false));
+    }
+}
+
 // Mailbox suppression for non-terminal status updates. In App::test the
 // `is_conversation_open` gate always returns false, so the
 // WaitingForEvents and InProgress arms both clear stale notifications

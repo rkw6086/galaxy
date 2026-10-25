@@ -21,6 +21,7 @@ pub struct OpenAIClientConfig {
 }
 
 pub struct OpenAIClient {
+    reasoning_effort: Option<String>,
     http: reqwest::Client,
     base_url: String,
     api_key: Option<String>,
@@ -54,6 +55,7 @@ impl OpenAIClient {
     pub fn from_config(config: OpenAIClientConfig) -> Self {
         let http = reqwest::Client::new();
         Self {
+            reasoning_effort: config.reasoning_effort,
             http,
             base_url: config.base_url,
             api_key: config.api_key,
@@ -62,9 +64,12 @@ impl OpenAIClient {
 
     pub async fn chat_completions_stream(
         &self,
-        request_body: serde_json::Value,
+        mut request_body: serde_json::Value,
     ) -> Result<impl Stream<Item = Result<Bytes, reqwest::Error>>, OpenAIError> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+        if let Some(effort) = &self.reasoning_effort {
+            request_body["reasoning_effort"] = effort.clone().into();
+        }
 
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));

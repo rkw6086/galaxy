@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use galaxy_core::ui::Icon;
@@ -21,15 +22,55 @@ pub fn is_auto(llm: &LLMInfo) -> bool {
         || llm.id.to_string().to_lowercase().contains("auto")
 }
 
-/// Returns true if the given model has other variants with different reasoning levels.
+/// Returns true when a model's configured connection advertises reasoning choices.
 pub fn has_reasoning_variants(llm: &LLMInfo, all_models: &[&LLMInfo]) -> bool {
-    if !llm.has_reasoning_level() {
-        return false;
+    all_models.iter().any(|other| {
+        other.reasoning_group_key() == llm.reasoning_group_key() && other.has_reasoning_level()
+    })
+}
+
+/// Keep one visible model entry per connection while preserving the selected
+/// reasoning variant as the entry's action. Unknown reasoning metadata stays unchanged.
+pub fn collapse_model_reasoning_choices<'a>(
+    choices: Vec<&'a LLMInfo>,
+    selected_id: Option<&LLMId>,
+) -> Vec<&'a LLMInfo> {
+    let mut groups = HashSet::new();
+    let mut result = Vec::new();
+    for model in &choices {
+        if !has_reasoning_variants(model, &choices) {
+            result.push(*model);
+            continue;
+        }
+        let key = model.reasoning_group_key();
+        if !groups.insert(key.clone()) {
+            continue;
+        }
+        let matching = || choices.iter().copied().filter(|other| other.reasoning_group_key() == key);
+        let representative = matching()
+            .find(|other| Some(&other.id) == selected_id)
+            .or_else(|| matching().find(|other| !other.has_reasoning_level()))
+            .unwrap_or(model);
+        result.push(representative);
     }
-    all_models
-        .iter()
-        .filter(|other| other.reasoning_group_key() == llm.reasoning_group_key() && other.id != llm.id)
-        .any(|other| other.has_reasoning_level())
+    result
+}
+
+/// Includes the provider-default entry only when that entry is actually available.
+pub fn reasoning_choices_for_model<'a>(
+    selected_id: &LLMId,
+    choices: &[&'a LLMInfo],
+) -> Vec<&'a LLMInfo> {
+    let Some(selected) = choices.iter().find(|model| &model.id == selected_id) else {
+        return Vec::new();
+    };
+    if !has_reasoning_variants(selected, choices) {
+        return Vec::new();
+    }
+    choices.iter().copied()
+        .filter(|model| model.reasoning_group_key() == selected.reasoning_group_key())
+        .unique_by(|model| model.reasoning_level.clone())
+        .collect()
 }
 
 fn with_cost_and_profile_info<A: Action + Clone>(

@@ -1012,12 +1012,13 @@ impl ProfileModelSelector {
 
         // Group reasoning variants by model and configured provider.
         // Use "auto" as the key for all auto models so they collapse together.
-        // Only group models that have reasoning levels - others stay separate.
+        // Include the provider-default entry in its reasoning group, while
+        // leaving models without advertised reasoning choices unchanged.
         let mut groups: IndexMap<String, Vec<&LLMInfo>> = IndexMap::new();
         for llm in &server_choices {
             let key = if is_auto(llm) {
                 "auto".to_string()
-            } else if llm.has_reasoning_level() {
+            } else if has_reasoning_variants(llm, &server_choices) {
                 llm.reasoning_group_key()
             } else {
                 llm.id.to_string()
@@ -1155,7 +1156,7 @@ impl ProfileModelSelector {
                         llm.display_name.clone()
                     };
 
-                    Self::make_sidecar_item(label, &llm.id, is_selected)
+                    Self::make_sidecar_item(label, llm, is_selected)
                 })
                 .collect(),
             ModelSpecSidecarKind::Reasoning => {
@@ -1186,11 +1187,13 @@ impl ProfileModelSelector {
         let items: Vec<MenuItem<ProfileModelSelectorAction>> = self
             .all_model_choices
             .iter()
-            .filter(|llm| llm.reasoning_group_key() == base_name && llm.has_reasoning_level())
+            .filter(|llm| llm.reasoning_group_key() == base_name)
             .map(|llm| {
                 let is_selected = llm.id == active_llm_id;
-                let label = llm.reasoning_level().unwrap_or_default();
-                Self::make_sidecar_item(label, &llm.id, is_selected)
+                let label = llm
+                    .reasoning_level()
+                    .unwrap_or_else(|| "Provider default".to_owned());
+                Self::make_sidecar_item(label, llm, is_selected)
             })
             .collect();
 
@@ -1208,12 +1211,18 @@ impl ProfileModelSelector {
 
     fn make_sidecar_item(
         label: String,
-        llm_id: &LLMId,
+        llm: &LLMInfo,
         is_selected: bool,
     ) -> MenuItem<ProfileModelSelectorAction> {
         let mut fields = MenuItemFields::new(label)
             .with_font_size_override(14.)
-            .with_on_select_action(ProfileModelSelectorAction::SelectModel(llm_id.clone()));
+            .with_on_select_action(ProfileModelSelectorAction::SelectModel(llm.id.clone()));
+
+        if let Some(reason) = &llm.disable_reason {
+            fields = fields
+                .with_disabled(true)
+                .with_tooltip(reason.tooltip_text());
+        }
 
         if is_selected {
             fields = fields.with_icon(Icon::Check);
@@ -1275,12 +1284,11 @@ impl ProfileModelSelector {
                             item.item_on_select_action(),
                             Some(ProfileModelSelectorAction::SelectAutoModel)
                         )
-                    } else if active_llm.has_reasoning_level() {
+                    } else if let Some(ProfileModelSelectorAction::SelectReasoningModel(name)) =
+                        item.item_on_select_action()
+                    {
                         // Match the selected model and its configured provider.
-                        matches!(
-                            item.item_on_select_action(),
-                            Some(ProfileModelSelectorAction::SelectReasoningModel(name)) if *name == active_llm.reasoning_group_key()
-                        )
+                        *name == active_llm.reasoning_group_key()
                     } else {
                         let item_model_id = item
                             .item_on_select_action()
@@ -1334,12 +1342,17 @@ impl ProfileModelSelector {
                                 .cloned()
                         }
                         ProfileModelSelectorAction::SelectReasoningModel(base_name) => {
-                            // Get the first reasoning variant for this base model
+                            // Preserve the current effort when hovering its model.
+                            // For another model, prefer the provider-default entry.
+                            let preferences = LLMPreferences::as_ref(ctx);
+                            let active = preferences.get_active_base_model(ctx, Some(self.terminal_view_id));
+                            if active.reasoning_group_key() == *base_name {
+                                return Some(active.clone());
+                            }
                             self.all_model_choices
                                 .iter()
-                                .find(|llm| {
-                                    llm.reasoning_group_key() == *base_name && llm.has_reasoning_level()
-                                })
+                                .filter(|llm| llm.reasoning_group_key() == *base_name)
+                                .min_by_key(|llm| llm.has_reasoning_level())
                                 .cloned()
                         }
                         _ => None,

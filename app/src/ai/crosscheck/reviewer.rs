@@ -268,7 +268,7 @@ impl CrosscheckReviewer {
 
         let effective_model = config.model.unwrap_or(model_id);
 
-        let request_body = serde_json::json!({
+        let mut request_body = serde_json::json!({
             "model": effective_model,
             "messages": [
                 {
@@ -285,6 +285,10 @@ impl CrosscheckReviewer {
             "max_tokens": REVIEWER_MAX_OUTPUT_TOKENS,
             "stream": false
         });
+
+        if let Some(effort) = config.reasoning_effort {
+            request_body["reasoning_effort"] = effort.into();
+        }
 
         // Use a non-streaming request by calling the same endpoint but with stream: false
         let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));

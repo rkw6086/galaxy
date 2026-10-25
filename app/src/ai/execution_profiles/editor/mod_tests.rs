@@ -5,6 +5,9 @@ use warpui::App;
 
 use super::ui_helpers::context_window_snap_values;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
+use crate::ai::execution_profiles::model_menu_items::{
+    collapse_model_reasoning_choices, has_reasoning_variants, reasoning_choices_for_model,
+};
 use crate::ai::execution_profiles::{
     has_configurable_context_window, should_show_long_context_pricing_warning, AIExecutionProfile,
     AIExecutionProfileAppExt as _,
@@ -315,4 +318,54 @@ fn non_openai_configurable_context_ignores_gpt_flag_and_does_not_show_openai_war
         Some(1_000_000),
         false
     ));
+}
+
+fn reasoning_model(id: &str, provider: &str, effort: Option<&str>) -> LLMInfo {
+    let mut model = configurable_model(LLMProvider::LiteLLM);
+    model.id = id.into();
+    model.base_model_name = "Same model".to_owned();
+    model.description = Some(provider.to_owned());
+    model.reasoning_level = effort.map(str::to_owned);
+    model
+}
+
+#[test]
+fn reasoning_dropdown_supports_one_advertised_level_and_provider_default() {
+    let base = reasoning_model("model", "Connection A", None);
+    let high = reasoning_model("model::reasoning::high", "Connection A", Some("high"));
+    let choices = vec![&base, &high];
+    assert!(has_reasoning_variants(&base, &choices));
+    let levels = reasoning_choices_for_model(&base.id, &choices);
+    assert_eq!(levels.len(), 2);
+    assert_eq!(levels[0].reasoning_level, None);
+    assert_eq!(levels[1].reasoning_level.as_deref(), Some("high"));
+}
+
+#[test]
+fn reasoning_choices_without_discovery_remain_unchanged() {
+    let base = reasoning_model("model", "Connection A", None);
+    let choices = vec![&base];
+    assert!(!has_reasoning_variants(&base, &choices));
+    assert!(reasoning_choices_for_model(&base.id, &choices).is_empty());
+    assert_eq!(collapse_model_reasoning_choices(choices, Some(&base.id))[0].id, base.id);
+}
+
+#[test]
+fn collapsed_models_preserve_selected_reasoning_and_provider_identity() {
+    let base = reasoning_model("model", "Connection A", None);
+    let high = reasoning_model("model::reasoning::high", "Connection A", Some("high"));
+    let other = reasoning_model("model::connection::other", "Connection B", None);
+    let choices = collapse_model_reasoning_choices(vec![&base, &high, &other], Some(&high.id));
+    assert_eq!(choices.len(), 2);
+    assert_eq!(choices[0].id, high.id);
+    assert_eq!(choices[1].id, other.id);
+    assert!(reasoning_choices_for_model(&other.id, &[&base, &high, &other]).is_empty());
+}
+
+#[test]
+fn reasoning_dropdown_does_not_invent_provider_default() {
+    let high = reasoning_model("model::reasoning::high", "Connection A", Some("high"));
+    let levels = reasoning_choices_for_model(&high.id, &[&high]);
+    assert_eq!(levels.len(), 1);
+    assert_eq!(levels[0].id, high.id);
 }

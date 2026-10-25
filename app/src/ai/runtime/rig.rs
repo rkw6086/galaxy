@@ -307,7 +307,8 @@ pub(crate) async fn provider_runtime_for_request(
                     model,
                     max_output_tokens: config.max_output_tokens.map(u64::from),
                     supports_system_messages: config.supports_system_messages,
-                }),
+                })
+                .with_reasoning_effort(config.reasoning_effort),
             ),
             OpenAIProviderKind::ChatGPTSubscription => Arc::new(ChatGPTSubscriptionRuntime::new(
                 ChatGPTSubscriptionRuntimeConfig {
@@ -324,7 +325,8 @@ pub(crate) async fn provider_runtime_for_request(
                     api_key: credential.clone(),
                     model,
                     max_output_tokens: config.max_output_tokens.map(u64::from),
-                });
+                })
+                .with_reasoning_effort(config.reasoning_effort);
                 if stored {
                     runtime = runtime.with_credential_resolver(Arc::new(move || {
                         Box::pin(crate::ai::claude_oauth::load_credential(credential.clone()))
@@ -332,17 +334,23 @@ pub(crate) async fn provider_runtime_for_request(
                 }
                 Arc::new(runtime)
             }
-            OpenAIProviderKind::Gemini => Arc::new(GeminiRuntime::new(GeminiRuntimeConfig {
-                api_key: config.api_key.unwrap_or_default(),
-                model,
-                max_output_tokens: config.max_output_tokens.map(u64::from),
-            })),
-            OpenAIProviderKind::VertexAI => Arc::new(VertexAiRuntime::new(VertexAiRuntimeConfig {
-                project_id: config.project_id.unwrap_or_default(),
-                location: config.location.unwrap_or_else(|| "global".to_string()),
-                model,
-                max_output_tokens: config.max_output_tokens.map(u64::from),
-            })),
+            OpenAIProviderKind::Gemini => Arc::new(
+                GeminiRuntime::new(GeminiRuntimeConfig {
+                    api_key: config.api_key.unwrap_or_default(),
+                    model,
+                    max_output_tokens: config.max_output_tokens.map(u64::from),
+                })
+                .with_reasoning_effort(config.reasoning_effort),
+            ),
+            OpenAIProviderKind::VertexAI => Arc::new(
+                VertexAiRuntime::new(VertexAiRuntimeConfig {
+                    project_id: config.project_id.unwrap_or_default(),
+                    location: config.location.unwrap_or_else(|| "global".to_string()),
+                    model,
+                    max_output_tokens: config.max_output_tokens.map(u64::from),
+                })
+                .with_reasoning_effort(config.reasoning_effort),
+            ),
         },
         crate::ai::provider::ProviderConfig::Bedrock(config) => {
             let max_output_tokens = Some(bedrock_max_output_tokens(&model));

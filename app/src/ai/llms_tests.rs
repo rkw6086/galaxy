@@ -256,6 +256,7 @@ fn computer_use_picker_includes_vision_models_without_duplicate_entries() {
         text_only.display_name = "Text-only model".to_owned();
         preferences.models_by_feature.agent_mode.choices = vec![visual.clone(), text_only];
         preferences.models_by_feature.computer_use = Some(AvailableLLMs {
+            legacy_reasoning_aliases: HashMap::new(),
             default_id: "computer-use-agent-auto".into(),
             choices: vec![auto, visual],
             preferred_codex_model_id: None,
@@ -1275,4 +1276,106 @@ fn model_selector_labels_and_reasoning_groups_include_configured_provider() {
     assert_eq!(first.reasoning_group_key(), other.reasoning_group_key());
     other.id = LLMId::from("model-b::connection::second-connection");
     assert_ne!(first.reasoning_group_key(), other.reasoning_group_key());
+}
+
+#[test]
+fn reasoning_discovery_uses_explicit_lists_and_supported_flags_only() {
+    assert_eq!(
+        advertised_reasoning_efforts(&serde_json::json!({
+            "reasoning_effort_levels": [" low ", "high", "low", "", null],
+            "supports_max_reasoning_effort": true
+        })),
+        ["low", "high"]
+    );
+    assert_eq!(
+        advertised_reasoning_efforts(&serde_json::json!({
+            "supported_reasoning_levels": [{"effort": "minimal"}, {"effort": "high"}]
+        })),
+        ["minimal", "high"]
+    );
+    assert_eq!(
+        advertised_reasoning_efforts(&serde_json::json!({
+            "supports_reasoning": true,
+            "supports_low_reasoning_effort": true,
+            "supports_high_reasoning_effort": false,
+            "supports_xhigh_reasoning_effort": true
+        })),
+        ["low", "xhigh"]
+    );
+    assert!(advertised_reasoning_efforts(&serde_json::json!({
+        "id": "gpt-test-high", "supports_reasoning": true
+    })).is_empty());
+    assert!(advertised_reasoning_efforts(&serde_json::json!({
+        "reasoning_effort_levels": [], "supports_low_reasoning_effort": true
+    })).is_empty());
+}
+
+#[test]
+fn overlapping_connections_keep_all_reasoning_variants_in_one_family() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings.openai_enabled.set_value(true, ctx).unwrap();
+            let mut reasoning_model = openai_model("shared-model");
+            reasoning_model.reasoning_efforts = vec!["low".to_owned(), "high".to_owned()];
+            settings.openai_providers.set_value(vec![
+                OpenAIProviderConfig {
+                    kind: OpenAIProviderKind::LiteLLM,
+                    name: "First connection".to_owned(),
+                    base_url: "https://first.test/v1".to_owned(),
+                    models: vec![openai_model("shared-model")],
+                    enabled: true,
+                    api_key: None,
+                    project_id: None,
+                    location: None,
+                },
+                OpenAIProviderConfig {
+                    kind: OpenAIProviderKind::LiteLLM,
+                    name: "Second connection".to_owned(),
+                    base_url: "https://second.test/v1".to_owned(),
+                    models: vec![reasoning_model],
+                    enabled: true,
+                    api_key: None,
+                    project_id: None,
+                    location: None,
+                },
+            ], ctx).unwrap();
+        });
+        let mut preferences = empty_preferences();
+        app.read(|ctx| preferences.inject_openai_models(ctx));
+        let choices: Vec<_> = preferences.models_by_feature.agent_mode.choices.iter()
+            .filter(|model| model.description.as_deref() == Some("Second connection"))
+            .collect();
+        assert_eq!(choices.len(), 3);
+        let base = choices.iter().find(|model| model.reasoning_level.is_none()).unwrap();
+        assert!(base.id.as_str().contains("::connection::"));
+        let group_key = base.reasoning_group_key();
+        for model in choices {
+            assert_eq!(model.reasoning_group_key(), group_key);
+            let route = preferences.openai_client_config_for_model(model.id.as_str()).unwrap();
+            assert_eq!(route.model.as_deref(), Some("shared-model"));
+            assert_eq!(route.reasoning_effort, model.reasoning_level);
+        }
+        let old_id = LLMId::from("shared-model::reasoning::low");
+        let canonical = preferences.get_llm_info(&old_id).unwrap();
+        assert_eq!(canonical.description.as_deref(), Some("Second connection"));
+        assert!(canonical.id.as_str().contains("::connection::"));
+        assert_eq!(preferences.openai_client_config_for_model(old_id.as_str()).unwrap().reasoning_effort.as_deref(), Some("low"));
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            let mut providers = settings.openai_providers.value().clone();
+            providers[1].enabled = false;
+            let mut third = providers[1].clone();
+            third.enabled = true;
+            third.name = "Third connection".to_owned();
+            third.base_url = "https://third.test/v1".to_owned();
+            providers.push(third);
+            settings.openai_providers.set_value(providers, ctx).unwrap();
+        });
+        app.read(|ctx| preferences.inject_openai_models(ctx));
+        // A disabled second connection still reserves its legacy IDs: they
+        // must not silently migrate to the third connection.
+        assert!(preferences.get_llm_info(&old_id).is_none());
+        assert!(preferences.openai_client_config_for_model(old_id.as_str()).is_none());
+    });
 }

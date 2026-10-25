@@ -19,7 +19,9 @@ use warpui::{
 };
 
 use crate::ai::blocklist::BlocklistAIPermissions;
-use crate::ai::execution_profiles::model_menu_items::available_model_menu_items;
+use crate::ai::execution_profiles::model_menu_items::{
+    available_model_menu_items, collapse_model_reasoning_choices, reasoning_choices_for_model,
+};
 use crate::ai::execution_profiles::profiles::{
     AIExecutionProfilesModel, AIExecutionProfilesModelEvent, ClientProfileId,
 };
@@ -34,6 +36,7 @@ use crate::cloud_object::model::generic_string_model::StringModel;
 use crate::editor::{
     EditorView, Event as EditorEvent, InteractionState, SingleLineEditorOptions, TextOptions,
 };
+use crate::menu::{MenuItem, MenuItemFields, MenuTooltipPosition};
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::pane::view;
 use crate::pane_group::{BackingView, PaneConfiguration, PaneEvent};
@@ -132,11 +135,22 @@ pub enum ExecutionProfileEditorViewEvent {
     Pane(PaneEvent),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProfileModelRole {
+    Base,
+    FullTerminalUse,
+    ComputerUse,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExecutionProfileEditorViewAction {
     Save,
     Close,
     SetBaseModel {
+        id: LLMId,
+    },
+    SetModelReasoning {
+        role: ProfileModelRole,
         id: LLMId,
     },
     /// Fired continuously while the user drags the context window slider.
@@ -198,6 +212,10 @@ pub struct ExecutionProfileEditorView {
     full_terminal_use_model_dropdown:
         ViewHandle<FilterableDropdown<ExecutionProfileEditorViewAction>>,
     computer_use_model_dropdown: ViewHandle<FilterableDropdown<ExecutionProfileEditorViewAction>>,
+    base_reasoning_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
+    full_terminal_reasoning_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
+    computer_use_reasoning_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
+    reasoning_roles: Vec<ProfileModelRole>,
     permission_mode_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
     command_denylist_editor: ViewHandle<SubmittableTextInput>,
     command_allowlist_editor: ViewHandle<SubmittableTextInput>,
@@ -301,6 +319,9 @@ impl ExecutionProfileEditorView {
             dropdown.set_menu_width(MODEL_MENU_WIDTH, ctx);
             dropdown
         });
+        let base_reasoning_dropdown = ctx.add_typed_action_view(Dropdown::new);
+        let full_terminal_reasoning_dropdown = ctx.add_typed_action_view(Dropdown::new);
+        let computer_use_reasoning_dropdown = ctx.add_typed_action_view(Dropdown::new);
         let command_allowlist_editor = ctx.add_typed_action_view(|ctx| {
             let mut input = SubmittableTextInput::new(ctx).validate_on_edit(|s| Regex::new(s).is_ok());
             input.set_placeholder_text("e.g. ^cargo test$", ctx);
@@ -361,6 +382,10 @@ impl ExecutionProfileEditorView {
             coding_model_dropdown,
             full_terminal_use_model_dropdown,
             computer_use_model_dropdown,
+            base_reasoning_dropdown,
+            full_terminal_reasoning_dropdown,
+            computer_use_reasoning_dropdown,
+            reasoning_roles: Vec::new(),
             permission_mode_dropdown,
             command_denylist_editor,
             command_allowlist_editor,
@@ -482,6 +507,7 @@ impl ExecutionProfileEditorView {
                     );
                 }
             }
+            me.refresh_reasoning_dropdowns(ctx);
         });
 
         // Refresh model dropdowns when BYO API keys update so key icons reflect current state.
@@ -506,6 +532,7 @@ impl ExecutionProfileEditorView {
                     ctx,
                 );
                 me.sync_context_window_editor(ctx, false);
+                me.refresh_reasoning_dropdowns(ctx);
                 ctx.notify();
             },
         );
@@ -647,6 +674,62 @@ impl ExecutionProfileEditorView {
 
         Self::update_profile_name_editor(&self.profile_name_editor, &current_permissions, ctx);
         self.sync_context_window_editor(ctx, false);
+        self.refresh_reasoning_dropdowns(ctx);
+    }
+
+    fn refresh_reasoning_dropdowns(&mut self, ctx: &mut ViewContext<Self>) {
+        let profile = BlocklistAIPermissions::as_ref(ctx)
+            .permissions_profile_for_id(ctx, self.profile_id);
+        self.reasoning_roles.clear();
+        for role in [ProfileModelRole::Base, ProfileModelRole::FullTerminalUse, ProfileModelRole::ComputerUse] {
+            let prefs = LLMPreferences::as_ref(ctx);
+            let (id, choices, dropdown) = match role {
+                ProfileModelRole::Base => (
+                    profile.base_model.clone().unwrap_or_else(|| prefs.get_default_base_model().id.clone()),
+                    prefs.get_base_llm_choices_for_agent_mode(ctx).collect_vec(),
+                    &self.base_reasoning_dropdown,
+                ),
+                ProfileModelRole::FullTerminalUse => (
+                    profile.cli_agent_model.clone().unwrap_or_else(|| prefs.get_default_cli_agent_model().id.clone()),
+                    prefs.get_cli_agent_llm_choices(ctx).collect_vec(),
+                    &self.full_terminal_reasoning_dropdown,
+                ),
+                ProfileModelRole::ComputerUse => (
+                    profile.computer_use_model.clone().unwrap_or_else(|| prefs.get_default_computer_use_model().id.clone()),
+                    prefs.get_computer_use_llm_choices(ctx).collect_vec(),
+                    &self.computer_use_reasoning_dropdown,
+                ),
+            };
+            let id = prefs.get_llm_info(&id).map_or(id.clone(), |model| model.id.clone());
+            let reasoning_choices = reasoning_choices_for_model(&id, &choices);
+            let items: Vec<MenuItem<DropdownAction>> = reasoning_choices.iter().map(|model| {
+                let mut fields = MenuItemFields::new(
+                    model.reasoning_level.clone().unwrap_or_else(|| "Provider default".to_owned()),
+                )
+                .with_on_select_action(DropdownAction::select_action_and_close(
+                    ExecutionProfileEditorViewAction::SetModelReasoning { role, id: model.id.clone() },
+                ))
+                .with_disabled(model.disable_reason.is_some());
+                if let Some(reason) = &model.disable_reason {
+                    fields = fields.with_tooltip(reason.tooltip_text())
+                        .with_tooltip_position(MenuTooltipPosition::Above);
+                }
+                fields.into_item()
+            }).collect();
+            if !reasoning_choices.is_empty() {
+                self.reasoning_roles.push(role);
+            }
+            dropdown.update(ctx, |dropdown, ctx| {
+                dropdown.set_rich_items(items, ctx);
+                dropdown.set_selected_by_action(ExecutionProfileEditorViewAction::SetModelReasoning { role, id }, ctx);
+                if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
+                    dropdown.set_enabled(ctx);
+                } else {
+                    dropdown.set_disabled(ctx);
+                }
+            });
+        }
+        ctx.notify();
     }
 
     fn refresh_filterable_model_dropdown<G, A, D>(
@@ -673,7 +756,10 @@ impl ExecutionProfileEditorView {
 
             let llm_prefs = LLMPreferences::handle(ctx);
             let llm_prefs = llm_prefs.as_ref(ctx);
-            let choices = get_choices(llm_prefs, ctx);
+            let model_to_select = profile_model.unwrap_or_else(|| get_default_id(llm_prefs));
+            let model_to_select = llm_prefs.get_llm_info(&model_to_select)
+                .map_or(model_to_select.clone(), |model| model.id.clone());
+            let choices = collapse_model_reasoning_choices(get_choices(llm_prefs, ctx), Some(&model_to_select));
 
             let has_upgrade_gated_models = choices
                 .iter()
@@ -685,7 +771,7 @@ impl ExecutionProfileEditorView {
                 None,
                 None,
                 false,
-                false,
+                true,
                 ctx,
             );
             dropdown.set_rich_items(items, ctx);
@@ -700,9 +786,6 @@ impl ExecutionProfileEditorView {
                 dropdown.clear_footer(ctx);
             }
 
-            let llm_prefs = LLMPreferences::handle(ctx);
-            let llm_prefs = llm_prefs.as_ref(ctx);
-            let model_to_select = profile_model.unwrap_or_else(|| get_default_id(llm_prefs));
             dropdown.set_selected_by_action(create_action(model_to_select), ctx);
             ctx.notify();
         });
@@ -1034,6 +1117,16 @@ impl TypedActionView for ExecutionProfileEditorView {
                     profiles_model.set_context_window_limit(self.profile_id, None, ctx);
                 });
                 self.sync_context_window_editor(ctx, true);
+                ctx.notify();
+            }
+            ExecutionProfileEditorViewAction::SetModelReasoning { role, id } => {
+                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
+                    match role {
+                        ProfileModelRole::Base => profiles_model.set_base_model(self.profile_id, Some(id.clone()), ctx),
+                        ProfileModelRole::FullTerminalUse => profiles_model.set_cli_agent_model(self.profile_id, Some(id.clone()), ctx),
+                        ProfileModelRole::ComputerUse => profiles_model.set_computer_use_model(self.profile_id, Some(id.clone()), ctx),
+                    }
+                });
                 ctx.notify();
             }
             ExecutionProfileEditorViewAction::ContextWindowSliderDragged { value } => {

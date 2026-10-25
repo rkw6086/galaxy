@@ -249,7 +249,7 @@ impl AgentNotificationsModel {
             terminal_surface_id,
             conversation_id,
             // We shouldn't trigger toasts when restoring conversations on startup.
-            update: ConversationStatusUpdate::Changed { .. },
+            update: ConversationStatusUpdate::Changed { prev_status },
             ..
         } = event
         else {
@@ -266,6 +266,21 @@ impl AgentNotificationsModel {
         }
 
         let status = updated_conversation.status().clone();
+        if &status == prev_status {
+            return;
+        }
+        // Workers report their results to the orchestrator. Only a worker that
+        // needs user input should interrupt the user independently.
+        if updated_conversation.is_child_agent_conversation()
+            && !status.should_notify_for_agent(true)
+        {
+            self.pending_artifacts.remove(conversation_id);
+            self.remove_notification_by_source(
+                NotificationOrigin::Conversation(*conversation_id),
+                ctx,
+            );
+            return;
+        }
         let latest_query = updated_conversation.latest_user_query();
         if FeatureFlag::HOANotifications.is_enabled() {
             self.handle_history_event_for_mailbox(
@@ -280,6 +295,12 @@ impl AgentNotificationsModel {
         }
 
         if !status.should_trigger_notification() {
+            return;
+        }
+
+        if matches!(status, ConversationStatus::Success)
+            && QueuedQueryModel::as_ref(ctx).has_autofireable_prompt(*conversation_id)
+        {
             return;
         }
 
@@ -354,18 +375,10 @@ impl AgentNotificationsModel {
                 );
             }
             ConversationStatus::Cancelled => {
-                let artifacts = self.flush_pending_artifacts(conversation_id);
-                self.add_notification(
-                    title,
-                    "Task was cancelled.".to_owned(),
-                    NotificationCategory::Complete,
-                    oz_agent,
-                    origin,
-                    terminal_view_id,
-                    artifacts,
-                    metadata.branch,
-                    ctx,
-                );
+                // Steering and replacing a turn cancels the old generation;
+                // that is not a separate task-completion notification.
+                self.pending_artifacts.remove(&conversation_id);
+                self.remove_notification_by_source(origin, ctx);
             }
             ConversationStatus::Blocked { blocked_action } => {
                 self.add_notification(
@@ -484,6 +497,10 @@ pub enum AgentManagementEvent {
 }
 
 impl ConversationStatus {
+    pub(crate) fn should_notify_for_agent(&self, is_child: bool) -> bool {
+        self.should_trigger_notification() && (!is_child || self.is_blocked())
+    }
+
     /// Returns true if the updating the conversation with this status should trigger some
     /// notification to the user.
     ///

@@ -49,7 +49,7 @@ async fn rig_stream_maps_reasoning_text_usage_and_stop() {
     let model = client.completion_model("test-model");
     let (_, control) = galaxy_agent_core::turn_control();
 
-    let events = start_model_turn(model, text_request(), control, None, true)
+    let events = start_model_turn(model, text_request(), control, None, true, None)
         .await
         .unwrap()
         .collect::<Vec<_>>()
@@ -104,7 +104,7 @@ async fn rig_stream_ignores_empty_reasoning_heartbeats() {
     let model = client.completion_model("test-model");
     let (_, control) = galaxy_agent_core::turn_control();
 
-    let events = start_model_turn(model, text_request(), control, None, true)
+    let events = start_model_turn(model, text_request(), control, None, true, None)
         .await
         .unwrap()
         .collect::<Vec<_>>()
@@ -118,11 +118,9 @@ async fn rig_stream_ignores_empty_reasoning_heartbeats() {
         AgentEvent::ReasoningCompleted { text, signature }
             if text.is_empty() && signature.is_none()
     )));
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, AgentEvent::TextDelta { text } if text == "done"))
-    );
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, AgentEvent::TextDelta { text } if text == "done")));
 }
 
 #[tokio::test]
@@ -176,7 +174,7 @@ async fn usage_at_the_requested_limit_maps_to_max_tokens() {
     let mut request = text_request();
     request.max_output_tokens = Some(6);
 
-    let events = start_model_turn(model, request, control, None, true)
+    let events = start_model_turn(model, request, control, None, true, None)
         .await
         .unwrap()
         .collect::<Vec<_>>()
@@ -219,7 +217,7 @@ async fn rig_stream_maps_complete_tool_call_without_executing_it() {
         input_schema: serde_json::json!({"type": "object"}),
     });
 
-    let events = start_model_turn(model, request, control, None, true)
+    let events = start_model_turn(model, request, control, None, true, None)
         .await
         .unwrap()
         .collect::<Vec<_>>()
@@ -274,7 +272,7 @@ fn request_conversion_preserves_history_tools_and_limits() {
         }),
     });
 
-    let converted = build_completion_request(request, Some(999), true).unwrap();
+    let converted = build_completion_request(request, Some(999), true, None).unwrap();
 
     assert_eq!(converted.max_tokens, Some(123));
     assert_eq!(converted.tools.len(), 1);
@@ -318,7 +316,7 @@ fn request_conversion_preserves_tool_call_and_denied_result_for_the_next_turn() 
         ],
     );
 
-    let converted = build_completion_request(request, None, true).unwrap();
+    let converted = build_completion_request(request, None, true, None).unwrap();
     let messages = converted.chat_history.iter().collect::<Vec<_>>();
     let Message::Assistant { content, .. } = messages[0] else {
         panic!("expected assistant tool call");
@@ -352,7 +350,7 @@ fn request_conversion_places_system_prompt_in_user_message_when_system_role_is_u
     let mut request = text_request();
     request.system_prompt = Some("Be useful".to_string());
 
-    let converted = build_completion_request(request, None, false).unwrap();
+    let converted = build_completion_request(request, None, false, None).unwrap();
     let messages = converted.chat_history.iter().collect::<Vec<_>>();
 
     assert_eq!(messages.len(), 2);
@@ -370,4 +368,35 @@ fn request_conversion_places_system_prompt_in_user_message_when_system_role_is_u
             .count(),
         0
     );
+}
+
+#[test]
+fn selected_reasoning_effort_is_sent_without_changing_the_model() {
+    let request = build_completion_request(text_request(), None, true, Some("high")).unwrap();
+    assert_eq!(
+        request.additional_params,
+        Some(serde_json::json!({
+            "stream_options": {"include_usage": true}, "reasoning_effort": "high"
+        }))
+    );
+    let default = build_completion_request(text_request(), None, true, None).unwrap();
+    assert!(default
+        .additional_params
+        .unwrap()
+        .get("reasoning_effort")
+        .is_none());
+}
+
+#[test]
+fn reasoning_effort_survives_openai_request_serialization() {
+    let request = build_completion_request(text_request(), None, true, Some("low")).unwrap();
+    let wire = rig_core::providers::openai::completion::CompletionRequest::try_from((
+        "test-model".to_string(),
+        request,
+    ))
+    .unwrap();
+    let json = serde_json::to_value(wire).unwrap();
+    assert_eq!(json["model"], "test-model");
+    assert_eq!(json["reasoning_effort"], "low");
+    assert_eq!(json["stream_options"]["include_usage"], true);
 }

@@ -24,7 +24,7 @@ use super::model_spec_scores::{
     MODEL_SPECS_DESCRIPTION, MODEL_SPECS_TITLE, REASONING_LEVEL_DESCRIPTION, REASONING_LEVEL_TITLE,
 };
 use crate::ai::custom_model_routers::is_custom_router_id;
-use crate::ai::execution_profiles::model_menu_items::is_auto;
+use crate::ai::execution_profiles::model_menu_items::{collapse_model_reasoning_choices, is_auto};
 use crate::ai::llms::{
     is_using_api_key_for_provider, should_show_bedrock_icon_for_model, DisableReason, LLMId,
     LLMInfo, LLMPreferences, LLMProvider, LLMSpec,
@@ -46,6 +46,14 @@ use crate::workspace::WorkspaceAction;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
 const AUTO_BEDROCK_TOOLTIP: &str = "Warp uses Bedrock when the model Auto selects supports it; otherwise it may use Warp-hosted inference.";
+
+fn model_picker_label(llm: &LLMInfo) -> String {
+    if llm.has_reasoning_level() && !is_custom_router_id(llm.id.as_str()) {
+        llm.label_with_provider(llm.base_model_name())
+    } else {
+        llm.menu_display_name()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct AcceptModel {
@@ -228,6 +236,7 @@ impl SyncDataSource for ModelSelectorDataSource {
                 })
                 .collect_vec()
         };
+        let choices = collapse_model_reasoning_choices(choices, Some(&active_llm_id));
         let choices = Self::order_model_choices(llm_preferences, choices);
 
         let query_text = query.text.trim().to_lowercase();
@@ -243,7 +252,7 @@ impl SyncDataSource for ModelSelectorDataSource {
             .into_iter()
             .filter_map(|llm| {
                 let match_result = match_indices_case_insensitive(
-                    llm.menu_display_name().to_lowercase().as_str(),
+                    model_picker_label(llm).to_lowercase().as_str(),
                     query_text.as_str(),
                 )?;
 
@@ -327,7 +336,7 @@ impl ModelSearchItem {
             spec: llm.spec.clone(),
             leading_icon,
             credential_icon,
-            display_text: llm.menu_display_name(),
+            display_text: model_picker_label(llm),
             is_selected: &llm.id == active_llm_id,
             is_custom_endpoint,
             is_custom_router,
