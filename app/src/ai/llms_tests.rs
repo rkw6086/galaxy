@@ -2,6 +2,9 @@ use serde_json::json;
 use warpui::App;
 
 use super::*;
+use crate::ai::execution_profiles::model_menu_items::{
+    collapse_model_reasoning_choices, reasoning_choices_for_model,
+};
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::auth::auth_manager::AuthManager;
@@ -120,6 +123,7 @@ fn llm_info_round_trip_serializes_and_deserializes() {
     let wire_json = r#"{
             "display_name": "claude-3",
             "base_model_name": "claude-3",
+            "reasoning_model_id": "provider/claude-3",
             "id": "claude-3",
             "usage_metadata": { "request_multiplier": 2, "credit_multiplier": 1.5 },
             "description": "A powerful model",
@@ -1574,6 +1578,208 @@ fn overlapping_connections_keep_all_reasoning_variants_in_one_family() {
         // A disabled second connection still reserves its legacy IDs: they
         // must not silently migrate to the third connection.
         assert!(preferences.get_llm_info(&old_id).is_none());
-        assert!(preferences.openai_client_config_for_model(old_id.as_str()).is_none());
+        assert!(preferences
+            .openai_client_config_for_model(old_id.as_str())
+            .is_none());
+    });
+}
+
+#[test]
+fn discovered_models_with_the_same_label_keep_separate_reasoning_choices() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let models = ["route-a", "route-b"].map(|id| {
+            let mut model = openai_model(id);
+            model.display_name = "Shared model name".to_owned();
+            model.reasoning_efforts = vec!["low".to_owned(), "high".to_owned()];
+            model
+        });
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings.openai_enabled.set_value(true, ctx).unwrap();
+            settings
+                .openai_providers
+                .set_value(
+                    vec![OpenAIProviderConfig {
+                        kind: OpenAIProviderKind::LiteLLM,
+                        name: "Shared connection".to_owned(),
+                        base_url: "https://models.test/v1".to_owned(),
+                        models: models.into(),
+                        enabled: true,
+                        api_key: None,
+                        project_id: None,
+                        location: None,
+                    }],
+                    ctx,
+                )
+                .unwrap();
+        });
+        let mut preferences = empty_preferences();
+        app.read(|ctx| preferences.inject_openai_models(ctx));
+        let choices: Vec<_> = preferences
+            .models_by_feature
+            .agent_mode
+            .choices
+            .iter()
+            .collect();
+        let selected_id = LLMId::from("route-b::reasoning::high");
+        let collapsed = collapse_model_reasoning_choices(choices.clone(), Some(&selected_id));
+        assert_eq!(collapsed.len(), 2);
+        assert_eq!(collapsed[0].id.as_str(), "route-a");
+        assert_eq!(collapsed[1].id, selected_id);
+        let levels = reasoning_choices_for_model(&selected_id, &choices);
+        assert_eq!(levels.len(), 3);
+        for model in levels {
+            let route = preferences
+                .openai_client_config_for_model(model.id.as_str())
+                .unwrap();
+            assert_eq!(route.model.as_deref(), Some("route-b"));
+            assert_eq!(route.reasoning_effort, model.reasoning_level);
+        }
+    });
+}
+
+#[test]
+fn migrated_computer_use_reasoning_selection_survives_reconciliation() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        app.add_singleton_model(|_| ServerApiProvider::new_for_test());
+        app.add_singleton_model(|_| AuthStateProvider::new_for_test());
+        app.add_singleton_model(AuthManager::new_for_test);
+        app.add_singleton_model(|_| NetworkStatus::new());
+        app.add_singleton_model(UserWorkspaces::default_mock);
+        app.add_singleton_model(CloudModel::mock);
+        app.add_singleton_model(|ctx| {
+            crate::local_object_repository::LocalObjectRepository::new(None, None, ctx)
+        });
+        app.add_singleton_model(TeamTesterStatus::mock);
+        app.add_singleton_model(SyncQueue::mock);
+        app.add_singleton_model(UpdateManager::mock);
+        app.add_singleton_model(|_| TemplatableMCPServerManager::default());
+        let profiles = app.add_singleton_model(|ctx| {
+            AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
+        });
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings.openai_enabled.set_value(true, ctx).unwrap();
+            let mut visual = openai_model("shared-model");
+            visual.vision_supported = true;
+            visual.reasoning_efforts = vec!["high".to_owned()];
+            settings
+                .openai_providers
+                .set_value(
+                    vec![
+                        OpenAIProviderConfig {
+                            kind: OpenAIProviderKind::LiteLLM,
+                            name: "First connection".to_owned(),
+                            base_url: "https://first.test/v1".to_owned(),
+                            models: vec![openai_model("shared-model")],
+                            enabled: true,
+                            api_key: None,
+                            project_id: None,
+                            location: None,
+                        },
+                        OpenAIProviderConfig {
+                            kind: OpenAIProviderKind::ChatGPTSubscription,
+                            name: "Second connection".to_owned(),
+                            base_url: "https://second.test/v1".to_owned(),
+                            models: vec![visual],
+                            enabled: true,
+                            api_key: None,
+                            project_id: None,
+                            location: None,
+                        },
+                    ],
+                    ctx,
+                )
+                .unwrap();
+        });
+        let old_id = LLMId::from("shared-model::reasoning::high");
+        let mut preferences = empty_preferences();
+        preferences.models_by_feature.computer_use = Some(default_computer_use_llms());
+        app.read(|ctx| preferences.inject_openai_models(ctx));
+        let canonical_id = preferences.get_llm_info(&old_id).unwrap().id.clone();
+        assert_ne!(canonical_id, old_id);
+        preferences.models_by_feature.agent_mode.default_id = "shared-model".into();
+        let preferences = app.add_singleton_model(|_| preferences);
+        let profile_id = profiles.as_ref(&app).default_profile_id();
+        profiles.update(&mut app, |profiles, ctx| {
+            profiles.set_computer_use_model(profile_id, Some(old_id.clone()), ctx);
+        });
+        app.read(|ctx| {
+            let selected = preferences
+                .as_ref(ctx)
+                .get_active_computer_use_model(ctx, None);
+            assert_eq!(selected.id, canonical_id);
+            assert_eq!(selected.reasoning_level.as_deref(), Some("high"));
+        });
+        preferences.update(&mut app, |preferences, ctx| {
+            preferences.reconcile_disabled_model_preferences(ctx);
+        });
+        app.read(|ctx| {
+            assert_eq!(
+                profiles
+                    .as_ref(ctx)
+                    .default_profile(ctx)
+                    .data()
+                    .computer_use_model,
+                Some(old_id.clone())
+            );
+        });
+
+        // A migrated ID must still obey the normal permanent-disable policy.
+        preferences.update(&mut app, |preferences, ctx| {
+            preferences
+                .models_by_feature
+                .agent_mode
+                .choices
+                .iter_mut()
+                .find(|model| model.id == canonical_id)
+                .unwrap()
+                .disable_reason = Some(DisableReason::AdminDisabled);
+            preferences.reconcile_disabled_model_preferences(ctx);
+        });
+        app.read(|ctx| {
+            assert_eq!(
+                profiles
+                    .as_ref(ctx)
+                    .default_profile(ctx)
+                    .data()
+                    .computer_use_model,
+                None
+            );
+        });
+
+        // Losing screenshot support must also invalidate the migrated selection.
+        profiles.update(&mut app, |profiles, ctx| {
+            profiles.set_computer_use_model(profile_id, Some(old_id.clone()), ctx);
+        });
+        preferences.update(&mut app, |preferences, ctx| {
+            let model = preferences
+                .models_by_feature
+                .agent_mode
+                .choices
+                .iter_mut()
+                .find(|model| model.id == canonical_id)
+                .unwrap();
+            model.disable_reason = None;
+            model.vision_supported = false;
+            assert_eq!(
+                preferences
+                    .get_active_computer_use_model(ctx, None)
+                    .id
+                    .as_str(),
+                "computer-use-agent-auto"
+            );
+            preferences.reconcile_disabled_model_preferences(ctx);
+        });
+        app.read(|ctx| {
+            assert_eq!(
+                profiles
+                    .as_ref(ctx)
+                    .default_profile(ctx)
+                    .data()
+                    .computer_use_model,
+                None
+            );
+        });
     });
 }

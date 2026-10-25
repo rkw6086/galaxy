@@ -18,7 +18,7 @@ pub(crate) use provider_run_coordinator::{
 };
 pub(crate) use rig::{
     prepare_provider_run, provider_context_window_tokens, provider_runtime_for_request,
-    PreparedProviderRun, ProviderActionContext,
+    restore_provider_config, PreparedProviderRun, ProviderActionContext,
 };
 pub(crate) use rig_request::OrchestrationModelOption;
 pub(crate) use task_progress::{restored_task_list, task_list_from_api_tasks};

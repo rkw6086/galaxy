@@ -9,6 +9,7 @@ use galaxy_agent_rig::{
     VertexAiRuntimeConfig,
 };
 use galaxy_bedrock_model_catalog::model_metadata;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use warp_multi_agent_api::ToolType;
 
@@ -21,12 +22,104 @@ use super::rig_tool::action_from_tool_call;
 use super::ProviderRunProfile;
 use crate::ai::agent::api::RequestParams;
 use crate::ai::agent::AIAgentAction;
+use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::provider::client::BedrockClient;
 use crate::ai::provider::convert::CachingConfig;
 use crate::ai::provider::external_config::ExternalBedrockConfig;
 use crate::ai::provider::types::ConversationMessage;
 use crate::ai::runtime::RuntimeResponseConfig;
 use crate::settings::OpenAIProviderKind;
+
+const PROVIDER_SELECTION_METADATA: &str = "galaxy_provider_selection";
+
+/// Keep routing identity separate from the wire model name. This metadata is
+/// checkpointed with each request, but is never included in provider payloads.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PersistedProviderSelection {
+    model_id: String,
+    connection_fingerprint: String,
+    reasoning: PersistedReasoningSelection,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PersistedReasoningSelection {
+    ProviderDefault,
+    Explicit(String),
+}
+
+fn provider_connection_fingerprint(config: &OpenAIClientConfig) -> String {
+    // Credentials are resolved afresh on restore. Hash only connection metadata
+    // so endpoint URLs do not appear in checkpoints either.
+    let identity = serde_json::json!([
+        config.connection_identity,
+        format!("{:?}", config.kind),
+        config.base_url,
+        config.project_id,
+        config.location,
+    ]);
+    format!("{:x}", Sha256::digest(identity.to_string().as_bytes()))
+}
+
+fn remember_provider_selection(
+    request: &mut TurnRequest,
+    model_id: String,
+    provider_config: &crate::ai::provider::ProviderConfig,
+) -> anyhow::Result<()> {
+    if let crate::ai::provider::ProviderConfig::OpenAI(config) = provider_config {
+        request.metadata.insert(
+            PROVIDER_SELECTION_METADATA.to_string(),
+            serde_json::to_value(PersistedProviderSelection {
+                model_id,
+                connection_fingerprint: provider_connection_fingerprint(config),
+                reasoning: config.reasoning_effort.clone().map_or(
+                    PersistedReasoningSelection::ProviderDefault,
+                    PersistedReasoningSelection::Explicit,
+                ),
+            })?,
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn restore_provider_config(
+    request: &TurnRequest,
+    resolve: impl FnOnce(&str) -> crate::ai::provider::ProviderConfig,
+) -> anyhow::Result<crate::ai::provider::ProviderConfig> {
+    let Some(selection) = request.metadata.get(PROVIDER_SELECTION_METADATA) else {
+        // Older checkpoints only contain the wire model ID.
+        return Ok(resolve(request.model.as_str()));
+    };
+    let selection: PersistedProviderSelection = serde_json::from_value(selection.clone())
+        .map_err(|_| anyhow::anyhow!("invalid persisted provider selection"))?;
+    anyhow::ensure!(
+        !selection.model_id.trim().is_empty(),
+        "empty persisted provider selection"
+    );
+    let crate::ai::provider::ProviderConfig::OpenAI(mut config) = resolve(&selection.model_id)
+    else {
+        anyhow::bail!("the saved provider model is no longer available");
+    };
+    anyhow::ensure!(
+        provider_connection_fingerprint(&config) == selection.connection_fingerprint,
+        "the saved provider connection has changed"
+    );
+    let wire_model = config
+        .model
+        .as_deref()
+        .filter(|model| !model.is_empty() && *model != "auto")
+        .unwrap_or(&selection.model_id);
+    anyhow::ensure!(
+        wire_model == request.model.as_str(),
+        "the saved provider model no longer matches its request"
+    );
+    config.reasoning_effort = match selection.reasoning {
+        PersistedReasoningSelection::ProviderDefault => None,
+        PersistedReasoningSelection::Explicit(effort) => Some(effort),
+    };
+    Ok(crate::ai::provider::ProviderConfig::OpenAI(config))
+}
 
 pub(crate) struct PreparedProviderRun {
     pub(crate) base_profile: ProviderRunProfile,
@@ -264,7 +357,7 @@ async fn prepare_provider_profile(
     mode: Option<RigRequestMode>,
 ) -> anyhow::Result<(Arc<dyn AgentRuntime>, PreparedRigTurn)> {
     let model = params.model.as_str().to_string();
-    let prepared = match &provider_config {
+    let mut prepared = match &provider_config {
         crate::ai::provider::ProviderConfig::OpenAI(config) => match mode {
             Some(mode) => prepare_rig_turn_for_mode(
                 config,
@@ -278,7 +371,7 @@ async fn prepare_provider_profile(
         crate::ai::provider::ProviderConfig::Bedrock(_) => {
             let max_output_tokens = Some(bedrock_max_output_tokens(&model));
             prepare_bedrock_rig_turn_for_mode(
-                model,
+                model.clone(),
                 max_output_tokens,
                 params,
                 supported_tools,
@@ -292,6 +385,7 @@ async fn prepare_provider_profile(
             );
         }
     };
+    remember_provider_selection(&mut prepared.request, model, &provider_config)?;
     let runtime = provider_runtime_for_request(provider_config, &prepared.request).await?;
     Ok((runtime, prepared))
 }

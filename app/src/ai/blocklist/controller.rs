@@ -83,8 +83,8 @@ use crate::ai::provider::ProviderConfig;
 use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::ai::runtime::{
     prepare_provider_run, provider_context_window_tokens, provider_runtime_for_request,
-    OrchestrationModelOption, PreparedProviderRun, ProviderActionContext, ProviderRunBlock,
-    ProviderRunCoordinator, ProviderRunProfile, ProviderRunProjection,
+    restore_provider_config, OrchestrationModelOption, PreparedProviderRun, ProviderActionContext,
+    ProviderRunBlock, ProviderRunCoordinator, ProviderRunProfile, ProviderRunProjection,
     ProviderRunResponseProjector, ProviderToolExecutionRef, ProviderToolLifecycleOutcome,
     RuntimeResponseConfig, BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE,
     COMPUTER_USE_PROVIDER_PROFILE,
@@ -5891,8 +5891,34 @@ impl BlocklistAIController {
             self.fail_restored_provider_run(conversation_id, error, ctx);
             return;
         }
-        let base_provider_config =
-            ResponseStream::resolve_provider_config(snapshot.base_request.model.as_str(), ctx);
+        let provider_configs = (|| {
+            let resolve = |request: &TurnRequest| {
+                restore_provider_config(request, |model| {
+                    ResponseStream::resolve_provider_config(model, ctx)
+                })
+            };
+            Ok::<_, anyhow::Error>((
+                resolve(&snapshot.base_request)?,
+                snapshot
+                    .cli_monitor_request
+                    .as_ref()
+                    .map(&resolve)
+                    .transpose()?,
+                snapshot
+                    .computer_use_request
+                    .as_ref()
+                    .map(&resolve)
+                    .transpose()?,
+            ))
+        })();
+        let (base_provider_config, cli_provider_config, computer_use_provider_config) =
+            match provider_configs {
+                Ok(configs) => configs,
+                Err(error) => {
+                    self.fail_restored_provider_run(conversation_id, error.to_string(), ctx);
+                    return;
+                }
+            };
         // A restored checkpoint may contain an older, larger catalog budget.
         // Reconcile it before any resumed model call and persist the corrected limit.
         snapshot.response_config.max_context_tokens = provider_context_window_tokens(
@@ -5905,14 +5931,6 @@ impl BlocklistAIController {
             self.fail_restored_provider_run(conversation_id, error, ctx);
             return;
         }
-        let cli_provider_config = snapshot
-            .cli_monitor_request
-            .as_ref()
-            .map(|request| ResponseStream::resolve_provider_config(request.model.as_str(), ctx));
-        let computer_use_provider_config = snapshot
-            .computer_use_request
-            .as_ref()
-            .map(|request| ResponseStream::resolve_provider_config(request.model.as_str(), ctx));
         let _ = ctx.spawn(
             async move {
                 let base_runtime =

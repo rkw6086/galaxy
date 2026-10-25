@@ -34,6 +34,7 @@ fn configurable_model(provider: LLMProvider) -> LLMInfo {
         base_model_name: "test model".to_string(),
         id: "test-model".into(),
         reasoning_level: None,
+        reasoning_model_id: None,
         usage_metadata: LLMUsageMetadata {
             request_multiplier: 1,
             credit_multiplier: None,

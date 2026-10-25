@@ -204,6 +204,10 @@ pub struct LLMInfo {
     pub base_model_name: String,
     pub id: LLMId,
     pub reasoning_level: Option<String>,
+    /// Exact provider model identity for grouping locally discovered reasoning variants.
+    /// Older catalogs and ACP retain their existing display-name grouping.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_model_id: Option<String>,
     pub usage_metadata: LLMUsageMetadata,
     pub description: Option<String>,
     pub disable_reason: Option<DisableReason>,
@@ -244,6 +248,8 @@ impl<'de> Deserialize<'de> for LLMInfo {
             id: LLMId,
             #[serde(default)]
             reasoning_level: Option<String>,
+            #[serde(default)]
+            reasoning_model_id: Option<String>,
             usage_metadata: LLMUsageMetadata,
             #[serde(default)]
             description: Option<String>,
@@ -288,6 +294,7 @@ impl<'de> Deserialize<'de> for LLMInfo {
             display_name: wire.display_name,
             id: wire.id,
             reasoning_level: wire.reasoning_level,
+            reasoning_model_id: wire.reasoning_model_id,
             usage_metadata: wire.usage_metadata,
             description: wire.description,
             disable_reason: wire.disable_reason,
@@ -337,9 +344,21 @@ impl LLMInfo {
 
     /// Reasoning menus must never merge models belonging to different connections.
     pub fn reasoning_group_key(&self) -> String {
-        let connection = self.id.as_str().rsplit_once("::connection::")
-            .map(|(_, connection)| connection).unwrap_or_default();
-        format!("{}\u{1f}{}\u{1f}{:?}\u{1f}{connection}", self.base_model_name, self.description.as_deref().unwrap_or_default(), self.provider)
+        let connection = self
+            .id
+            .as_str()
+            .rsplit_once("::connection::")
+            .map(|(_, connection)| connection)
+            .unwrap_or_default();
+        let model_identity = self
+            .reasoning_model_id
+            .as_deref()
+            .unwrap_or(&self.base_model_name);
+        format!(
+            "{model_identity}\u{1f}{}\u{1f}{:?}\u{1f}{connection}",
+            self.description.as_deref().unwrap_or_default(),
+            self.provider
+        )
     }
 
     /// Returns the given model's base name.
@@ -366,6 +385,7 @@ impl LLMInfo {
             base_model_name: llm_name.to_string(),
             id: llm_name.into(),
             reasoning_level: None,
+            reasoning_model_id: None,
             usage_metadata: LLMUsageMetadata {
                 request_multiplier: 1,
                 credit_multiplier: None,
@@ -457,6 +477,7 @@ impl AvailableLLMs {
                 base_model_name: "No models configured".to_owned(),
                 id: "none".to_owned().into(),
                 reasoning_level: None,
+                reasoning_model_id: None,
                 usage_metadata: LLMUsageMetadata {
                     request_multiplier: 1,
                     credit_multiplier: None,
@@ -531,6 +552,7 @@ fn default_computer_use_llms() -> AvailableLLMs {
             base_model_name: "auto".to_owned(),
             id: "computer-use-agent-auto".to_owned().into(),
             reasoning_level: None,
+            reasoning_model_id: None,
             usage_metadata: LLMUsageMetadata {
                 request_multiplier: 1,
                 credit_multiplier: None,
@@ -562,6 +584,7 @@ impl Default for ModelsByFeature {
                 base_model_name: "No models configured".to_owned(),
                 id: "placeholder".to_owned().into(),
                 reasoning_level: None,
+                reasoning_model_id: None,
                 usage_metadata: LLMUsageMetadata {
                     request_multiplier: 1,
                     credit_multiplier: None,
@@ -1010,6 +1033,7 @@ impl LLMPreferences {
                 display_name: model.display_name.clone(),
                 base_model_name: model.display_name.clone(),
                 reasoning_level: None,
+                reasoning_model_id: Some(model_id.clone()),
                 usage_metadata: LLMUsageMetadata {
                     request_multiplier: 1,
                     credit_multiplier: None,
@@ -1317,6 +1341,7 @@ impl LLMPreferences {
                     // actual model ID while using their synthetic key only for selection.
                     let client_config = OpenAIClientConfig {
                         kind: provider_kind,
+                        connection_identity: Some(connection_identity.clone()),
                         base_url: base_url.clone(),
                         api_key: api_key.clone(),
                         project_id: provider_project_id.clone(),
@@ -1339,6 +1364,7 @@ impl LLMPreferences {
                         display_name,
                         base_model_name: model.display_name.clone(),
                         reasoning_level: reasoning_effort,
+                        reasoning_model_id: Some(model.model_id.clone()),
                         usage_metadata: LLMUsageMetadata {
                             request_multiplier: 1,
                             credit_multiplier: None,
@@ -1505,6 +1531,7 @@ impl LLMPreferences {
             display_name,
             base_model_name: base_model_name.to_owned(),
             reasoning_level: reasoning.map(|reasoning| reasoning.name.clone()),
+            reasoning_model_id: None,
             usage_metadata: LLMUsageMetadata {
                 request_multiplier: 1,
                 credit_multiplier: None,
@@ -2239,11 +2266,21 @@ impl LLMPreferences {
             .data()
             .computer_use_model
             .clone()
-            .and_then(|id| {
-                self.get_computer_use_llm_choices(app)
-                    .find(|info| info.id == id)
-            })
+            .and_then(|id| self.computer_use_llm_info_for_id(&id, app))
             .unwrap_or_else(|| self.get_default_computer_use_model())
+    }
+
+    /// Resolve migrated selection IDs before checking computer-use eligibility.
+    /// Looking up the canonical ID in these choices preserves the vision filter
+    /// and any computer-use-specific metadata, including disable reasons.
+    fn computer_use_llm_info_for_id<'a>(
+        &'a self,
+        id: &LLMId,
+        app: &'a AppContext,
+    ) -> Option<&'a LLMInfo> {
+        let canonical_id = self.get_llm_info(id).map_or(id, |info| &info.id);
+        self.get_computer_use_llm_choices(app)
+            .find(|info| &info.id == canonical_id)
     }
 
     /// Returns the default computer use model as a fallback.
@@ -2748,8 +2785,7 @@ impl LLMPreferences {
                     }
                     if let Some(preferred_llm_id) = &profile.data().computer_use_model {
                         if self
-                            .get_computer_use_llm_choices(ctx)
-                            .find(|info| info.id == *preferred_llm_id)
+                            .computer_use_llm_info_for_id(preferred_llm_id, ctx)
                             .filter(|info| {
                                 let has_byok_key =
                                     is_using_api_key_for_provider(&info.provider, ctx);

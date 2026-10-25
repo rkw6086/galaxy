@@ -164,6 +164,7 @@ impl CrosscheckReviewer {
         if let Some(client_config) = llm_prefs.openai_client_config_for_model(model_id) {
             return ProviderConfig::OpenAI(OpenAIClientConfig {
                 kind: client_config.kind,
+                connection_identity: client_config.connection_identity.clone(),
                 base_url: client_config.base_url.clone(),
                 api_key: client_config.api_key.clone(),
                 project_id: client_config.project_id.clone(),

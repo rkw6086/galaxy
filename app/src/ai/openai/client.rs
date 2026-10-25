@@ -9,6 +9,8 @@ use crate::settings::OpenAIProviderKind;
 #[derive(Clone, Debug)]
 pub struct OpenAIClientConfig {
     pub kind: OpenAIProviderKind,
+    /// Stable registry connection identity, excluding credentials.
+    pub connection_identity: Option<String>,
     pub base_url: String,
     pub api_key: Option<String>,
     pub project_id: Option<String>,
