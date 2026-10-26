@@ -4,6 +4,7 @@ import { render, Text, Box } from "ink";
 import Spinner from "ink-spinner";
 import { spawn, execFileSync, execSync } from "child_process";
 import path from "path";
+import { prepareGalaxyBuild } from "../../lib/prepare-galaxy-build.mjs";
 import fs from "fs";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -187,46 +188,13 @@ function App() {
 
   useEffect(() => {
     (async () => {
+      let prepared: Awaited<ReturnType<typeof prepareGalaxyBuild>> | undefined;
       try {
         const appName = "Galaxy.app";
-        const bundleDir = path.join(WORKSPACE_ROOT, "target/release/bundle/osx");
-        const appPath = path.join(bundleDir, appName);
         const destPath = path.join("/Applications", appName);
 
-        // ─── Step 0: Check working directory ───────────────────────────
-        updateStep(0, { status: "running" });
-        const changes = execFileSync("git", ["status", "--short"], {
-          cwd: WORKSPACE_ROOT,
-          encoding: "utf8",
-        }).trimEnd();
-        if (changes) {
-          for (const line of changes.split("\n")) appendLog(0, line);
-          throw new Error("Working directory has uncommitted changes. Commit or stash them before installing.");
-        }
-        updateStep(0, { status: "done" });
-
-        // ─── Step 1: Pull current branch ────────────────────────────────
-        updateStep(1, { status: "running" });
-        const branch = execSync("git branch --show-current", {
-          cwd: WORKSPACE_ROOT,
-          encoding: "utf8",
-        }).trim();
-        if (!branch) throw new Error("Cannot install from a detached HEAD");
-        await runCommandStreaming(
-          `git pull --ff-only origin "${branch}"`,
-          WORKSPACE_ROOT,
-          (line) => appendLog(1, line)
-        );
-        updateStep(1, { status: "done", detail: branch });
-
-        // ─── Step 2: Bundle ─────────────────────────────────────────────
-        updateStep(2, { status: "running" });
-        await runCommandStreaming(
-          "cargo bundle --release --format osx --bin galaxy-oss --package galaxy --features release_bundle,extern_plist",
-          WORKSPACE_ROOT,
-          (line) => appendLog(2, line)
-        );
-        updateStep(2, { status: "done" });
+        prepared = await prepareGalaxyBuild(WORKSPACE_ROOT, { updateStep, appendLog });
+        const { appPath } = prepared;
 
         // ─── Step 3: Copy to /Applications ─────────────────────────────
         updateStep(3, { status: "running" });
@@ -286,6 +254,8 @@ function App() {
               : s
           )
         );
+      } finally {
+        await prepared?.release();
       }
     })();
   }, []);

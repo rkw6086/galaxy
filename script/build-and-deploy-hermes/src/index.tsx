@@ -6,6 +6,7 @@ import { spawn, execSync } from "child_process";
 import { statSync, readFileSync } from "fs";
 import { createHash } from "crypto";
 import path from "path";
+import { prepareGalaxyBuild } from "../../lib/prepare-galaxy-build.mjs";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -307,47 +308,17 @@ function App() {
 
   useEffect(() => {
     (async () => {
+      let prepared: Awaited<ReturnType<typeof prepareGalaxyBuild>> | undefined;
       try {
-        // ─── Step 0: Check working directory ───────────────────────────
-        updateStep(0, { status: "running" });
-        await runCommandStreaming(
-          `if [ -n "$(git status --porcelain)" ]; then git status --short; exit 1; fi`,
-          WORKSPACE_ROOT,
-          (line) => appendLog(0, line)
-        );
-        updateStep(0, { status: "done" });
-
-        // ─── Step 1: Pull current branch ────────────────────────────────
-        updateStep(1, { status: "running" });
-        const branch = execSync("git branch --show-current", {
-          cwd: WORKSPACE_ROOT,
-          encoding: "utf8",
-        }).trim();
-        if (!branch) throw new Error("Cannot deploy from a detached HEAD");
-        await runCommandStreaming(
-          `git pull --ff-only origin "${branch}"`,
-          WORKSPACE_ROOT,
-          (line) => appendLog(1, line)
-        );
-        updateStep(1, { status: "done", detail: branch });
-
-        // ─── Step 2: Bundle ─────────────────────────────────────────────
-        updateStep(2, { status: "running" });
-        await runCommandStreaming(
-          "cargo bundle --release --bin galaxy-oss --package galaxy --features release_bundle,extern_plist",
-          WORKSPACE_ROOT,
-          (line) => appendLog(2, line)
-        );
-        updateStep(2, { status: "done" });
+        prepared = await prepareGalaxyBuild(WORKSPACE_ROOT, { updateStep, appendLog });
+        const { appPath } = prepared;
 
         // ─── Step 3: Sign and zip ───────────────────────────────────────
         updateStep(3, { status: "running" });
 
         // Distribution bundles must use a release profile so rust-embed includes assets in the
         // executable instead of resolving them from the build machine's checkout at runtime.
-        const appDir = path.join(WORKSPACE_ROOT, "target/release/bundle/osx");
-        const appPath = path.join(appDir, "Galaxy.app");
-        const zipPath = path.join(WORKSPACE_ROOT, "Galaxy.zip");
+        const zipPath = path.join(path.dirname(appPath), "Galaxy.zip");
 
         await runCommandStreaming(
           `/usr/bin/codesign --force --deep --sign - "${appPath}"`,
@@ -546,6 +517,7 @@ function App() {
         // Cleanup zip
         execSync(`rm -f "${zipPath}"`, { stdio: "pipe" });
       } catch (err: any) {
+        process.exitCode = 1;
         // Mark current running step as error
         setSteps((prev) =>
           prev.map((s) =>
@@ -554,12 +526,14 @@ function App() {
               : s
           )
         );
+      } finally {
+        await prepared?.release();
       }
     })();
   }, []);
 
-  const allDone = steps.every((s) => s.status === "done" || s.status === "error");
   const hasError = steps.some((s) => s.status === "error");
+  const allDone = hasError || steps.every((s) => s.status === "done");
 
   return (
     <Box flexDirection="column" padding={1}>
