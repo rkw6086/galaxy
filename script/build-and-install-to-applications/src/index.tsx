@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { render, Text, Box } from "ink";
 import Spinner from "ink-spinner";
-import { spawn, execFileSync, execSync } from "child_process";
+import { spawn, execFileSync } from "child_process";
+import { randomUUID } from "crypto";
 import path from "path";
 import { prepareGalaxyBuild } from "../../lib/prepare-galaxy-build.mjs";
 import fs from "fs";
@@ -27,14 +28,15 @@ const MAX_LOG_LINES = 15;
 
 function runCommandStreaming(
   cmd: string,
+  args: string[],
   cwd: string,
   onLog: (line: string) => void,
   interactive = false
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, {
+    const child = spawn(cmd, args, {
       cwd,
-      shell: true,
+      shell: false,
       stdio: interactive ? "inherit" : ["ignore", "pipe", "pipe"],
     });
 
@@ -67,11 +69,27 @@ function runCommandStreaming(
       stdout.flush();
       stderr.flush();
       if (code === 0) resolve();
-      else reject(new Error(`Command failed with exit code ${code}`));
+      else reject(new Error(`${cmd} failed with exit code ${code}`));
     });
 
     child.on("error", reject);
   });
+}
+
+function removeBundleArtifacts(directory: string): void {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (
+      entry.name === "__MACOSX" ||
+      entry.name === ".DS_Store" ||
+      entry.name.startsWith("._")
+    ) {
+      fs.rmSync(entryPath, { recursive: true, force: true });
+    } else if (entry.isDirectory()) {
+      // Do not follow bundle symlinks outside the private installation copy.
+      removeBundleArtifacts(entryPath);
+    }
+  }
 }
 
 function isAppRunning(processName: string): boolean {
@@ -168,7 +186,8 @@ function App() {
     { label: "Check working directory", status: "pending" },
     { label: "Pull current branch", status: "pending" },
     { label: "Bundle Galaxy", status: "pending" },
-    { label: "Copy to /Applications", status: "pending" },
+    { label: "Clean and sign Galaxy", status: "pending" },
+    { label: "Verify and install in /Applications", status: "pending" },
     { label: "Launch Galaxy", status: "pending" },
   ]);
 
@@ -196,14 +215,34 @@ function App() {
         prepared = await prepareGalaxyBuild(WORKSPACE_ROOT, { updateStep, appendLog });
         const { appPath } = prepared;
 
-        // ─── Step 3: Copy to /Applications ─────────────────────────────
+        // ─── Step 3: Clean and sign the private bundle copy ────────────
         updateStep(3, { status: "running" });
 
         if (!fs.existsSync(appPath)) {
           throw new Error(`Built app not found at ${appPath}`);
         }
 
-        await stopApp("Galaxy", (line) => appendLog(3, line));
+        appendLog(3, "Removing macOS archive artifacts...");
+        removeBundleArtifacts(appPath);
+        appendLog(3, "Clearing extended attributes, including quarantine...");
+        await runCommandStreaming(
+          "/usr/bin/xattr", ["-cr", appPath],
+          WORKSPACE_ROOT, (line) => appendLog(3, line)
+        );
+        appendLog(3, "Applying an ad-hoc code signature...");
+        await runCommandStreaming(
+          "/usr/bin/codesign", ["--force", "--deep", "--sign", "-", appPath],
+          WORKSPACE_ROOT, (line) => appendLog(3, line)
+        );
+        await runCommandStreaming(
+          "/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath],
+          WORKSPACE_ROOT, (line) => appendLog(3, line)
+        );
+        updateStep(3, { status: "done" });
+
+        // ─── Step 4: Verify the staged copy before replacing the app ───
+        updateStep(4, { status: "running" });
+        const stagedPath = path.join(path.dirname(destPath), `.Galaxy.app.${randomUUID()}.new`);
 
         let needsAdministrator = false;
         try {
@@ -212,39 +251,53 @@ function App() {
         } catch {
           needsAdministrator = true;
         }
-        const installPrefix = needsAdministrator ? "sudo -n " : "";
         if (needsAdministrator) {
-          appendLog(3, "Administrator password required to install in /Applications");
+          appendLog(4, "Administrator password required to install in /Applications");
           await runCommandStreaming(
-            "sudo -v",
+            "/usr/bin/sudo", ["-v"],
             WORKSPACE_ROOT,
-            (line) => appendLog(3, line),
+            (line) => appendLog(4, line),
             true
           );
         }
 
-        if (fs.existsSync(destPath)) {
-          appendLog(3, `Removing existing ${destPath}`);
-          await runCommandStreaming(
-            `${installPrefix}rm -rf "${destPath}"`,
+        const runInstallCommand = (command: string, args: string[]) =>
+          runCommandStreaming(
+            needsAdministrator ? "/usr/bin/sudo" : command,
+            needsAdministrator ? ["-n", command, ...args] : args,
             WORKSPACE_ROOT,
-            (line) => appendLog(3, line)
+            (line) => appendLog(4, line)
           );
+
+        try {
+          appendLog(4, `Staging ${appPath} → ${stagedPath}`);
+          await runInstallCommand("/usr/bin/ditto", [appPath, stagedPath]);
+          await runCommandStreaming(
+            "/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=2", stagedPath],
+            WORKSPACE_ROOT, (line) => appendLog(4, line)
+          );
+
+          await stopApp("galaxy-oss", (line) => appendLog(4, line));
+          if (fs.existsSync(destPath)) {
+            appendLog(4, `Removing existing ${destPath}`);
+            await runInstallCommand("/bin/rm", ["-rf", destPath]);
+          }
+          await runInstallCommand("/bin/mv", [stagedPath, destPath]);
+        } finally {
+          if (fs.existsSync(stagedPath)) {
+            await runInstallCommand("/bin/rm", ["-rf", stagedPath]);
+          }
         }
 
-        appendLog(3, `Copying ${appPath} → ${destPath}`);
+        updateStep(4, { status: "done", detail: destPath });
+
+        // ─── Step 5: Launch ────────────────────────────────────────────
+        updateStep(5, { status: "running" });
         await runCommandStreaming(
-          `${installPrefix}ditto "${appPath}" "${destPath}"`,
-          WORKSPACE_ROOT,
-          (line) => appendLog(3, line)
+          "/usr/bin/open", [destPath],
+          WORKSPACE_ROOT, (line) => appendLog(5, line)
         );
-
-        updateStep(3, { status: "done", detail: destPath });
-
-        // ─── Step 4: Launch ────────────────────────────────────────────
-        updateStep(4, { status: "running" });
-        execSync(`open "${destPath}"`, { stdio: "ignore" });
-        updateStep(4, { status: "done" });
+        updateStep(5, { status: "done" });
       } catch (err: any) {
         process.exitCode = 1;
         setSteps((prev) =>
