@@ -182,6 +182,7 @@ function StepLine({ step }: { step: Step }) {
 }
 
 function App() {
+  const [failureMessage, setFailureMessage] = useState<string>();
   const [steps, setSteps] = useState<Step[]>([
     { label: "Check working directory", status: "pending" },
     { label: "Pull current branch", status: "pending" },
@@ -202,6 +203,22 @@ function App() {
         const logs = [...(s.logs || []), line].slice(-MAX_LOG_LINES);
         return { ...s, logs };
       })
+    );
+  }, []);
+
+  const reportFailure = useCallback((error: unknown, context?: string) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    const message = context ? `${context}: ${detail}` : detail;
+    process.exitCode = 1;
+    // Preserve the diagnostic even if the process exits before Ink redraws.
+    process.stderr.write(`Installation failed: ${message}\n`);
+    setFailureMessage((previous) => previous ?? message);
+    setSteps((previous) =>
+      previous.map((step) =>
+        step.status === "running"
+          ? { ...step, status: "error" as StepStatus, detail: message }
+          : step
+      )
     );
   }, []);
 
@@ -298,22 +315,19 @@ function App() {
           WORKSPACE_ROOT, (line) => appendLog(5, line)
         );
         updateStep(5, { status: "done" });
-      } catch (err: any) {
-        process.exitCode = 1;
-        setSteps((prev) =>
-          prev.map((s) =>
-            s.status === "running"
-              ? { ...s, status: "error" as StepStatus, detail: err.message }
-              : s
-          )
-        );
+      } catch (error) {
+        reportFailure(error);
       } finally {
-        await prepared?.release();
+        try {
+          await prepared?.release();
+        } catch (error) {
+          reportFailure(error, "Failed to remove temporary build files");
+        }
       }
     })();
-  }, []);
+  }, [reportFailure]);
 
-  const hasError = steps.some((s) => s.status === "error");
+  const hasError = failureMessage !== undefined || steps.some((s) => s.status === "error");
   const allDone = hasError || steps.every((s) => s.status === "done");
 
   return (
@@ -332,7 +346,7 @@ function App() {
         <Box marginTop={1}>
           {hasError ? (
             <Text color="red" bold>
-              ✗ Installation failed.
+              ✗ Installation failed{failureMessage ? `: ${failureMessage}` : "."}
             </Text>
           ) : (
             <Text color="green" bold>

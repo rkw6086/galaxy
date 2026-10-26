@@ -165,9 +165,10 @@ export async function prepareGalaxyBuild(workspaceRoot, observer = {}, options =
   const update = typeof observer === 'function' ? observer : observer.updateStep?.bind(observer) || (() => {});
   const log = typeof observer === 'function' ? (() => {}) : observer.appendLog?.bind(observer) || observer.log?.bind(observer) || (() => {});
   const command = (name, args, step) => run(name, args, { cwd: root, env, capture: !(name === 'cargo' && args[0] === 'bundle' && args.includes('--release')), onLog: (line) => log(step, line) });
+  update(0, { status: 'running', detail: 'Acquiring build lock' });
   const unlock = await acquireLock(cache);
   try {
-    update(0, { status: 'running' });
+    update(0, { status: 'running', detail: undefined });
     const changes = await command('git', ['status', '--porcelain', '--untracked-files=all'], 0);
     if (changes.trim()) {
       for (const line of changes.split('\n')) log(0, line);

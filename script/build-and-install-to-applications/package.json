@@ -5,7 +5,8 @@
   "packageManager": "yarn@1.22.22",
   "type": "module",
   "scripts": {
-    "start": "tsx src/index.tsx"
+    "start": "tsx src/index.tsx",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "ink": "^5.1.0",
