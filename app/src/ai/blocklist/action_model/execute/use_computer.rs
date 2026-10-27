@@ -44,8 +44,14 @@ impl UseComputerExecutor {
         // Gate per-window targeting behind the client feature flag. When off, the actor forces the
         // legacy full-screen path so results are identical to the pre-existing implementation.
         let background_enabled = FeatureFlag::BackgroundComputerUse.is_enabled();
+        // Actor initialization reads the macOS keyboard layout through Carbon APIs that require
+        // the main thread. Construct it here, just like RequestComputerUseExecutor, before
+        // moving the Send actor into the background action future.
+        #[cfg(target_os = "macos")]
+        let mut actor = computer_use::create_actor();
         ActionExecution::new_async(
             async move {
+                #[cfg(not(target_os = "macos"))]
                 let mut actor = computer_use::create_actor();
                 match actor
                     .perform_actions(

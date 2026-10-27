@@ -703,6 +703,74 @@ pub fn test_restore_completed_blocks() {
 }
 
 #[test]
+fn restored_agent_command_snapshots_do_not_emit_live_command_events() {
+    for shared_session in [false, true] {
+        let (events_tx, events_rx) = async_channel::unbounded();
+        let mut block_list = new_bootstrapped_block_list(
+            None,
+            None,
+            ChannelEventListener::builder_for_test()
+                .with_terminal_events_tx(events_tx)
+                .build(),
+        );
+        while events_rx.try_recv().is_ok() {}
+
+        let conversation_id = AIConversationId::new();
+        let action_id = AIAgentActionId::from("saved-command".to_owned());
+        let metadata = SerializedAIMetadata::from(AgentInteractionMetadata::new_hidden(
+            action_id.clone(),
+            conversation_id,
+        ));
+        let mut snapshot = SerializedBlock::new_for_test(b"echo saved".to_vec(), b"saved".to_vec());
+        snapshot.ai_metadata = Some(serde_json::to_string(&metadata).unwrap());
+        snapshot.agent_view_visibility =
+            Some(AgentViewVisibility::new_from_conversation(conversation_id).into());
+
+        if shared_session {
+            block_list.load_shared_session_scrollback(&[snapshot.clone()]);
+        } else {
+            block_list.insert_restored_block(&snapshot);
+        }
+
+        let restored = block_list.block_with_id(&snapshot.id).unwrap();
+        assert_eq!(restored.requested_command_action_id(), Some(&action_id));
+        assert_eq!(restored.ai_conversation_id(), Some(conversation_id));
+        assert_eq!(restored.is_restored(), false);
+        assert_eq!(restored.completed_ts(), snapshot.completed_ts.as_ref());
+        let mut restored_completion_count = 0;
+        while let Ok(event) = events_rx.try_recv() {
+            match event {
+                Event::AfterBlockStarted { .. } => {
+                    panic!("snapshot replay must not start a live command")
+                }
+                Event::BlockCompleted(completed) if completed.block_id == snapshot.id => {
+                    assert!(matches!(completed.block_type, BlockType::Restored));
+                    restored_completion_count += 1;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(restored_completion_count, 1);
+
+        // A subsequent actual command must still drive the normal lifecycle.
+        insert_block(&mut block_list, "echo live", "live");
+        let mut live_started = false;
+        let mut live_completed = false;
+        while let Ok(event) = events_rx.try_recv() {
+            match event {
+                Event::AfterBlockStarted { .. } => live_started = true,
+                Event::BlockCompleted(completed) => {
+                    live_completed |= matches!(completed.block_type, BlockType::User(_));
+                }
+                _ => {}
+            }
+        }
+        assert!(live_started);
+        assert!(live_completed);
+    }
+}
+
+#[test]
 pub fn test_restore_blocks_with_local_status() {
     let (events_tx, events_rx) = async_channel::unbounded();
     let channel_event_proxy = ChannelEventListener::builder_for_test()

@@ -25,6 +25,10 @@ pub fn background_supported() -> bool {
     true
 }
 
+pub fn request_screen_capture_access() -> Result<(), String> {
+    screenshot::request_access()
+}
+
 /// Enumerates the on-screen windows as crate-level [`crate::WindowInfo`] records.
 pub fn enumerate_windows() -> Vec<crate::WindowInfo> {
     window::enumerate_windows()
@@ -134,6 +138,12 @@ impl super::Actor for Actor {
         actions: &[TargetedAction],
         options: Options,
     ) -> Result<ActionResult, String> {
+        // Permission can be revoked between turns. Stop before posting input when we can no
+        // longer observe its result; only the initial request may trigger a permission prompt.
+        if !actions.is_empty() || options.screenshot_params.is_some() {
+            screenshot::check_access()?;
+        }
+
         // When background computer use is disabled, force the legacy full-screen path: ignore any
         // window target, deliver events through the HID tap, and treat coordinates as global
         // pixels. This keeps behavior byte-identical to the pre-existing implementation.

@@ -147,7 +147,6 @@ async fn main() {
     }
 
     let target = cli.target();
-    let mut actor = computer_use::create_actor();
 
     let (actions, screenshot_params, output_path) = match cli.command {
         Command::Click { x, y, button } => {
@@ -224,6 +223,13 @@ async fn main() {
         background_enabled: true,
     };
 
+    // A manual CLI invocation also explicitly initiates computer use, so it must be able to
+    // request access before the actor's nonprompting checks.
+    if let Err(error) = computer_use::request_screen_capture_access() {
+        eprintln!("Error: {error}");
+        std::process::exit(1);
+    }
+    let mut actor = computer_use::create_actor();
     match actor.perform_actions(&actions, options).await {
         Ok(result) => {
             if let Some(pos) = result.cursor_position {

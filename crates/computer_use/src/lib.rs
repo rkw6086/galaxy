@@ -37,12 +37,26 @@ pub fn is_supported_on_current_platform() -> bool {
 }
 
 /// Returns an actor that can perform actions on the computer.
+///
+/// On macOS, create the actor on the main thread before moving it into a background action
+/// future: initialization reads the keyboard layout through main-thread-only Carbon APIs.
 pub fn create_actor() -> Box<dyn Actor> {
     if cfg!(feature = "test-util") {
         Box::new(noop::Actor::new())
     } else {
         Box::new(imp::Actor::new())
     }
+}
+
+/// Requests screen capture access when computer use is explicitly initiated. Subsequent action
+/// batches only check permission and must not reopen the system permission prompt.
+pub fn request_screen_capture_access() -> Result<(), String> {
+    #[cfg(macos)]
+    if !cfg!(feature = "test-util") {
+        return imp::request_screen_capture_access();
+    }
+
+    Ok(())
 }
 
 /// Returns whether background, per-window control (driving a specific window without raising it

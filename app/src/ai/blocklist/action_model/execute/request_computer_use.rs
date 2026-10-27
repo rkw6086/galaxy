@@ -95,15 +95,19 @@ impl RequestComputerUseExecutor {
         let background_enabled = FeatureFlag::BackgroundComputerUse.is_enabled();
         ActionExecution::Async {
             execute_future: Box::pin(async move {
-                let result = actor
-                    .perform_actions(
-                        &[],
-                        computer_use::Options {
-                            screenshot_params,
-                            background_enabled,
-                        },
-                    )
-                    .await;
+                let result = async {
+                    computer_use::request_screen_capture_access()?;
+                    actor
+                        .perform_actions(
+                            &[],
+                            computer_use::Options {
+                                screenshot_params,
+                                background_enabled,
+                            },
+                        )
+                        .await
+                }
+                .await;
                 (result, platform)
             }),
             on_complete: Box::new(|action_result, _ctx| match action_result {

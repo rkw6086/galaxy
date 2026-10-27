@@ -2971,6 +2971,9 @@ impl BlockList {
             Some(prompt_metadata),
             block.is_local,
         );
+        // Restoring a snapshot rebuilds terminal state; it does not execute its command.
+        // Keep this separate from bootstrap_stage, which also controls block appearance.
+        self.active_block_mut().set_replaying_snapshot(true);
         if let Some(shell_host) = &block.shell_host {
             self.active_block_mut().set_shell_host(shell_host.clone());
         }
@@ -2981,6 +2984,7 @@ impl BlockList {
             None => {
                 // The start_ts is set iff the block was started. So if it's not set, we're done.
                 self.update_active_block_height();
+                self.active_block_mut().set_replaying_snapshot(false);
                 return;
             }
             Some(start_ts) => start_ts,
@@ -3035,6 +3039,7 @@ impl BlockList {
             None => {
                 // The completed_ts is set iff the block was `finish`ed. So if it's not set, we're done.
                 self.update_active_block_height();
+                self.active_block_mut().set_replaying_snapshot(false);
                 return;
             }
             Some(completed_ts) => completed_ts,
@@ -3061,6 +3066,7 @@ impl BlockList {
                 self.active_block_mut().set_prompt_snapshot(prompt_snapshot);
             }
         }
+        self.active_block_mut().set_replaying_snapshot(false);
     }
 
     /// Marks the end of the active block and creates the next block.

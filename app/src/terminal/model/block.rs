@@ -301,6 +301,9 @@ pub struct Block {
     render_delay_complete: Arc<AtomicBool>,
     was_long_running: AtomicBool,
     bootstrap_stage: BootstrapStage,
+    /// Snapshot replay must not emit live command lifecycle events, even when using
+    /// the normal block appearance after bootstrapping.
+    is_replaying_snapshot: bool,
 
     show_bootstrap_block: bool,
     show_in_band_command_blocks: bool,
@@ -509,6 +512,9 @@ pub struct PromptInfo {
 
 impl From<&Block> for BlockType {
     fn from(block: &Block) -> Self {
+        if block.is_replaying_snapshot {
+            return BlockType::Restored;
+        }
         if block.is_for_in_band_command {
             return BlockType::InBandCommand;
         }
@@ -980,6 +986,7 @@ impl Block {
             background_executor,
             event_proxy,
             bootstrap_stage,
+            is_replaying_snapshot: false,
             show_bootstrap_block: show_warp_bootstrap_input,
             show_in_band_command_blocks,
             show_memory_stats,
@@ -1943,6 +1950,10 @@ impl Block {
 
     pub fn bootstrap_stage(&self) -> BootstrapStage {
         self.bootstrap_stage
+    }
+
+    pub(super) fn set_replaying_snapshot(&mut self, is_replaying_snapshot: bool) {
+        self.is_replaying_snapshot = is_replaying_snapshot;
     }
 
     pub(super) fn should_emit_visible_bootstrap_block_event(&self) -> bool {
@@ -2986,7 +2997,9 @@ impl Block {
         self.header_grid.preexec(data.clone());
 
         let is_for_in_band_command = command_executor::is_in_band_command(data.command.as_str());
-        if self.bootstrap_stage() == BootstrapStage::PostBootstrapPrecmd {
+        if self.bootstrap_stage() == BootstrapStage::PostBootstrapPrecmd
+            && !self.is_replaying_snapshot
+        {
             self.event_proxy
                 .send_terminal_event(Event::AfterBlockStarted {
                     block_id: self.id.clone(),

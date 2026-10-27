@@ -3,15 +3,14 @@
 //! This module provides a way to translate characters to macOS virtual keycodes.
 //! The translation depends on the current keyboard layout.
 //!
-//! The Carbon APIs used for translation (`TISCopyCurrentKeyboardInputSource`,
-//! `UCKeyTranslate`) are not thread-safe, so all cache builds are serialized through a
-//! process-wide mutex. This matters because concurrent computer-use agents can build the cache
-//! from different worker threads at the same time.
+//! The Carbon Text Input Source APIs must run on the main thread. Serializing worker calls
+//! through a mutex does not satisfy their internal main-queue assertion. Build the cache while
+//! creating the actor on the main thread, then move the actor to a worker for input/capture.
 
 use std::collections::HashMap;
 use std::ptr::NonNull;
-use std::sync::Mutex;
 
+use objc2::MainThreadMarker;
 use objc2_core_foundation::{CFData, CFRetained, CFString, CFType};
 use objc2_core_graphics::CGKeyCode;
 
@@ -60,20 +59,17 @@ const SHIFT_MODIFIER: u32 = 1 << 1;
 
 /// Builds a character-to-keycode cache for the current keyboard layout.
 ///
-/// The Carbon translation APIs are not thread-safe, so the build is serialized through a
-/// process-wide mutex. The work runs on the calling thread rather than being dispatched to the
-/// main thread: in the headless `agent run` CLI the main thread never services the GCD main
-/// queue, so a synchronous main-queue dispatch would deadlock.
+/// Callers must initialize the actor on the main thread. Refuse an accidental worker-thread
+/// build before entering Carbon, which can abort the process rather than return an error. Do not
+/// synchronously dispatch to the main queue: headless CLI callers may not service that queue.
 /// TODO(QUALITY-271): Store the modifier keys as well.
 pub fn build_cache() -> HashMap<char, CGKeyCode> {
-    static BUILD_LOCK: Mutex<()> = Mutex::new(());
-    let _guard = BUILD_LOCK.lock().unwrap();
-    build_cache_locked()
-}
-
-/// Builds the cache while the process-wide build lock is held, serializing access to the
-/// non-thread-safe Carbon APIs.
-fn build_cache_locked() -> HashMap<char, CGKeyCode> {
+    let Some(_main_thread) = MainThreadMarker::new() else {
+        log::error!(
+            "Computer-use actors must be initialized on the main thread; character keycode mapping is unavailable"
+        );
+        return HashMap::new();
+    };
     let mut cache = HashMap::new();
 
     // Get the keyboard layout data.
@@ -110,11 +106,7 @@ fn build_cache_locked() -> HashMap<char, CGKeyCode> {
 unsafe fn get_keyboard_layout_data() -> Option<CFRetained<CFData>> {
     // TISCopy* functions follow CF "Copy" semantics - caller owns the reference.
     // Wrap in CFRetained so they're released when dropped.
-    let source = unsafe {
-        CFRetained::from_raw(
-            TISCopyCurrentKeyboardInputSource().expect("Attempted to create a NULL object."),
-        )
-    };
+    let source = unsafe { CFRetained::from_raw(TISCopyCurrentKeyboardInputSource()?) };
     let mut layout_data =
         unsafe { TISGetInputSourceProperty(&source, kTISPropertyUnicodeKeyLayoutData) };
 
@@ -123,12 +115,8 @@ unsafe fn get_keyboard_layout_data() -> Option<CFRetained<CFData>> {
     let _layout_source;
     if layout_data.is_null() {
         // Keep this alive until we're done with layout_data.
-        _layout_source = unsafe {
-            CFRetained::from_raw(
-                TISCopyCurrentKeyboardLayoutInputSource()
-                    .expect("Attempted to create a NULL object."),
-            )
-        };
+        _layout_source =
+            unsafe { CFRetained::from_raw(TISCopyCurrentKeyboardLayoutInputSource()?) };
         layout_data =
             unsafe { TISGetInputSourceProperty(&_layout_source, kTISPropertyUnicodeKeyLayoutData) };
     }
