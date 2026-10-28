@@ -24,10 +24,10 @@ use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
 // ============================================================================
 
 #[test]
-fn get_skills_for_working_directory_scopes_subdirectory_skills() {
+fn get_skills_for_working_directory_includes_all_monorepo_skills() {
     // This test verifies the key scoping behavior:
     // - Root skills are visible from anywhere in the repo
-    // - Subdirectory skills are only visible when working_directory is within that subdirectory
+    // - Nested package skills are visible from the root and sibling packages in the same repo
 
     // Use real temp directories so DetectedRepositories can canonicalize paths
     // and correctly report repo_root, which controls ancestor-vs-descendant scoping.
@@ -35,15 +35,18 @@ fn get_skills_for_working_directory_scopes_subdirectory_skills() {
     let temp = TempDir::new().unwrap();
     let base = dunce::canonicalize(temp.path()).unwrap();
     let repo = base.join("repo");
-    let frontend_dir = repo.join("packages/frontend");
+    let server_dir = repo.join("app/server");
     let backend_dir = repo.join("packages/backend");
-    fs::create_dir_all(&frontend_dir).unwrap();
+    let other_repo = base.join("other-repo");
+    fs::create_dir_all(&server_dir).unwrap();
     fs::create_dir_all(&backend_dir).unwrap();
 
     // Create mock skills
     let root_skill_path = LocalOrRemotePath::Local(repo.join(".agents/skills/root-skill/SKILL.md"));
-    let frontend_skill_path =
-        LocalOrRemotePath::Local(frontend_dir.join(".agents/skills/frontend-skill/SKILL.md"));
+    let server_skill_path =
+        LocalOrRemotePath::Local(server_dir.join(".agents/skills/run-channel-verifier/SKILL.md"));
+    let other_skill_path =
+        LocalOrRemotePath::Local(other_repo.join(".agents/skills/unrelated/SKILL.md"));
 
     let root_skill = ParsedSkill {
         name: "root-skill".to_string(),
@@ -55,11 +58,11 @@ fn get_skills_for_working_directory_scopes_subdirectory_skills() {
         scope: SkillScope::Project,
     };
 
-    let frontend_skill = ParsedSkill {
-        name: "frontend-skill".to_string(),
-        description: "A frontend skill".to_string(),
-        path: frontend_skill_path.clone(),
-        content: "# Frontend skill".to_string(),
+    let server_skill = ParsedSkill {
+        name: "run-channel-verifier".to_string(),
+        description: "A server skill".to_string(),
+        path: server_skill_path.clone(),
+        content: "# Server skill".to_string(),
         line_range: None,
         provider: SkillProvider::Agents,
         scope: SkillScope::Project,
@@ -73,13 +76,29 @@ fn get_skills_for_working_directory_scopes_subdirectory_skills() {
         .or_default()
         .insert(root_skill_path.clone());
     directory_skills
-        .entry(LocalOrRemotePath::Local(frontend_dir.clone()))
+        .entry(LocalOrRemotePath::Local(server_dir.clone()))
         .or_default()
-        .insert(frontend_skill_path.clone());
+        .insert(server_skill_path.clone());
 
     let mut skills_by_path: HashMap<LocalOrRemotePath, ParsedSkill> = HashMap::new();
     skills_by_path.insert(root_skill_path.clone(), root_skill);
-    skills_by_path.insert(frontend_skill_path.clone(), frontend_skill);
+    skills_by_path.insert(server_skill_path.clone(), server_skill);
+    directory_skills
+        .entry(LocalOrRemotePath::Local(other_repo))
+        .or_default()
+        .insert(other_skill_path.clone());
+    skills_by_path.insert(
+        other_skill_path.clone(),
+        ParsedSkill {
+            name: "unrelated".to_string(),
+            description: "Another project's skill".to_string(),
+            path: other_skill_path,
+            content: "# Another project".to_string(),
+            line_range: None,
+            provider: SkillProvider::Agents,
+            scope: SkillScope::Project,
+        },
+    );
 
     App::test((), |mut app| async move {
         app.add_singleton_model(DirectoryWatcher::new);
@@ -104,27 +123,25 @@ fn get_skills_for_working_directory_scopes_subdirectory_skills() {
             manager.skills_by_path = skills_by_path;
         });
 
-        // Test 1: From frontend directory, should see both root and frontend skills
-        let skills_from_frontend = skill_manager_handle.read(&app, |manager, ctx| {
+        // Test 1: From server directory, should see both root and server skills
+        let skills_from_server = skill_manager_handle.read(&app, |manager, ctx| {
             manager.get_skills_for_working_directory(
-                Some(&LocalOrRemotePath::Local(frontend_dir.clone())),
+                Some(&LocalOrRemotePath::Local(server_dir.clone())),
                 ctx,
             )
         });
-        let names_from_frontend: Vec<&str> = skills_from_frontend
-            .iter()
-            .map(|s| s.name.as_str())
-            .collect();
+        let names_from_server: Vec<&str> =
+            skills_from_server.iter().map(|s| s.name.as_str()).collect();
         assert!(
-            names_from_frontend.contains(&"root-skill"),
-            "Root skill should be visible from frontend dir"
+            names_from_server.contains(&"root-skill"),
+            "Root skill should be visible from server dir"
         );
         assert!(
-            names_from_frontend.contains(&"frontend-skill"),
-            "Frontend skill should be visible from frontend dir"
+            names_from_server.contains(&"run-channel-verifier"),
+            "Server skill should be visible from server dir"
         );
 
-        // Test 2: From backend directory, should only see root skill (not frontend skill)
+        // Test 2: From a sibling package, both project skills remain available.
         let skills_from_backend = skill_manager_handle.read(&app, |manager, ctx| {
             manager.get_skills_for_working_directory(
                 Some(&LocalOrRemotePath::Local(backend_dir.clone())),
@@ -140,11 +157,12 @@ fn get_skills_for_working_directory_scopes_subdirectory_skills() {
             "Root skill should be visible from backend dir"
         );
         assert!(
-            !names_from_backend.contains(&"frontend-skill"),
-            "Frontend skill should NOT be visible from backend dir"
+            names_from_backend.contains(&"run-channel-verifier"),
+            "Nested skill should be visible from a sibling package"
         );
+        assert!(!names_from_backend.contains(&"unrelated"));
 
-        // Test 3: From repo root, should only see root skill (not frontend skill)
+        // Test 3: The monorepo root can discover a skill under app/server/.agents.
         let skills_from_root = skill_manager_handle.read(&app, |manager, ctx| {
             manager.get_skills_for_working_directory(
                 Some(&LocalOrRemotePath::Local(repo.clone())),
@@ -157,9 +175,28 @@ fn get_skills_for_working_directory_scopes_subdirectory_skills() {
             "Root skill should be visible from repo root"
         );
         assert!(
-            !names_from_root.contains(&"frontend-skill"),
-            "Frontend skill should NOT be visible from repo root"
+            names_from_root.contains(&"run-channel-verifier"),
+            "Nested skill should be visible from repo root"
         );
+        assert!(!names_from_root.contains(&"unrelated"));
+
+        // Before repository detection completes, descendants of the working directory are
+        // discoverable without admitting a neighboring project.
+        repo_handle.update(&mut app, |repos, _| {
+            *repos = DetectedRepositories::default()
+        });
+        let skills_without_repo = skill_manager_handle.read(&app, |manager, ctx| {
+            manager.get_skills_for_working_directory(
+                Some(&LocalOrRemotePath::Local(repo.clone())),
+                ctx,
+            )
+        });
+        assert!(skills_without_repo
+            .iter()
+            .any(|skill| skill.name == "run-channel-verifier"));
+        assert!(!skills_without_repo
+            .iter()
+            .any(|skill| skill.name == "unrelated"));
     });
 }
 
@@ -403,7 +440,7 @@ fn get_skills_for_working_directory_name_collision_returns_both() {
             "Both deploy skills should be visible from subdir"
         );
 
-        // From repo root: should only see root "deploy"
+        // From the repo root, both same-named entries remain available by their exact paths.
         let skills = skill_manager_handle.read(&app, |manager, ctx| {
             manager.get_skills_for_working_directory(
                 Some(&LocalOrRemotePath::Local(repo.clone())),
@@ -413,10 +450,50 @@ fn get_skills_for_working_directory_name_collision_returns_both() {
         let deploy_skills: Vec<_> = skills.iter().filter(|s| s.name == "deploy").collect();
         assert_eq!(
             deploy_skills.len(),
-            1,
-            "Only root deploy should be visible from repo root"
+            2,
+            "Both deploy skills should be visible from repo root"
         );
-        assert_eq!(deploy_skills[0].description, "Root deploy");
+        assert!(deploy_skills
+            .iter()
+            .any(|skill| skill.description == "Root deploy"));
+        assert!(deploy_skills
+            .iter()
+            .any(|skill| skill.description == "Subdir deploy"));
+    });
+}
+
+#[test]
+fn editing_a_skill_name_replaces_its_name_lookup() {
+    let original = make_skill("original-metadata-name", ".agents");
+    let path = original.path.clone();
+    let renamed = ParsedSkill {
+        name: "updated-metadata-name".to_string(),
+        ..original.clone()
+    };
+    App::test((), |mut app| async move {
+        app.add_singleton_model(DirectoryWatcher::new);
+        app.add_singleton_model(AISettings::new_with_defaults);
+        app.add_singleton_model(|_| DetectedRepositories::default());
+        app.add_singleton_model(RepoMetadataModel::new);
+        app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
+        app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
+        let handle = app.add_singleton_model(SkillManager::new);
+
+        handle.update(&mut app, |manager, _| {
+            manager.handle_skills_added(vec![original]);
+            manager.handle_skills_added(vec![renamed]);
+            assert!(manager
+                .skill_paths_by_name("original-metadata-name")
+                .is_empty());
+            assert_eq!(
+                manager.skill_paths_by_name("updated-metadata-name"),
+                vec![path.clone()]
+            );
+            assert_eq!(
+                manager.skill_by_path(&path).unwrap().name,
+                "updated-metadata-name"
+            );
+        });
     });
 }
 

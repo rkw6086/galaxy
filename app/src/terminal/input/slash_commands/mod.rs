@@ -348,10 +348,13 @@ impl Input {
                     ctx,
                 );
             }
-            SlashCommandsEvent::SelectedSkill { name, reference: _ } => {
+            SlashCommandsEvent::SelectedSkill { name, reference } => {
                 // Insert /{skill-name} into the buffer
                 self.editor.update(ctx, |editor, ctx| {
                     editor.set_buffer_text(format!("/{name} ").as_str(), ctx);
+                });
+                self.slash_command_model.update(ctx, |model, ctx| {
+                    model.set_selected_skill(name.clone(), reference.clone(), ctx);
                 });
                 self.close_slash_commands_menu(ctx);
             }

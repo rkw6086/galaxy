@@ -7,6 +7,28 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use galaxy_util::standardized_path::StandardizedPath;
+use walkdir::WalkDir;
+
+/// Source directories may be gitignored while still owning project instructions or skills.
+/// Generated dependency and cache trees are outside that project-context search.
+pub(crate) fn should_discover_project_context_in_directory(path: &Path) -> bool {
+    !path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            matches!(
+                name,
+                ".git"
+                    | "node_modules"
+                    | "target"
+                    | ".venv"
+                    | "venv"
+                    | ".next"
+                    | ".cache"
+                    | "__pycache__"
+            )
+        })
+}
 
 /// Repository-scoped standing query configuration.
 #[derive(Debug, Clone)]
@@ -19,7 +41,12 @@ impl Default for StandingQueryDefinitions {
     fn default() -> Self {
         Self {
             project_skill_provider_paths: Vec::new(),
-            project_rule_file_names: vec!["WARP.md".to_string(), "AGENTS.md".to_string()],
+            project_rule_file_names: vec![
+                "GALAXY.md".to_string(),
+                "WARP.md".to_string(),
+                "CLAUDE.md".to_string(),
+                "AGENTS.md".to_string(),
+            ],
         }
     }
 }
@@ -104,6 +131,51 @@ impl StandingQueryResults {
 
     pub fn project_rules(&self) -> impl Iterator<Item = &StandingQueryContent> {
         self.project_rules.iter()
+    }
+
+    /// Discovers context below a directory omitted from the materialized tree because it is
+    /// ignored, too deep, or beyond its file budget. Only context paths are retained; ordinary
+    /// files do not consume the tree budget or become visible entries.
+    pub(crate) fn discover_in_unloaded_directory(
+        &mut self,
+        path: &Path,
+        definitions: &StandingQueryDefinitions,
+    ) {
+        if path.is_symlink() {
+            self.record_followed_project_skill_directory(path, definitions);
+            return;
+        }
+        let mut entries = WalkDir::new(path).follow_links(false).into_iter();
+        while let Some(entry) = entries.next() {
+            let Ok(entry) = entry else {
+                continue;
+            };
+            let path = entry.path();
+            if !entry.file_type().is_dir() {
+                if entry.file_type().is_symlink() && path.is_dir() {
+                    self.record_followed_project_skill_directory(path, definitions);
+                } else {
+                    self.record_path(path, false, definitions);
+                }
+                continue;
+            }
+            if !should_discover_project_context_in_directory(path) {
+                entries.skip_current_dir();
+                continue;
+            }
+
+            self.record_path(path, true, definitions);
+            if definitions.is_project_skill_provider_directory(path) {
+                // Only direct skill entries are discoverable. Do not walk scripts, assets,
+                // references, or arbitrary symlink targets beneath a skill installation.
+                if let Ok(skills) = std::fs::read_dir(path) {
+                    for skill in skills.flatten() {
+                        self.record_followed_project_skill_directory(&skill.path(), definitions);
+                    }
+                }
+                entries.skip_current_dir();
+            }
+        }
     }
 
     /// Records a path encountered while traversing the repository.

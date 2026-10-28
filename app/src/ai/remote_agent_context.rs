@@ -15,7 +15,7 @@ use warp_util::standardized_path::StandardizedPath;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
 use super::mcp::McpIntegration;
-use super::skills::{BundledSkill, BundledSkillActivation, SkillManager};
+use super::skills::{BundledSkill, BundledSkillActivation, SkillManager, SkillManagerEvent};
 
 /// Home skills parsed from a remote agent context snapshot.
 struct HomeSkills {
@@ -60,12 +60,13 @@ impl RemoteAgentContext {
             home_skills,
             global_rules,
         } = parse_snapshot(&host_id, snapshot);
-        SkillManager::handle(ctx).update(ctx, |manager, _| {
+        SkillManager::handle(ctx).update(ctx, |manager, ctx| {
             manager.replace_remote_agent_context(
                 host_id.clone(),
                 bundled_skills,
                 home_skills.map(|home| (home.home_dir, home.skills)),
             );
+            ctx.emit(SkillManagerEvent::SkillsChanged);
         });
         ProjectContextModel::handle(ctx).update(ctx, |model, _| {
             model.set_remote_global_rules(host_id, global_rules);
@@ -73,8 +74,9 @@ impl RemoteAgentContext {
     }
 
     fn remove_host_context(&mut self, host_id: &HostId, ctx: &mut ModelContext<Self>) {
-        SkillManager::handle(ctx).update(ctx, |manager, _| {
+        SkillManager::handle(ctx).update(ctx, |manager, ctx| {
             manager.remove_remote_agent_context(host_id);
+            ctx.emit(SkillManagerEvent::SkillsChanged);
         });
         ProjectContextModel::handle(ctx).update(ctx, |model, _| {
             model.remove_remote_global_rules(host_id);

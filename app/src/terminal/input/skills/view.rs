@@ -131,8 +131,9 @@ impl InlineSkillSelectorView {
     /// Sets whether bundled skills are included in results.
     /// Should be called before opening the menu.
     pub fn set_include_bundled(&self, include_bundled: bool, ctx: &mut ViewContext<Self>) {
-        self.data_source.update(ctx, |ds, _| {
+        self.data_source.update(ctx, |ds, ctx| {
             ds.set_include_bundled(include_bundled);
+            ctx.emit(UpdatedAvailableSkills);
         });
     }
 
@@ -163,3 +164,7 @@ impl View for InlineSkillSelectorView {
 impl Entity for InlineSkillSelectorView {
     type Event = InlineSkillSelectorEvent;
 }
+
+#[cfg(test)]
+#[path = "view_tests.rs"]
+mod tests;

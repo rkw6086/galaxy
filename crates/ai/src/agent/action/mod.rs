@@ -937,6 +937,8 @@ pub enum FileEdit {
     Create {
         file: Option<String>,
         content: Option<String>,
+        /// When present, create exclusively within this canonical local scope at save time.
+        creation_scope: Option<PathBuf>,
     },
     /// Delete an existing file.
     Delete { file: Option<String> },

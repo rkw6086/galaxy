@@ -88,7 +88,7 @@ pub static EDIT_SKILL: LazyLock<StaticCommand> = LazyLock::new(|| StaticCommand 
 
 pub static INVOKE_SKILL: LazyLock<StaticCommand> = LazyLock::new(|| StaticCommand {
     name: "/skills",
-    description: "Invoke a skill",
+    description: "List available skills and choose one to use",
     icon_path: "bundled/svg/stars-01.svg",
     availability: Availability::AI_ENABLED,
     auto_enter_ai_mode: false,

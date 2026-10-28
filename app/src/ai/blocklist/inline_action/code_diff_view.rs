@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -276,6 +276,8 @@ pub struct DiffBase {
 pub struct FileDiff {
     pub base: DiffBase,
     pub diff_type: DiffType,
+    /// Exclusive local creation constrained to this canonical project or home directory.
+    pub creation_scope: Option<PathBuf>,
 }
 
 impl FileDiff {
@@ -283,6 +285,7 @@ impl FileDiff {
         FileDiff {
             base: DiffBase { content, file_path },
             diff_type,
+            creation_scope: None,
         }
     }
 
@@ -473,6 +476,8 @@ pub struct CodeDiffView {
     action_id: AIAgentActionId,
 
     pending_diffs: Vec<PendingDiff>,
+    pending_reverts: HashSet<usize>,
+    revert_failed: bool,
     button_mouse_states: CodeDiffViewMouseStates,
     scrollable_state: ClippedScrollStateHandle,
     cancel_button: CompactibleActionButton,
@@ -655,6 +660,12 @@ impl CodeDiffView {
                     toast_stack.add_ephemeral_toast(toast, window_id, ctx);
                 });
                 me.handle_save_completed(idx, Some(error.clone()), ctx);
+            }
+            #[cfg(not(target_family = "wasm"))]
+            InlineDiffViewEvent::RevertCompleted => me.handle_revert_completed(idx, None, ctx),
+            #[cfg(not(target_family = "wasm"))]
+            InlineDiffViewEvent::FailedToRevert { error } => {
+                me.handle_revert_completed(idx, Some(error.clone()), ctx);
             }
             InlineDiffViewEvent::DiffAccepted { diff } => {
                 me.accepted_file_diff_computed(idx, diff.clone(), ctx);
@@ -949,6 +960,8 @@ impl CodeDiffView {
         Self {
             action_id: action_id.clone(),
             pending_diffs: Vec::new(),
+            pending_reverts: HashSet::new(),
+            revert_failed: false,
             button_mouse_states: Default::default(),
             cancel_button,
             edit_button,
@@ -1034,13 +1047,15 @@ impl CodeDiffView {
 
                 // Create the InlineDiffView which applies diffs to the editor buffer.
                 let diff_viewer = ctx.add_typed_action_view(|ctx| {
-                    InlineDiffView::new(
+                    let mut view = InlineDiffView::new(
                         editor.clone(),
                         Some(diff.diff_type),
                         Some(display_mode),
                         standardized_path,
                         ctx,
-                    )
+                    );
+                    view.set_creation_scope(diff.creation_scope);
+                    view
                 });
 
                 // On non-WASM, register the file with FileModel for save support.
@@ -1162,7 +1177,8 @@ impl CodeDiffView {
     /// Revert all changes by replacing file contents with the base version.
     /// For newly created files, this deletes them instead.
     fn revert_changes(&mut self, ctx: &mut ViewContext<Self>) {
-        if !matches!(self.state, CodeDiffState::Accepted(None)) {
+        if !matches!(self.state, CodeDiffState::Accepted(None)) || !self.pending_reverts.is_empty()
+        {
             log::warn!(
                 "Attempted to revert changes when not in Accepted(None) state - actual state: {:?}",
                 self.state
@@ -1170,12 +1186,26 @@ impl CodeDiffView {
             return;
         }
 
+        self.revert_failed = false;
+        self.pending_reverts = self
+            .pending_diffs
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, diff)| {
+                diff.diff_view
+                    .as_ref(ctx)
+                    .has_guarded_creation_to_revert()
+                    .then_some(idx)
+            })
+            .collect();
         let window_id = ctx.window_id();
-        for diff in &self.pending_diffs {
+        for (idx, diff) in self.pending_diffs.iter().enumerate() {
             if let Err(err) = diff
                 .diff_view
                 .update(ctx, |v, ctx| v.restore_diff_base(ctx))
             {
+                self.pending_reverts.remove(&idx);
+                self.revert_failed = true;
                 log::error!("Failed to restore diff base: {err:?}");
                 let file_name = diff
                     .diff_view
@@ -1184,7 +1214,9 @@ impl CodeDiffView {
                     .unwrap_or_else(|| "file".to_string());
                 ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
                     toast_stack.add_ephemeral_toast(
-                        DismissibleToast::error(format!("Failed to revert changes to {file_name}")),
+                        DismissibleToast::error(format!(
+                            "Failed to revert changes to {file_name}: {err}"
+                        )),
                         window_id,
                         ctx,
                     );
@@ -1192,8 +1224,38 @@ impl CodeDiffView {
             }
         }
 
-        self.state = CodeDiffState::Reverted;
-        self.mark_action_as_reverted(ctx);
+        if self.pending_reverts.is_empty() && !self.revert_failed {
+            self.state = CodeDiffState::Reverted;
+            self.mark_action_as_reverted(ctx);
+        }
+        ctx.notify();
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn handle_revert_completed(
+        &mut self,
+        idx: usize,
+        error: Option<Rc<FileSaveError>>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        if !self.pending_reverts.remove(&idx) {
+            return;
+        }
+        if let Some(error) = error {
+            self.revert_failed = true;
+            let window_id = ctx.window_id();
+            ToastStack::handle(ctx).update(ctx, |toasts, ctx| {
+                toasts.add_ephemeral_toast(
+                    DismissibleToast::error(format!("Failed to revert skill creation: {error}")),
+                    window_id,
+                    ctx,
+                );
+            });
+        }
+        if self.pending_reverts.is_empty() && !self.revert_failed {
+            self.state = CodeDiffState::Reverted;
+            self.mark_action_as_reverted(ctx);
+        }
         ctx.notify();
     }
 

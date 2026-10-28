@@ -1507,6 +1507,56 @@ fn removed_direct_skill_child_refreshes_provider_for_possible_symlink_removal() 
         }));
     });
 }
+
+#[test]
+fn newly_added_nested_skills_refresh_standing_context_for_eager_and_lazy_roots() {
+    VirtualFS::test("new_nested_skill_context", |dirs, mut vfs| {
+        vfs.mkdir("repo/app/server/.agents/skills/run-channel-verifier")
+            .with_files(vec![
+                Stub::FileWithContent(
+                    "repo/app/server/.agents/skills/run-channel-verifier/SKILL.md",
+                    "name: run-channel-verifier",
+                ),
+                Stub::FileWithContent("repo/app/server/AGENTS.md", "Server instructions"),
+            ]);
+        let repo = dirs.tests().join("repo");
+        let server = repo.join("app/server");
+        let skill = server.join(".agents/skills/run-channel-verifier/SKILL.md");
+        let rule = server.join("AGENTS.md");
+        let mut definitions = StandingQueryDefinitions::default();
+        definitions.set_project_skill_provider_paths([PathBuf::from(".agents/skills")]);
+        let update = RepoUpdate {
+            added: vec![server],
+            ..Default::default()
+        };
+        let (gitignore, _) = Gitignore::new({
+            let gitignore_path = repo.join(".gitignore");
+            std::fs::write(&gitignore_path, "app/server/\n").unwrap();
+            gitignore_path
+        });
+
+        for lazy_load in [false, true] {
+            let (_, discovered, _) = block_on(LocalRepoMetadataModel::compute_file_tree_mutations(
+                &update,
+                std::slice::from_ref(&gitignore),
+                &[PathBuf::from(".agents/skills")],
+                &definitions,
+                lazy_load,
+            ));
+
+            assert!(discovered.project_skills().any(|content| {
+                content
+                    == &StandingQueryContent::file(
+                        StandardizedPath::try_from_local(&skill).unwrap(),
+                    )
+            }));
+            assert!(discovered.project_rules().any(|content| {
+                content
+                    == &StandingQueryContent::file(StandardizedPath::try_from_local(&rule).unwrap())
+            }));
+        }
+    });
+}
 #[cfg(all(unix, feature = "local_fs"))]
 #[test]
 fn added_external_target_skill_symlink_routes_to_lexical_repository() {
@@ -1596,18 +1646,18 @@ fn added_external_target_skill_symlink_routes_to_lexical_repository() {
 }
 #[cfg(all(unix, feature = "local_fs"))]
 #[test]
-fn modified_external_symlink_target_upserts_lexical_project_skill() {
+fn modified_nested_external_symlink_target_upserts_lexical_project_skill() {
     VirtualFS::test(
-        "modified_external_symlink_target_upserts_lexical_project_skill",
+        "modified_nested_external_symlink_target_upserts_lexical_project_skill",
         |dirs, mut vfs| {
-            vfs.mkdir("repo/.agents/skills")
+            vfs.mkdir("repo/app/server/.agents/skills")
                 .mkdir("outside/linked-skill")
                 .with_files(vec![Stub::FileWithContent(
                     "outside/linked-skill/SKILL.md",
                     "linked skill",
                 )]);
             let repo = dirs.tests().join("repo");
-            let logical_skill_dir = repo.join(".agents/skills/linked-skill");
+            let logical_skill_dir = repo.join("app/server/.agents/skills/linked-skill");
             let logical_skill_path = logical_skill_dir.join("SKILL.md");
             let target_skill_path = dirs.tests().join("outside/linked-skill/SKILL.md");
             std::os::unix::fs::symlink(

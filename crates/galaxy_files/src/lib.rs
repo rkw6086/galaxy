@@ -27,6 +27,7 @@ use repo_metadata::repository::{RepositorySubscriber, SubscriberId};
 use repo_metadata::{CanonicalizedPath, Repository, RepositoryUpdate};
 use watcher::{BulkFilesystemWatcher, BulkFilesystemWatcherEvent};
 
+mod guarded_create;
 pub mod text_file_reader;
 pub use text_file_reader::{TextFileReadResult, TextFileSegment};
 
@@ -756,6 +757,57 @@ impl FileModel {
         Ok(())
     }
 
+    /// Creates a new local file inside the previously selected canonical scope.
+    ///
+    /// Unlike `save`, this refuses to replace an existing file and revalidates the scope and
+    /// parent directories when the approved write is executed. Ordinary editor saves keep their
+    /// existing behavior. Remote hosts need a matching guarded operation before using this API.
+    pub fn save_new_file_within_scope(
+        &mut self,
+        file_id: FileId,
+        content: String,
+        version: ContentVersion,
+        scope_root: PathBuf,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), FileSaveError> {
+        let backend = self
+            .file_state
+            .get(file_id)
+            .ok_or(FileSaveError::NoFilePath(file_id))?;
+        if matches!(backend, FileBackend::Remote { .. }) {
+            return Err(FileSaveError::RemoteError(
+                "Guarded skill creation is not available on remote hosts.".to_string(),
+            ));
+        }
+        let file_path = self
+            .file_path(file_id)
+            .ok_or(FileSaveError::NoFilePath(file_id))?;
+        ctx.spawn(
+            async move {
+                guarded_create::write_new_file(&file_path, &scope_root, content.as_bytes()).map_err(
+                    |error| FileSaveError::IOError {
+                        error,
+                        path: file_path,
+                    },
+                )
+            },
+            move |me, write_result, ctx| match write_result {
+                Ok(()) => {
+                    me.set_version(file_id, version);
+                    ctx.emit(FileModelEvent::FileSaved {
+                        id: file_id,
+                        version,
+                    });
+                }
+                Err(error) => ctx.emit(FileModelEvent::FailedToSave {
+                    id: file_id,
+                    error: Rc::new(error),
+                }),
+            },
+        );
+        Ok(())
+    }
+
     /// Renames a file and also saves its content.
     // TODO: refactor this against [`FileModel::save`].
     pub fn rename_and_save(
@@ -821,6 +873,56 @@ impl FileModel {
             },
         );
 
+        Ok(())
+    }
+
+    /// Undoes a successful guarded creation only while its saved contents remain unchanged.
+    pub fn delete_created_file_within_scope(
+        &mut self,
+        file_id: FileId,
+        version: ContentVersion,
+        scope_root: PathBuf,
+        expected_content: String,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), FileSaveError> {
+        let backend = self
+            .file_state
+            .get(file_id)
+            .ok_or(FileSaveError::NoFilePath(file_id))?;
+        if matches!(backend, FileBackend::Remote { .. }) {
+            return Err(FileSaveError::RemoteError(
+                "Guarded skill deletion is not available on remote hosts.".to_string(),
+            ));
+        }
+        let file_path = self
+            .file_path(file_id)
+            .ok_or(FileSaveError::NoFilePath(file_id))?;
+        ctx.spawn(
+            async move {
+                guarded_create::remove_created_file(
+                    &file_path,
+                    &scope_root,
+                    expected_content.as_bytes(),
+                )
+                .map_err(|error| FileSaveError::IOError {
+                    error,
+                    path: file_path,
+                })
+            },
+            move |me, delete_result, ctx| match delete_result {
+                Ok(()) => {
+                    me.set_version(file_id, version);
+                    ctx.emit(FileModelEvent::FileSaved {
+                        id: file_id,
+                        version,
+                    });
+                }
+                Err(error) => ctx.emit(FileModelEvent::FailedToSave {
+                    id: file_id,
+                    error: Rc::new(error),
+                }),
+            },
+        );
         Ok(())
     }
 

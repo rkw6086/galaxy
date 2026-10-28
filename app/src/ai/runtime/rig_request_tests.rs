@@ -277,8 +277,7 @@ fn normal_and_plan_turns_advertise_clarifications_only_for_interactive_permissio
                 *user_query_mode = UserQueryMode::Plan;
             }
             params.input = vec![input];
-            let (normal, cli) =
-                crate::ai::agent::api::prepare_direct_provider_params(&mut params);
+            let (normal, cli) = crate::ai::agent::api::prepare_direct_provider_params(&mut params);
             assert!(!cli.contains(&ToolType::AskUserQuestion));
 
             let prepared = prepare_rig_turn(&config(), params, normal, cli);
@@ -324,8 +323,16 @@ fn no_tools_turn_flattens_historical_tool_protocol_messages() {
     let prepared = prepare_rig_turn(&config(), params, Vec::new(), Vec::new());
 
     assert_eq!(prepared.request.tools.len(), 2);
-    assert!(prepared.request.tools.iter().any(|tool| tool.name == "recall_tool_history"));
-    assert!(prepared.request.tools.iter().any(|tool| tool.name == "update_task_list"));
+    assert!(prepared
+        .request
+        .tools
+        .iter()
+        .any(|tool| tool.name == "recall_tool_history"));
+    assert!(prepared
+        .request
+        .tools
+        .iter()
+        .any(|tool| tool.name == "update_task_list"));
     assert!(prepared
         .request
         .messages
@@ -553,7 +560,11 @@ fn forced_cli_profile_uses_monitor_prompt_and_tools_for_an_initial_query() {
         .tools
         .iter()
         .any(|tool| tool.name == "recall_tool_history"));
-    assert!(!prepared.request.tools.iter().any(|tool| tool.name == "update_task_list"));
+    assert!(!prepared
+        .request
+        .tools
+        .iter()
+        .any(|tool| tool.name == "update_task_list"));
 }
 
 #[test]
@@ -561,8 +572,17 @@ fn task_progress_is_available_with_explicit_status_guidance_and_ui_title() {
     let mut params = RequestParams::new_for_test();
     params.input = vec![user_query("Implement and verify the fix")];
     let prepared = prepare_rig_turn(&config(), params, vec![ToolType::ReadFiles], Vec::new());
-    let tool = prepared.request.tools.iter().find(|tool| tool.name == "update_task_list").unwrap();
-    assert!(tool.input_schema["required"].as_array().unwrap().iter().any(|value| value == "_galaxy_tool_title"));
+    let tool = prepared
+        .request
+        .tools
+        .iter()
+        .find(|tool| tool.name == "update_task_list")
+        .unwrap();
+    assert!(tool.input_schema["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "_galaxy_tool_title"));
     let prompt = prepared.request.system_prompt.unwrap();
     assert!(prompt.contains("## Task List Progress"));
     assert!(prompt.contains("reconcile the list before the final response"));
@@ -977,4 +997,74 @@ fn model_workflow_guidance_handles_provider_aliases_and_unknown_models() {
             .contains("one coherent slice")
     );
     assert_eq!(super::model_workflow_guidance("unknown-model"), "");
+}
+
+#[test]
+fn skill_creation_requires_file_mutation_capability_and_an_implementation_turn() {
+    use crate::ai::execution_profiles::PermissionMode;
+
+    for (permission, mode, capabilities, expected) in [
+        (
+            PermissionMode::AllowAll,
+            RigRequestMode::Normal,
+            vec![ToolType::ApplyFileDiffs],
+            true,
+        ),
+        (
+            PermissionMode::AskFirst,
+            RigRequestMode::Normal,
+            vec![ToolType::ApplyFileDiffs],
+            true,
+        ),
+        (
+            PermissionMode::GalaxyDecides,
+            RigRequestMode::Orchestrate,
+            vec![ToolType::ApplyFileDiffs],
+            true,
+        ),
+        (
+            PermissionMode::ReadOnly,
+            RigRequestMode::Normal,
+            vec![ToolType::ApplyFileDiffs],
+            false,
+        ),
+        (
+            PermissionMode::AllowAll,
+            RigRequestMode::Plan,
+            vec![ToolType::ApplyFileDiffs],
+            false,
+        ),
+        (
+            PermissionMode::AllowAll,
+            RigRequestMode::Cli,
+            vec![ToolType::ApplyFileDiffs],
+            false,
+        ),
+        (
+            PermissionMode::AllowAll,
+            RigRequestMode::CompletedCommandAssessment,
+            vec![ToolType::ApplyFileDiffs],
+            false,
+        ),
+        (
+            PermissionMode::AllowAll,
+            RigRequestMode::Normal,
+            vec![ToolType::ReadFiles],
+            false,
+        ),
+    ] {
+        let mut params = RequestParams::new_for_test();
+        params.permission_mode = permission;
+        params.input = vec![user_query("Create a reusable skill")];
+        let prepared =
+            prepare_rig_turn_for_mode(&config(), params, capabilities.clone(), capabilities, mode);
+        assert_eq!(
+            prepared
+                .request
+                .tools
+                .iter()
+                .any(|tool| tool.name == "create_skill"),
+            expected
+        );
+    }
 }

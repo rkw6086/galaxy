@@ -30,7 +30,7 @@ use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionId, AIAgentActionResultType, AIAgentActionType,
     AIAgentOutputMessage, AIAgentOutputMessageType, AIIdentifiers, AnyFileContent, FileContext,
-    FileLocations, RequestFileEditsResult, UpdatedFileContext,
+    FileEdit, FileLocations, RequestFileEditsResult, UpdatedFileContext,
 };
 use crate::ai::blocklist::inline_action::code_diff_view::{
     CodeDiffView, CodeDiffViewEvent, DiffSessionType, FileDiff,
@@ -321,6 +321,17 @@ impl RequestFileEditsExecutor {
 
         let (tx, rx) = oneshot::channel();
         let files = file_edits.clone();
+        let creation_scopes = files
+            .iter()
+            .filter_map(|edit| match edit {
+                FileEdit::Create {
+                    file: Some(path),
+                    creation_scope: Some(scope),
+                    ..
+                } => Some((path.clone(), scope.clone())),
+                _ => None,
+            })
+            .collect::<HashMap<_, _>>();
         let id = id.clone();
 
         let apply_future = self.apply_diff_model.update(ctx, |model, ctx| {
@@ -333,7 +344,7 @@ impl RequestFileEditsExecutor {
                 (applied_diffs, id, tx)
             },
             |me, (diffs, id, tx), ctx| {
-                me.on_diffs_applied(diffs, id, tx, ctx);
+                me.on_diffs_applied(diffs, id, tx, creation_scopes, ctx);
             },
         );
 
@@ -348,6 +359,7 @@ impl RequestFileEditsExecutor {
         applied_diffs: Result<Vec<AIRequestedCodeDiff>, Vec1<DiffApplicationError>>,
         id: AIAgentActionId,
         tx: oneshot::Sender<()>,
+        creation_scopes: HashMap<String, PathBuf>,
         ctx: &mut ModelContext<Self>,
     ) {
         match applied_diffs {
@@ -361,12 +373,19 @@ impl RequestFileEditsExecutor {
                 let diffs = applied_diffs
                     .into_iter()
                     .map(|diff| {
-                        let path = host_native_absolute_path(
-                            diff.file_name.as_str(),
-                            &shell_launch_data,
-                            &current_working_directory,
-                        );
-                        FileDiff::new(diff.original_content, path, diff.diff_type)
+                        let path = if creation_scopes.contains_key(&diff.file_name) {
+                            diff.file_name.clone()
+                        } else {
+                            host_native_absolute_path(
+                                diff.file_name.as_str(),
+                                &shell_launch_data,
+                                &current_working_directory,
+                            )
+                        };
+                        let mut file_diff =
+                            FileDiff::new(diff.original_content, path, diff.diff_type);
+                        file_diff.creation_scope = creation_scopes.get(&diff.file_name).cloned();
+                        file_diff
                     })
                     .collect();
                 let diff_session_type = match self.active_session.as_ref(ctx).session_type(ctx) {

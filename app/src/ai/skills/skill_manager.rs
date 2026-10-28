@@ -72,8 +72,9 @@ impl SkillManager {
         let skill_watcher = ctx.add_model(|ctx| SkillWatcher::new(ctx, skill_watcher_tx));
 
         if FeatureFlag::BundledSkills.is_enabled() {
-            ctx.spawn(BundledSkill::detect(), |me, result, _| {
+            ctx.spawn(BundledSkill::detect(), |me, result, ctx| {
                 me.bundled_skills.set_local(result);
+                ctx.emit(SkillManagerEvent::SkillsChanged);
             });
         }
 
@@ -159,17 +160,21 @@ impl SkillManager {
                 .get_root_for_path(working_directory);
 
             for (dir, dir_skill_paths) in &self.directory_skills {
-                if self.is_home_directory(dir) {
+                if self.is_home_directory(dir) || !path_matches_location(dir) {
                     continue;
                 }
-                // Only include skills from directories that are ancestors of the working directory
-                // (or the working directory itself)
-                if working_directory.starts_with(dir) {
-                    // Also verify this directory is within the detected repo (if any)
-                    if repo_root.as_ref().is_none_or(|root| dir.starts_with(root)) {
-                        for path in dir_skill_paths {
-                            skill_paths.push((dir.clone(), path.clone()));
-                        }
+                // Skills are discoverable throughout their project, including packages below
+                // or beside the current directory in a monorepo. Their instructions are still
+                // loaded on demand rather than applied as project-wide rules.
+                let in_scope = match &repo_root {
+                    Some(root) => dir.starts_with(root),
+                    None => {
+                        dir.starts_with(working_directory) || working_directory.starts_with(dir)
+                    }
+                };
+                if in_scope {
+                    for path in dir_skill_paths {
+                        skill_paths.push((dir.clone(), path.clone()));
                     }
                 }
             }
@@ -199,6 +204,7 @@ impl SkillManager {
             skills.extend(self.bundled_skills.active_descriptors(path_origin, ctx));
         }
 
+        skills.sort_by_cached_key(|skill| (skill.name.clone(), skill.reference.to_string()));
         skills
     }
 
@@ -553,11 +559,15 @@ impl SkillManager {
         if home_skills_changed {
             ctx.emit(SkillManagerEvent::HomeSkillsChanged);
         }
+        ctx.emit(SkillManagerEvent::SkillsChanged);
     }
 
     pub fn handle_skills_added(&mut self, skills: Vec<ParsedSkill>) {
         for skill in skills {
             if let Ok(parent_dir) = extract_skill_parent_directory(&skill.path) {
+                // An edit may rename a skill without moving SKILL.md. Remove its old name
+                // before replacing the cached entry so explicit name lookup stays current.
+                self.remove_skill_by_path(&skill.path);
                 self.directory_skills
                     .entry(parent_dir)
                     .or_default()

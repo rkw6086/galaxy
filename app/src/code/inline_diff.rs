@@ -1,3 +1,6 @@
+#[cfg(not(target_family = "wasm"))]
+use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use ai::diff_validation::DiffType;
@@ -31,6 +34,12 @@ pub enum InlineDiffViewEvent {
     FailedToSave {
         error: Rc<FileSaveError>,
     },
+    #[cfg(not(target_family = "wasm"))]
+    RevertCompleted,
+    #[cfg(not(target_family = "wasm"))]
+    FailedToRevert {
+        error: Rc<FileSaveError>,
+    },
     DiffAccepted {
         diff: Rc<DiffResult>,
     },
@@ -58,6 +67,13 @@ pub struct InlineDiffView {
     /// - The editor is selection-only (never editable).
     /// - Accept, save, and revert are no-ops.
     backing_file_id: Option<FileId>,
+    creation_scope: Option<PathBuf>,
+    #[cfg(not(target_family = "wasm"))]
+    pending_creation_content: RefCell<Option<String>>,
+    #[cfg(not(target_family = "wasm"))]
+    created_content: Option<String>,
+    #[cfg(not(target_family = "wasm"))]
+    guarded_revert_pending: bool,
     /// Whether the diff is a new file creation (for revert: delete instead of restore).
     #[cfg(not(target_family = "wasm"))]
     is_new_file: bool,
@@ -94,6 +110,13 @@ impl InlineDiffView {
             file_path,
             was_edited: false,
             backing_file_id: None,
+            creation_scope: None,
+            #[cfg(not(target_family = "wasm"))]
+            pending_creation_content: RefCell::new(None),
+            #[cfg(not(target_family = "wasm"))]
+            created_content: None,
+            #[cfg(not(target_family = "wasm"))]
+            guarded_revert_pending: false,
             #[cfg(not(target_family = "wasm"))]
             is_new_file,
         };
@@ -167,13 +190,30 @@ impl InlineDiffView {
         self.backing_file_id = Some(file_id);
 
         // Subscribe to FileModel events for this file.
-        ctx.subscribe_to_model(&file_model, move |_me, _file_model, event, ctx| {
+        ctx.subscribe_to_model(&file_model, move |me, _file_model, event, ctx| {
             if file_id == event.file_id() {
                 match event {
                     FileModelEvent::FileSaved { .. } => {
+                        if me.guarded_revert_pending {
+                            me.guarded_revert_pending = false;
+                            me.created_content = None;
+                            ctx.emit(InlineDiffViewEvent::RevertCompleted);
+                            return;
+                        }
+                        if me.creation_scope.is_some() {
+                            me.created_content = me.pending_creation_content.get_mut().take();
+                        }
                         ctx.emit(InlineDiffViewEvent::FileSaved);
                     }
                     FileModelEvent::FailedToSave { error, .. } => {
+                        if me.guarded_revert_pending {
+                            me.guarded_revert_pending = false;
+                            ctx.emit(InlineDiffViewEvent::FailedToRevert {
+                                error: error.clone(),
+                            });
+                            return;
+                        }
+                        me.pending_creation_content.get_mut().take();
                         ctx.emit(InlineDiffViewEvent::FailedToSave {
                             error: error.clone(),
                         });
@@ -221,10 +261,23 @@ impl InlineDiffView {
         };
         let content = self.editor.as_ref(ctx).text(ctx).into_string();
         let version = self.editor.as_ref(ctx).version(ctx);
+        if self.creation_scope.is_some() {
+            self.pending_creation_content.replace(Some(content.clone()));
+        }
 
-        if let Err(err) = FileModel::handle(ctx).update(ctx, |file_model, ctx| {
-            file_model.save(file_id, content, version, ctx)
-        }) {
+        if let Err(err) =
+            FileModel::handle(ctx).update(ctx, |file_model, ctx| match &self.creation_scope {
+                Some(scope) => file_model.save_new_file_within_scope(
+                    file_id,
+                    content,
+                    version,
+                    scope.clone(),
+                    ctx,
+                ),
+                None => file_model.save(file_id, content, version, ctx),
+            })
+        {
+            self.pending_creation_content.replace(None);
             ctx.emit(InlineDiffViewEvent::FailedToSave {
                 error: Rc::new(err),
             });
@@ -233,6 +286,21 @@ impl InlineDiffView {
 }
 
 impl InlineDiffView {
+    pub fn set_creation_scope(&mut self, scope: Option<PathBuf>) {
+        self.creation_scope = scope;
+    }
+
+    pub fn has_guarded_creation_to_revert(&self) -> bool {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            return self.creation_scope.is_some() && self.created_content.is_some();
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            false
+        }
+    }
+
     pub fn file_path(&self) -> Option<&StandardizedPath> {
         self.file_path.as_ref()
     }
@@ -306,6 +374,29 @@ impl DiffViewer for InlineDiffView {
                 .expect("backing_file_id must be Some — checked by early return above");
 
             if self.is_new_file {
+                if let Some(scope) = &self.creation_scope {
+                    let Some(created_content) = self.created_content.clone() else {
+                        // A create-only failure may mean another actor owns this path. There is
+                        // nothing from this diff to undo, and deleting it would remove their file.
+                        return Ok(());
+                    };
+                    self.guarded_revert_pending = true;
+                    let version = self.editor.as_ref(_ctx).version(_ctx);
+                    let result = FileModel::handle(_ctx).update(_ctx, |file_model, ctx| {
+                        file_model.delete_created_file_within_scope(
+                            file_id,
+                            version,
+                            scope.clone(),
+                            created_content,
+                            ctx,
+                        )
+                    });
+                    if result.is_err() {
+                        self.guarded_revert_pending = false;
+                    }
+                    return result
+                        .map_err(|error| format!("Failed to revert skill creation: {error}"));
+                }
                 // For newly created files, delete instead of restoring.
                 let version = self.editor.as_ref(_ctx).version(_ctx);
                 FileModel::handle(_ctx)

@@ -63,6 +63,27 @@ fn test_parse_slash_command_handles_argument_rules() {
                 .parse_slash_command(&with_argument)
                 .expect("optional-argument command should parse with an argument");
             assert_eq!(detected_with_argument.argument.as_deref(), Some("prompt"));
+
+            let uppercase = data_source
+                .parse_slash_command(&no_argument_command_name.to_ascii_uppercase())
+                .expect("slash command parsing should match the case-insensitive menu");
+            assert_eq!(uppercase.command.name, no_argument_command_name);
+        });
+    });
+}
+
+#[test]
+fn skill_list_command_parses_uppercase_without_an_argument() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let terminal = add_window_with_bootstrapped_terminal(&mut app, None, None).await;
+        let input = terminal.read(&app, |terminal, _| terminal.input().clone());
+        let source = input.read(&app, |input, _| input.slash_command_data_source.clone());
+        source.read(&app, |source, _| {
+            let detected = source.parse_slash_command("/SKILLS").unwrap();
+            assert_eq!(detected.command.name, commands::INVOKE_SKILL.name);
+            assert_eq!(detected.argument, None);
+            assert!(source.parse_slash_command("/SKILLS extra").is_none());
         });
     });
 }

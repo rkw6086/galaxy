@@ -2,6 +2,7 @@ use galaxy_agent_core::{ToolCall, TurnRequest};
 
 use super::{prepare_provider_run, ProviderActionContext};
 use crate::ai::agent::api::RequestParams;
+use crate::ai::agent::{AIAgentActionType, FileEdit};
 use crate::ai::llms::LLMId;
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::provider::ProviderConfig;
@@ -319,4 +320,38 @@ fn tool_titles_are_optional_and_normalized_for_display() {
     assert_eq!(context.tool_call_title(&call), None);
     call.arguments = serde_json::json!({});
     assert_eq!(context.tool_call_title(&call), None);
+}
+
+#[test]
+fn create_skill_uses_guarded_file_edits_and_preserves_native_history() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let mut serialized = serde_json::to_value(ProviderActionContext::new_for_test("task")).unwrap();
+    serialized["skill_creation"] = serde_json::json!({
+        "local": true, "project_root": root, "home_directory": root,
+    });
+    let context: ProviderActionContext = serde_json::from_value(serialized).unwrap();
+    let call = ToolCall {
+        id: "create-skill-call".to_owned(),
+        name: "create_skill".to_owned(),
+        arguments: serde_json::json!({
+            "name": "verify-channel", "description": "Run channel verification.",
+            "instructions": "Run the channel verifier and report its result.", "scope": "project",
+        }),
+    };
+    let action = context.action_from_tool_call(&call).unwrap();
+    let AIAgentActionType::RequestFileEdits { file_edits, .. } = &action.action else {
+        panic!("skill creation must use the existing file mutation action");
+    };
+    assert!(
+        matches!(&file_edits[0], FileEdit::Create { creation_scope: Some(scope), .. } if scope == &root)
+    );
+    let compatible = context.history_compatibility_call(&call);
+    assert_eq!(compatible.name, "apply_file_diffs");
+    let path = root.join(".agents/skills/verify-channel/SKILL.md");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "skill already written").unwrap();
+    assert!(context.action_from_tool_call(&call).is_err());
+    let restored = context.restored_action_from_tool_call(&call).unwrap();
+    assert_eq!(restored.action, action.action);
 }

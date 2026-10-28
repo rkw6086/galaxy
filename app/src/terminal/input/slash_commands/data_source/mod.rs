@@ -21,7 +21,7 @@ use super::AcceptSlashCommandOrSavedPrompt;
 use crate::ai::agent_conversations_model::{AgentConversationsModel, AgentConversationsModelEvent};
 use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewControllerEvent};
 use crate::ai::blocklist::block::cli_controller::{CLISubagentController, CLISubagentEvent};
-use crate::ai::blocklist::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
+use crate::ai::blocklist::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel, SessionContext};
 use crate::ai::skills::{SkillDescriptor, SkillManager};
 use crate::search::data_source::{Query, QueryResult};
 use crate::search::mixer::DataSourceRunErrorWrapper;
@@ -93,6 +93,9 @@ impl SlashCommandDataSource {
             ActiveSessionEvent::UpdatedPwd | ActiveSessionEvent::Bootstrapped => {
                 me.recompute_active_commands(ctx);
             }
+        });
+        ctx.subscribe_to_model(&SkillManager::handle(ctx), |_, _, _, ctx| {
+            ctx.emit(UpdatedActiveCommands);
         });
         ctx.subscribe_to_model(&cli_subagent_controller, |me, _, event, ctx| {
             if let CLISubagentEvent::SpawnedSubagent { .. }
@@ -526,9 +529,10 @@ impl SyncDataSource for SlashCommandDataSource {
             let cli_agent_providers = self.active_cli_agent_providers(app);
             let active_session = self.active_session.as_ref(app);
             let cwd_path = active_session.current_working_directory_location(app);
+            let origin = SessionContext::from_session(active_session, app).skill_path_origin();
             let skills = SkillManager::handle(app)
                 .as_ref(app)
-                .get_skills_for_working_directory(cwd_path.as_ref(), app);
+                .get_skills_for_working_directory_with_origin(cwd_path.as_ref(), &origin, app);
 
             let skill_manager = SkillManager::as_ref(app);
             for mut skill in skills {

@@ -26,6 +26,7 @@ pub use ai::skills::SkillReference;
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub enum SkillManagerEvent {
     HomeSkillsChanged,
+    SkillsChanged,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

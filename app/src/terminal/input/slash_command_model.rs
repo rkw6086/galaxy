@@ -5,7 +5,7 @@ use input_classifier::InputType;
 use settings::Setting as _;
 
 use crate::ai::blocklist::{
-    BlocklistAIInputEvent, BlocklistAIInputModel, InputTypeAutoDetectionSource,
+    BlocklistAIInputEvent, BlocklistAIInputModel, InputTypeAutoDetectionSource, SessionContext,
 };
 use crate::ai::skills::SkillManager;
 use crate::search::slash_command_menu::StaticCommand;
@@ -89,7 +89,8 @@ impl SlashCommandEntryState {
     pub fn command_prefix_highlight_len(&self, buffer_text: &str) -> Option<usize> {
         match self {
             SlashCommandEntryState::SlashCommand(detected) => buffer_text
-                .starts_with(detected.command.name)
+                .get(..detected.command.name.len())
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(detected.command.name))
                 .then_some(detected.command.name.len()),
             SlashCommandEntryState::SkillCommand(detected) => {
                 // Skill name doesn't include the leading '/', so we prefix it for matching.
@@ -123,6 +124,7 @@ pub struct SlashCommandModel {
     active_session: ModelHandle<ActiveSession>,
     state: SlashCommandEntryState,
     data_source: ModelHandle<SlashCommandDataSource>,
+    selected_skill: Option<(String, SkillReference)>,
 }
 
 impl SlashCommandModel {
@@ -170,6 +172,7 @@ impl SlashCommandModel {
             active_session,
             data_source,
             state: SlashCommandEntryState::None,
+            selected_skill: None,
         }
     }
 
@@ -219,6 +222,27 @@ impl SlashCommandModel {
         &self.state
     }
 
+    pub(super) fn set_selected_skill(
+        &mut self,
+        name: String,
+        reference: SkillReference,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.selected_skill = Some((name, reference));
+        let text = self
+            .input_buffer_model
+            .as_ref(ctx)
+            .current_value()
+            .to_owned();
+        if let Some(detected) = self.detect_skill_command(&text, ctx) {
+            let old_state = std::mem::replace(
+                &mut self.state,
+                SlashCommandEntryState::SkillCommand(detected),
+            );
+            ctx.emit(UpdatedSlashCommandModel { old_state });
+        }
+    }
+
     /// Parses `text` into a `SlashCommandEntryState` without mutating the
     /// model or emitting events.
     /// Use this when you have a prompt string and need to know whether it is
@@ -250,15 +274,25 @@ impl SlashCommandModel {
 
         let active_session = self.active_session.as_ref(ctx);
         let cwd_path = active_session.current_working_directory_location(ctx);
+        let origin = SessionContext::from_session(active_session, ctx).skill_path_origin();
         let skills = SkillManager::handle(ctx)
             .as_ref(ctx)
-            .get_skills_for_working_directory(cwd_path.as_ref(), ctx);
+            .get_skills_for_working_directory_with_origin(cwd_path.as_ref(), &origin, ctx);
 
-        let matched_skill = skills.into_iter().find(|skill| skill.name == skill_name)?;
+        let matched_skill = match self
+            .selected_skill
+            .as_ref()
+            .filter(|(name, _)| name == skill_name)
+        {
+            Some((name, reference)) => skills
+                .iter()
+                .find(|skill| skill.name == *name && skill.reference == *reference)?,
+            None => skills.iter().find(|skill| skill.name == skill_name)?,
+        };
 
         Some(DetectedSkillCommand {
-            reference: matched_skill.reference,
-            name: matched_skill.name,
+            reference: matched_skill.reference.clone(),
+            name: matched_skill.name.clone(),
             argument: possible_argument,
         })
     }
@@ -302,6 +336,14 @@ impl SlashCommandModel {
             new_content: new,
             old_content: old,
         } = &event;
+
+        if self.selected_skill.as_ref().is_some_and(|(name, _)| {
+            new.split_once(' ')
+                .map_or(new.as_str(), |(prefix, _)| prefix)
+                != format!("/{name}")
+        }) {
+            self.selected_skill = None;
+        }
 
         if new.is_empty() {
             // The buffer was cleared, so reset state.
@@ -440,7 +482,7 @@ impl SlashCommandDataSource {
             };
 
         let is_matching_command = |command: &StaticCommand| -> bool {
-            if command.name != possible_command {
+            if !command.name.eq_ignore_ascii_case(possible_command) {
                 return false;
             }
 

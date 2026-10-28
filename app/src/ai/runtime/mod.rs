@@ -4,6 +4,7 @@ mod provider_run_coordinator;
 mod rig;
 mod rig_request;
 mod rig_tool;
+mod skill_creation;
 pub(crate) use rig_tool::action_from_tool_call;
 mod task_progress;
 

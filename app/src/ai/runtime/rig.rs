@@ -19,9 +19,10 @@ use super::rig_request::{
     RigRequestMode,
 };
 use super::rig_tool::action_from_tool_call;
+use super::skill_creation::SkillCreationContext;
 use super::ProviderRunProfile;
 use crate::ai::agent::api::RequestParams;
-use crate::ai::agent::AIAgentAction;
+use crate::ai::agent::{AIAgentAction, AIAgentActionType, FileEdit};
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::provider::client::BedrockClient;
 use crate::ai::provider::convert::CachingConfig;
@@ -137,6 +138,8 @@ pub(crate) struct ProviderActionContext {
     task_id: String,
     skill_path_origin: ai::skills::SkillPathOrigin,
     mcp_tool_aliases: HashMap<String, MCPToolTarget>,
+    #[serde(default)]
+    skill_creation: SkillCreationContext,
 }
 
 impl ProviderActionContext {
@@ -154,6 +157,7 @@ impl ProviderActionContext {
             task_id: task_id.into(),
             skill_path_origin: ai::skills::SkillPathOrigin::Local,
             mcp_tool_aliases: HashMap::new(),
+            skill_creation: SkillCreationContext::default(),
         }
     }
 
@@ -178,6 +182,14 @@ impl ProviderActionContext {
     }
 
     pub(crate) fn history_compatibility_call(&self, call: &ToolCall) -> ToolCall {
+        if call.name == "create_skill" {
+            if let Ok((compatible, _)) =
+                self.skill_creation
+                    .lower_call(call, &self.skill_path_origin, false)
+            {
+                return compatible;
+            }
+        }
         let mut compatible = call.clone();
         if let Some(target) = self.mcp_tool_aliases.get(&call.name) {
             let server = target
@@ -205,6 +217,30 @@ impl ProviderActionContext {
     }
 
     pub(crate) fn action_from_tool_call(&self, call: &ToolCall) -> Result<AIAgentAction, String> {
+        if call.name == "create_skill" {
+            let (lowered, scope) = self.skill_creation.lower_call(
+                call,
+                &self.skill_path_origin,
+                !matches!(
+                    self.skill_path_origin,
+                    ai::skills::SkillPathOrigin::RestoredDisplayOnly
+                ),
+            )?;
+            let mut action = action_from_tool_call(
+                &self.task_id,
+                &lowered,
+                &self.skill_path_origin,
+                &self.mcp_tool_aliases,
+            )?;
+            if let AIAgentActionType::RequestFileEdits { file_edits, .. } = &mut action.action {
+                for edit in file_edits {
+                    if let FileEdit::Create { creation_scope, .. } = edit {
+                        *creation_scope = Some(scope.clone());
+                    }
+                }
+            }
+            return Ok(action);
+        }
         action_from_tool_call(
             &self.task_id,
             call,
@@ -224,6 +260,7 @@ pub(crate) async fn prepare_provider_run(
     let (supported_tools, supported_cli_agent_tools) =
         crate::ai::agent::api::prepare_direct_provider_params(&mut params);
     let skill_path_origin = params.session_context.skill_path_origin();
+    let skill_creation = SkillCreationContext::from_session(&params.session_context);
     let mut cli_params = params.clone();
     let computer_use_model = params.computer_use_model.as_str();
     let computer_use_profile = if supported_tools.contains(&ToolType::RequestComputerUse) {
@@ -231,8 +268,10 @@ pub(crate) async fn prepare_provider_run(
         let computer_provider = if computer_use_model.is_empty()
             || computer_use_model == "computer-use-agent-auto"
             || computer_use_model == params.model.as_str()
-            || matches!(&computer_use_provider_config, crate::ai::provider::ProviderConfig::None)
-        {
+            || matches!(
+                &computer_use_provider_config,
+                crate::ai::provider::ProviderConfig::None
+            ) {
             base_provider_config.clone()
         } else {
             computer_params.model = params.computer_use_model.clone();
@@ -345,6 +384,7 @@ pub(crate) async fn prepare_provider_run(
             task_id,
             skill_path_origin,
             mcp_tool_aliases,
+            skill_creation,
         },
     })
 }

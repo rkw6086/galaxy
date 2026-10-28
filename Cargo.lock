@@ -6086,6 +6086,7 @@ dependencies = [
  "galaxy_core",
  "galaxy_util",
  "galaxyui_core",
+ "libc",
  "log",
  "notify-debouncer-full",
  "remote_server",

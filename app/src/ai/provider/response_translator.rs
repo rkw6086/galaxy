@@ -839,14 +839,18 @@ pub fn build_tool_call_message(
         serde_json::from_str(tool_input_json).unwrap_or(serde_json::json!({}));
 
     let tool = match tool_name {
-        "request_computer_use" | "use_computer" => {
-            crate::ai::runtime::action_from_tool_call(
-                task_id,
-                &galaxy_agent_core::ToolCall { id: tool_use_id.to_string(), name: tool_name.to_string(), arguments: input.clone() },
-                &ai::skills::SkillPathOrigin::Local,
-                &std::collections::HashMap::new(),
-            ).ok().and_then(|action| crate::ai::agent::provider_history::computer_use_tool(&action.action))
-        }
+        "request_computer_use" | "use_computer" => crate::ai::runtime::action_from_tool_call(
+            task_id,
+            &galaxy_agent_core::ToolCall {
+                id: tool_use_id.to_string(),
+                name: tool_name.to_string(),
+                arguments: input.clone(),
+            },
+            &ai::skills::SkillPathOrigin::Local,
+            &std::collections::HashMap::new(),
+        )
+        .ok()
+        .and_then(|action| crate::ai::agent::provider_history::computer_use_tool(&action.action)),
         "run_shell_command" => {
             let command = input
                 .get("command")
@@ -1633,6 +1637,7 @@ const KNOWN_TOOLS: &[&str] = &[
     "start_agent",
     "ask_user_question",
     "read_skill",
+    "create_skill",
     "fetch_conversation",
     "recall_tool_history",
     "update_task_list",

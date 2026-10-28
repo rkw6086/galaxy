@@ -73,7 +73,7 @@ use crate::ai::mcp::{
 };
 use crate::ai::skills::{
     filter_skills_by_spec, read_skills_from_directories, resolve_skill_repos, SkillManager,
-    SkillWatcher,
+    SkillManagerEvent, SkillWatcher,
 };
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::{CloudObject, CloudObjectLookup as _};
@@ -1874,9 +1874,10 @@ impl AgentDriver {
                 } else {
                     log::info!("No environment skills found");
                 }
-                SkillManager::handle(ctx).update(ctx, |manager, _| {
+                SkillManager::handle(ctx).update(ctx, |manager, ctx| {
                     manager.set_cloud_environment(true);
                     manager.handle_skills_added(skills);
+                    ctx.emit(SkillManagerEvent::SkillsChanged);
                 });
             })
             .await;
@@ -1942,9 +1943,10 @@ impl AgentDriver {
         log::info!("Loaded {} global skill(s)", skills.len());
         let add_result = foreground
             .spawn(move |_, ctx| {
-                SkillManager::handle(ctx).update(ctx, |manager, _| {
+                SkillManager::handle(ctx).update(ctx, |manager, ctx| {
                     manager.set_cloud_environment(true);
                     manager.handle_skills_added(skills);
+                    ctx.emit(SkillManagerEvent::SkillsChanged);
                 });
             })
             .await;

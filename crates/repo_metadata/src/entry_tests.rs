@@ -241,12 +241,55 @@ fn should_watch_descends_to_force_included_under_ignored_ancestor() {
         &gitignores,
         &force_included
     ));
-    // A sibling ignored dir that is not force-included is still pruned.
-    assert!(!super::should_watch_repo_directory(
+    // Other source directories can also contain a nested skill provider.
+    assert!(super::should_watch_repo_directory(
         &root.join(".agents/other"),
         &gitignores,
         &force_included
     ));
+}
+
+#[test]
+fn skill_interests_watch_ignored_source_parents_but_prune_generated_dependencies() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = dunce::canonicalize(temp_dir.path()).unwrap();
+    fs::create_dir_all(root.join("app/server/.agents/skills/check")).unwrap();
+    fs::create_dir_all(root.join("node_modules/package")).unwrap();
+    fs::create_dir_all(root.join("target/debug")).unwrap();
+    let gitignores = vec![gitignore_rooted(
+        &root,
+        "app/server/\nnode_modules/\ntarget/\n",
+    )];
+    let interests = vec![std::path::PathBuf::from(".agents/skills")];
+
+    assert!(!super::should_watch_repo_directory(
+        &root.join("app/server"),
+        &gitignores,
+        &[]
+    ));
+    for path in [
+        "app/server",
+        "app/server/.agents",
+        "app/server/.agents/skills/check",
+    ] {
+        assert!(super::should_watch_repo_directory(
+            &root.join(path),
+            &gitignores,
+            &interests
+        ));
+    }
+    for path in [
+        "node_modules",
+        "node_modules/package",
+        "target",
+        "target/debug",
+    ] {
+        assert!(!super::should_watch_repo_directory(
+            &root.join(path),
+            &gitignores,
+            &interests
+        ));
+    }
 }
 
 #[test]
@@ -411,6 +454,115 @@ fn standing_queries_report_skills_below_an_ignored_directory() {
         assert!(results
             .project_skills()
             .any(|content| content.path == skill_path && !content.is_directory));
+    });
+}
+
+#[test]
+fn nested_project_context_is_discovered_without_materializing_lazy_source_trees() {
+    virtual_fs::VirtualFS::test("nested_context_in_lazy_source", |dirs, mut vfs| {
+        vfs.mkdir("repo/app/server/.agents/skills/run-channel-verifier")
+            .with_files(vec![
+                virtual_fs::Stub::FileWithContent(
+                    "repo/app/server/.agents/skills/run-channel-verifier/SKILL.md",
+                    "name: run-channel-verifier",
+                ),
+                virtual_fs::Stub::FileWithContent(
+                    "repo/app/server/AGENTS.md",
+                    "Server instructions",
+                ),
+                virtual_fs::Stub::FileWithContent("repo/app/server/main.rs", "source"),
+            ]);
+        let repo = dirs.tests().join("repo");
+        let skill_path = repo.join("app/server/.agents/skills/run-channel-verifier/SKILL.md");
+        let rule_path = repo.join("app/server/AGENTS.md");
+        let mut definitions = StandingQueryDefinitions::default();
+        definitions.set_project_skill_provider_paths([std::path::PathBuf::from(".agents/skills")]);
+
+        for (gitignore, max_depth, mut remaining_files) in [
+            ("app/server/\n", 200, None),
+            ("", 1, None),
+            ("", 200, Some(0)),
+        ] {
+            fs::write(repo.join(".gitignore"), gitignore).unwrap();
+            let mut files = Vec::new();
+            let mut gitignores = Vec::new();
+            let mut results = StandingQueryResults::default();
+            let tree = Entry::build_tree_with_standing_queries(
+                &repo,
+                &mut files,
+                &mut gitignores,
+                remaining_files.as_mut(),
+                super::BuildTreeOptions {
+                    max_depth,
+                    current_depth: 0,
+                    ignored_path_strategy: &IgnoredPathStrategy::IncludeLazy,
+                    force_included_paths: &[std::path::PathBuf::from(".agents/skills")],
+                    budget_exceeded_behavior: super::BudgetExceededBehavior::StopAndLazyLoad,
+                },
+                &mut results,
+                &definitions,
+            )
+            .unwrap();
+
+            assert!(results.project_skills().any(|content| {
+                content.path.to_local_path().as_deref() == Some(skill_path.as_path())
+                    && !content.is_directory
+            }));
+            assert!(results.project_rules().any(|content| {
+                content.path.to_local_path().as_deref() == Some(rule_path.as_path())
+            }));
+            assert!(find_entry(&tree, &skill_path).is_none());
+            assert!(find_entry(&tree, &repo.join("app/server/main.rs")).is_none());
+            assert!(files.iter().all(|file| {
+                file.path.to_local_path().as_deref() != Some(skill_path.as_path())
+            }));
+        }
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn lazy_project_context_preserves_linked_skills_without_following_directory_loops() {
+    virtual_fs::VirtualFS::test("lazy_context_linked_skills", |dirs, mut vfs| {
+        vfs.mkdir("repo/app/server/.agents/skills")
+            .mkdir("repo/node_modules/pkg/.agents/skills/ignored")
+            .mkdir("repo/target/.agents/skills/ignored")
+            .mkdir("linked-skill")
+            .with_files(vec![
+                virtual_fs::Stub::FileWithContent("linked-skill/SKILL.md", "linked"),
+                virtual_fs::Stub::FileWithContent(
+                    "repo/node_modules/pkg/.agents/skills/ignored/SKILL.md",
+                    "dependency",
+                ),
+                virtual_fs::Stub::FileWithContent(
+                    "repo/target/.agents/skills/ignored/SKILL.md",
+                    "generated",
+                ),
+            ]);
+        let repo = dirs.tests().join("repo");
+        let linked = repo.join("app/server/.agents/skills/linked");
+        std::os::unix::fs::symlink(dirs.tests().join("linked-skill"), &linked).unwrap();
+        std::os::unix::fs::symlink(&repo, repo.join("app/server/loop")).unwrap();
+
+        let mut definitions = StandingQueryDefinitions::default();
+        definitions.set_project_skill_provider_paths([std::path::PathBuf::from(".agents/skills")]);
+        let mut results = StandingQueryResults::default();
+        results.discover_in_unloaded_directory(&repo, &definitions);
+
+        let discovered = results
+            .project_skills()
+            .filter(|content| !content.is_directory)
+            .map(|content| content.path.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            discovered,
+            vec![
+                galaxy_util::standardized_path::StandardizedPath::try_from_local(
+                    &linked.join("SKILL.md")
+                )
+                .unwrap()
+            ]
+        );
     });
 }
 

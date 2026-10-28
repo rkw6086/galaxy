@@ -4888,6 +4888,9 @@ impl Input {
             self.editor.update(ctx, |editor, ctx| {
                 editor.set_buffer_text(format!("{prefix}{skill_name} ").as_str(), ctx);
             });
+            self.slash_command_model.update(ctx, |model, ctx| {
+                model.set_selected_skill(skill_name.clone(), skill_reference.clone(), ctx);
+            });
 
             // Close the menu but keep input focused so user can press Enter
             if self.suggestions_mode_model.as_ref(ctx).is_skill_menu() {

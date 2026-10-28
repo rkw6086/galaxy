@@ -279,6 +279,7 @@ where
     let mut search_replace_deltas: HashMap<String, Vec<SearchAndReplace>> = HashMap::new();
     let mut v4a_deltas: HashMap<String, Vec<V4AHunk>> = HashMap::new();
     let mut new_files: HashMap<String, String> = HashMap::new();
+    let mut native_new_file_paths = HashSet::new();
     let mut deleted_files: HashSet<String> = HashSet::new();
     let mut file_renames: HashMap<String, String> = HashMap::new();
     let mut result = DiffResult::default();
@@ -317,8 +318,15 @@ where
                     }
                 };
             }
-            FileEdit::Create { file, content } => {
+            FileEdit::Create {
+                file,
+                content,
+                creation_scope,
+            } => {
                 let Some(file_path) = file else { continue };
+                if creation_scope.is_some() {
+                    native_new_file_paths.insert(file_path.clone());
+                }
 
                 match new_files.entry(file_path) {
                     Entry::Occupied(entry) => {
@@ -392,7 +400,16 @@ where
         } else if replacement_file_paths.contains(&file) {
             apply_replace_file(file, content, session_context, read_file, &mut result).await;
         } else {
-            apply_create_file(file, content, session_context, read_file, &mut result).await;
+            let path_is_host_native = native_new_file_paths.contains(&file);
+            apply_create_file(
+                file,
+                content,
+                path_is_host_native,
+                session_context,
+                read_file,
+                &mut result,
+            )
+            .await;
         }
     }
 
@@ -477,6 +494,7 @@ async fn apply_replace_file<F, Fut>(
 async fn apply_create_file<F, Fut>(
     file_path: String,
     content: String,
+    path_is_host_native: bool,
     session_context: &SessionContext,
     read_file: &F,
     result: &mut DiffResult,
@@ -484,11 +502,15 @@ async fn apply_create_file<F, Fut>(
     F: Fn(String) -> Fut,
     Fut: Future<Output = FileReadResult>,
 {
-    let absolute_path = host_native_absolute_path(
-        &file_path,
-        session_context.shell(),
-        session_context.current_working_directory(),
-    );
+    let absolute_path = if path_is_host_native {
+        file_path.clone()
+    } else {
+        host_native_absolute_path(
+            &file_path,
+            session_context.shell(),
+            session_context.current_working_directory(),
+        )
+    };
 
     match read_file(absolute_path.clone()).await {
         FileReadResult::Found(_) => {

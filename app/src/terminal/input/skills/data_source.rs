@@ -15,13 +15,16 @@ use galaxyui::{
 };
 use ordered_float::OrderedFloat;
 
+use crate::ai::blocklist::SessionContext;
 use crate::ai::skills::SkillManager;
 use crate::appearance::Appearance;
 use crate::search::data_source::{Query, QueryResult};
 use crate::search::mixer::DataSourceRunErrorWrapper;
 use crate::search::result_renderer::ItemHighlightState;
 use crate::search::{SearchItem, SyncDataSource};
-use crate::terminal::cli_agent_sessions::{CLIAgentInputState, CLIAgentSessionsModel};
+use crate::terminal::cli_agent_sessions::{
+    CLIAgentInputState, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
+};
 use crate::terminal::input::inline_menu::{
     default_navigation_message_items, styles as inline_styles, InlineMenuAction,
     InlineMenuMessageArgs, InlineMenuType,
@@ -54,8 +57,6 @@ impl InlineMenuAction for AcceptSkill {
         // Otherwise show default navigation hints
         Some(Message::new(default_navigation_message_items(&args)))
     }
-
-    // No details panel - we show inline descriptions instead
 }
 
 /// Event emitted when available skills may have changed.
@@ -82,6 +83,23 @@ impl SkillSelectorDataSource {
                 ctx.emit(UpdatedAvailableSkills);
             }
         });
+        ctx.subscribe_to_model(&SkillManager::handle(ctx), |_, _, _, ctx| {
+            ctx.emit(UpdatedAvailableSkills);
+        });
+        ctx.subscribe_to_model(
+            &CLIAgentSessionsModel::handle(ctx),
+            move |_, _, event, ctx| {
+                if let CLIAgentSessionsModelEvent::InputSessionChanged {
+                    terminal_view_id: changed_view,
+                    ..
+                } = event
+                {
+                    if *changed_view == terminal_view_id {
+                        ctx.emit(UpdatedAvailableSkills);
+                    }
+                }
+            },
+        );
 
         Self {
             active_session,
@@ -120,8 +138,14 @@ impl SyncDataSource for SkillSelectorDataSource {
         app: &AppContext,
     ) -> Result<Vec<QueryResult<Self::Action>>, DataSourceRunErrorWrapper> {
         let cwd = self.get_current_working_directory(app);
+        let origin =
+            SessionContext::from_session(self.active_session.as_ref(app), app).skill_path_origin();
         let cli_agent_providers = self.active_cli_agent_providers(app);
-        let skills = SkillManager::as_ref(app).get_skills_for_working_directory(cwd.as_ref(), app);
+        let skills = SkillManager::as_ref(app).get_skills_for_working_directory_with_origin(
+            cwd.as_ref(),
+            &origin,
+            app,
+        );
 
         // Filter out bundled skills when in open mode, since they cannot be opened.
         // Bundled skills are identified by scope rather than reference: local
@@ -152,7 +176,7 @@ impl SyncDataSource for SkillSelectorDataSource {
             })
             .collect();
 
-        let query_text = query.text.trim();
+        let query_text = skill_query_text(&query.text);
         if query_text.is_empty() {
             return Ok(skills
                 .into_iter()
@@ -190,6 +214,15 @@ impl SyncDataSource for SkillSelectorDataSource {
                 ))
             })
             .collect())
+    }
+}
+
+fn skill_query_text(query: &str) -> &str {
+    let query = query.trim();
+    if query.eq_ignore_ascii_case("/skills") || query.eq_ignore_ascii_case("/open-skill") {
+        ""
+    } else {
+        query
     }
 }
 
@@ -380,9 +413,27 @@ impl SearchItem for SkillSearchItem {
         inline_styles::item_background(highlight_state, appearance)
     }
 
-    // No details panel - we show inline descriptions instead
-    fn render_details(&self, _app: &AppContext) -> Option<Box<dyn Element>> {
-        None
+    fn render_details(&self, app: &AppContext) -> Option<Box<dyn Element>> {
+        let appearance = Appearance::as_ref(app);
+        let location = match &self.skill_reference {
+            SkillReference::Path(path) => path.display_path(),
+            SkillReference::BundledSkillId(_) => "Included with Galaxy".to_owned(),
+        };
+        Some(
+            Text::new_inline(
+                location,
+                appearance.monospace_font_family(),
+                inline_styles::font_size(appearance),
+            )
+            .with_color(
+                inline_styles::secondary_text_color(
+                    appearance.theme(),
+                    inline_styles::menu_background_color(app).into(),
+                )
+                .into(),
+            )
+            .finish(),
+        )
     }
 
     fn score(&self) -> OrderedFloat<f64> {

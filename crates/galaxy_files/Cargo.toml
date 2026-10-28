@@ -21,6 +21,9 @@ notify-debouncer-full.workspace = true
 repo_metadata.workspace = true
 log.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [features]
 test-util = []
 

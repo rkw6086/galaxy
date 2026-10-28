@@ -725,6 +725,7 @@ fn file_edits(input: &serde_json::Value) -> Result<Vec<FileEdit>, String> {
             edits.push(FileEdit::Create {
                 file: Some(required_string(file, "file_path")?),
                 content: Some(required_string(file, "content")?),
+                creation_scope: None,
             });
         }
     }

@@ -47,6 +47,38 @@ fn records_provider_skill_files_and_project_rules() {
 }
 
 #[test]
+fn default_query_records_supported_project_rule_files() {
+    let definitions = StandingQueryDefinitions::default();
+    let mut results = StandingQueryResults::default();
+    let rule_paths = [
+        repo_path("GALAXY.md"),
+        repo_path("packages/api/WARP.md"),
+        repo_path("app/server/CLAUDE.md"),
+        repo_path("app/client/agents.MD"),
+    ];
+
+    for path in &rule_paths {
+        results.record_path(path, false, &definitions);
+    }
+    results.record_path(&repo_path("README.md"), false, &definitions);
+    results.record_path(
+        &repo_path(".agents/skills/check/SKILL.md"),
+        false,
+        &definitions,
+    );
+    results.record_path(&repo_path("generated/AGENTS.md"), true, &definitions);
+
+    let expected = rule_paths
+        .iter()
+        .map(|path| StandingQueryContent::file(standardized(path)))
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        results.project_rules().cloned().collect::<HashSet<_>>(),
+        expected
+    );
+}
+
+#[test]
 fn replacing_removed_direct_skill_child_can_reupsert_provider_for_hydration() {
     let definitions = definitions();
     let provider_path = repo_path(".agents/skills");

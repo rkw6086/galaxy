@@ -13,7 +13,9 @@ use ignore::gitignore::Gitignore;
 use notify_debouncer_full::notify::WatchFilter;
 use thiserror::Error;
 
-use crate::standing_queries::{StandingQueryDefinitions, StandingQueryResults};
+use crate::standing_queries::{
+    should_discover_project_context_in_directory, StandingQueryDefinitions, StandingQueryResults,
+};
 
 /// Maximum file size allowed for treesitter parsing (3MB).
 const MAX_FILE_SIZE: usize = 3 * 1000 * 1000;
@@ -293,6 +295,10 @@ impl Entry {
                         ignored,
                         is_root: true,
                     });
+                } else if let Some(state) = standing_queries.as_deref_mut() {
+                    state
+                        .results
+                        .discover_in_unloaded_directory(&root_path, state.definitions);
                 }
 
                 while let Some(job) = queue.pop_front() {
@@ -314,6 +320,11 @@ impl Entry {
                         }
                     };
                     if !should_expand {
+                        if let Some(state) = standing_queries.as_deref_mut() {
+                            state
+                                .results
+                                .discover_in_unloaded_directory(&job.path, state.definitions);
+                        }
                         continue;
                     }
 
@@ -411,6 +422,11 @@ impl Entry {
                                         ignored,
                                         is_root: false,
                                     });
+                                } else if let Some(state) = standing_queries.as_deref_mut() {
+                                    state.results.discover_in_unloaded_directory(
+                                        &child_path,
+                                        state.definitions,
+                                    );
                                 }
                             }
                             Err(_) => {
@@ -975,10 +991,9 @@ fn descend_allowlist_matches(suffix: &[Component<'_>]) -> bool {
 /// Returns whether a repository file watcher should descend into (and register
 /// a watch on) the directory at `path`.
 ///
-/// Directories inside `.git/` follow the watcher allowlist, force-included
-/// paths are always watched even when gitignored, and any other gitignored
-/// directory is pruned so we don't register watches on `node_modules`, build
-/// output, vendored deps, etc.
+/// Directories inside `.git/` follow the watcher allowlist and force-included paths are always
+/// watched. Registered skill interests additionally search ignored source directories for nested
+/// providers, while generated dependencies and caches remain pruned.
 pub fn should_watch_repo_directory(
     path: &Path,
     gitignores: &[Gitignore],
@@ -992,12 +1007,23 @@ pub fn should_watch_repo_directory(
         return true;
     }
 
-    !matches_gitignores(
+    if !matches_gitignores(
         path,
         path.is_dir(),
         gitignores,
         /* check_ancestors */ true,
-    )
+    ) {
+        return true;
+    }
+
+    let discovers_skills = force_included_paths
+        .iter()
+        .any(|interest| interest.file_name().is_some_and(|name| name == "skills"));
+    discovers_skills
+        && path
+            .ancestors()
+            .take_while(|ancestor| gitignores.iter().all(|ignore| *ancestor != ignore.path()))
+            .all(should_discover_project_context_in_directory)
 }
 
 /// Returns the [`WatchFilter`] used by repository file watchers.
@@ -1010,9 +1036,8 @@ pub fn should_watch_repo_directory(
 /// existing behavior.
 ///
 /// Descend predicate: see [`should_watch_repo_directory`]. In addition to the
-/// `.git/` allowlist, it prunes gitignored directories (honoring registered
-/// force-included paths) so the recursive walk does not register watches on
-/// gitignored subtrees.
+/// `.git/` allowlist, it prunes gitignored directories unless skill-context interests require
+/// searching their source subtrees. Generated dependency/cache trees stay pruned.
 ///
 /// `gitignores` should be the repo's root + global gitignores (as produced by
 /// [`gitignores_for_directory`]), matching `Repository::check_gitignore_status`

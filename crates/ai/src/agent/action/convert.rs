@@ -113,6 +113,7 @@ impl From<api::message::tool_call::ApplyFileDiffs> for AIAgentActionType {
             .map(|new_file| FileEdit::Create {
                 file: new_file.file_path.none_if_default(),
                 content: new_file.content.none_if_default(),
+                creation_scope: None,
             });
 
         AIAgentActionType::RequestFileEdits {

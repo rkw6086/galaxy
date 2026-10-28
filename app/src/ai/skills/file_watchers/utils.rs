@@ -76,6 +76,9 @@ pub(super) fn find_local_project_skill_files_on_filesystem(
 }
 
 fn find_local_provider_directories_on_filesystem(scan_root: &Path) -> Vec<PathBuf> {
+    if scan_root.is_symlink() {
+        return Vec::new();
+    }
     let mut provider_dirs = Vec::new();
     let mut entries = WalkDir::new(scan_root).follow_links(false).into_iter();
     while let Some(entry) = entries.next() {

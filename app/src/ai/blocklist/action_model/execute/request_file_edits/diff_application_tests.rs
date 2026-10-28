@@ -389,10 +389,12 @@ fn test_multiple_file_create_edits_for_same_path() {
         let create_edit1 = FileEdit::Create {
             file: Some(file_path.clone()),
             content: Some("First content".to_string()),
+            creation_scope: None,
         };
         let create_edit2 = FileEdit::Create {
             file: Some(file_path.clone()),
             content: Some("Second content".to_string()),
+            creation_scope: None,
         };
 
         let ai_identifiers = &AIIdentifiers::default();
@@ -431,6 +433,7 @@ fn test_mixed_create_and_edit_for_same_path() {
         let create_edit = FileEdit::Create {
             file: Some(file_path.clone()),
             content: Some("New file content".to_string()),
+            creation_scope: None,
         };
         let edit_diff = ParsedDiff::StrReplaceEdit {
             file: Some(file_path.clone()),
@@ -479,6 +482,7 @@ fn test_delete_and_create_same_path_replaces_existing_file() {
         let create_edit = FileEdit::Create {
             file: Some(file_path.clone()),
             content: Some("New file content".to_string()),
+            creation_scope: None,
         };
 
         let result = apply_edits(
@@ -515,6 +519,7 @@ fn test_create_then_delete_same_path_replaces_existing_file() {
         let create_edit = FileEdit::Create {
             file: Some(file_path.clone()),
             content: Some("New file content".to_string()),
+            creation_scope: None,
         };
         let delete_edit = FileEdit::Delete {
             file: Some(file_path.clone()),
@@ -556,6 +561,7 @@ fn test_delete_create_and_edit_same_path_still_fails() {
         let create_edit = FileEdit::Create {
             file: Some(file_path.clone()),
             content: Some("New file content".to_string()),
+            creation_scope: None,
         };
         let edit_diff = ParsedDiff::StrReplaceEdit {
             file: Some(file_path.clone()),
@@ -596,6 +602,7 @@ fn test_create_edit_for_existing_file() {
         let create_edit = FileEdit::Create {
             file: Some(file_path.clone()),
             content: Some("New content".to_string()),
+            creation_scope: None,
         };
 
         let ai_identifiers = &AIIdentifiers::default();

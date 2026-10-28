@@ -466,8 +466,23 @@ impl LocalRepoMetadataModel {
         let Some(local_repo_path) = repo_path.to_local_path() else {
             return;
         };
-        for interest in &self.force_included_paths {
-            let Ok(entries) = std::fs::read_dir(local_repo_path.join(interest)) else {
+        let mut provider_directories = self
+            .force_included_paths
+            .iter()
+            .map(|interest| local_repo_path.join(interest))
+            .collect::<HashSet<_>>();
+        if let Some(results) = self.standing_results.get(repo_path) {
+            provider_directories.extend(results.project_skills().filter_map(|content| {
+                let path = content.path.to_local_path()?;
+                if content.is_directory {
+                    Some(path)
+                } else {
+                    path.parent()?.parent().map(Path::to_path_buf)
+                }
+            }));
+        }
+        for provider_directory in provider_directories {
+            let Ok(entries) = std::fs::read_dir(provider_directory) else {
                 continue;
             };
             for entry in entries.flatten() {
@@ -1180,6 +1195,8 @@ impl LocalRepoMetadataModel {
                     // is created; insert it as an unloaded placeholder and build
                     // the subtree on demand when the user expands it (see
                     // `load_directory`).
+                    standing_results
+                        .discover_in_unloaded_directory(path_to_add, standing_query_definitions);
                     mutations.push(FileTreeMutation::AddUnloadedDirectory {
                         path: path_to_add.clone(),
                         is_ignored,
