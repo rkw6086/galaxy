@@ -177,7 +177,7 @@ async fn cancellation_before_bedrock_stream_start_never_contacts_aws() {
 #[test]
 fn bedrock_request_preserves_system_image_reasoning_tool_and_token_semantics() {
     let mut request = TurnRequest::new(
-        "anthropic.claude-test",
+        "anthropic.claude-sonnet-4-6",
         vec![
             ConversationMessage {
                 role: MessageRole::User,
@@ -277,4 +277,152 @@ fn bedrock_request_preserves_system_image_reasoning_tool_and_token_semantics() {
         result.content.iter().next(),
         Some(ToolResultContent::Text(text)) if text.text == "[ERROR] permission denied"
     ));
+}
+
+#[test]
+fn bedrock_follow_ups_omit_unsigned_reasoning_without_losing_tool_calls_or_results() {
+    for model in [
+        "deepseek.r1-v1:0",
+        "us.amazon.nova-2-lite-v1:0",
+        "openai.gpt-oss-120b-1:0",
+        "qwen.qwen3-32b-v1:0",
+        "anthropic.claude-sonnet-4-6",
+    ] {
+        let request = TurnRequest::new(
+            model,
+            vec![
+                ConversationMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::Text("Inspect the project".to_owned()),
+                },
+                ConversationMessage {
+                    role: MessageRole::Assistant,
+                    content: MessageContent::MultiPart(vec![
+                        ContentPart::Reasoning {
+                            text: "display-only reasoning".to_owned(),
+                            signature: None,
+                        },
+                        ContentPart::Text("Reading the manifest".to_owned()),
+                        ContentPart::ToolUse {
+                            tool_use_id: "manifest-call".to_owned(),
+                            name: "read_files".to_owned(),
+                            input: serde_json::json!({"files": ["Cargo.toml"]}),
+                        },
+                    ]),
+                },
+                ConversationMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::ToolResult {
+                        tool_use_id: "manifest-call".to_owned(),
+                        content: "manifest contents".to_owned(),
+                        is_error: false,
+                    },
+                },
+            ],
+        );
+        let converted = build_bedrock_completion_request(request, None).unwrap();
+        let messages = converted.chat_history.iter().collect::<Vec<_>>();
+        let [
+            _,
+            Message::Assistant { content, .. },
+            Message::User { content: result },
+        ] = messages.as_slice()
+        else {
+            panic!("expected the tool exchange for {model}");
+        };
+        assert!(matches!(content.iter().collect::<Vec<_>>().as_slice(),
+            [AssistantContent::Text(text), AssistantContent::ToolCall(call)]
+                if text.text == "Reading the manifest" && call.id == "manifest-call"
+        ));
+        assert!(
+            matches!(result.iter().next(), Some(UserContent::ToolResult(result))
+            if result.id == "manifest-call")
+        );
+    }
+}
+
+#[test]
+fn bedrock_model_switch_drops_foreign_signed_reasoning_and_empty_messages() {
+    for model in [
+        "amazon.nova-pro-v1:0",
+        "us.deepseek.r1-v1:0",
+        "openai.gpt-oss-120b-1:0",
+        "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "anthropic.claude-3-haiku-20240307-v1:0",
+        "anthropic.claude-instant-v1",
+        "anthropic.claude-v1",
+        "anthropic.claude-v2:1",
+    ] {
+        let messages = vec![
+            ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text("Question".to_owned()),
+            },
+            ConversationMessage {
+                role: MessageRole::Assistant,
+                content: MessageContent::MultiPart(vec![ContentPart::Reasoning {
+                    text: "Earlier thinking".to_owned(),
+                    signature: Some("original-signature".to_owned()),
+                }]),
+            },
+            ConversationMessage {
+                role: MessageRole::Assistant,
+                content: MessageContent::MultiPart(vec![
+                    ContentPart::Reasoning {
+                        text: "Earlier thinking".to_owned(),
+                        signature: Some("original-signature".to_owned()),
+                    },
+                    ContentPart::Text("Visible answer".to_owned()),
+                ]),
+            },
+        ];
+        // The runtime's selected model takes precedence over a historical request model.
+        let request = TurnRequest::new("anthropic.claude-sonnet-4-6", messages);
+        let converted = build_bedrock_completion_request_for_model(request, None, model).unwrap();
+        assert_eq!(converted.chat_history.len(), 2);
+        assert!(
+            matches!(converted.chat_history.iter().nth(1), Some(Message::Assistant { content, .. })
+            if matches!(content.iter().collect::<Vec<_>>().as_slice(), [AssistantContent::Text(text)] if text.text == "Visible answer"))
+        );
+    }
+}
+
+#[test]
+fn bedrock_preserves_signed_claude_blocks_exactly_across_identifier_forms() {
+    let signed = ConversationMessage {
+        role: MessageRole::Assistant,
+        content: MessageContent::MultiPart(vec![
+            ContentPart::Reasoning {
+                text: "Unmodified thinking".to_owned(),
+                signature: Some("signed-text".to_owned()),
+            },
+            ContentPart::Reasoning {
+                text: String::new(),
+                signature: Some("signature-only".to_owned()),
+            },
+            ContentPart::Text("Answer".to_owned()),
+        ]),
+    };
+    for model in [
+        "anthropic.claude-3-7-sonnet-20250219-v1:0",
+        "global.anthropic.claude-sonnet-4-6[1m]",
+        "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-6",
+        "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-6",
+        "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/opaque-profile",
+    ] {
+        assert_eq!(
+            prepare_bedrock_history(model, vec![signed.clone()]),
+            vec![signed.clone()]
+        );
+    }
+    for signature in [None, Some(String::new()), Some("  ".to_owned())] {
+        let message = ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::MultiPart(vec![ContentPart::Reasoning {
+                text: "Display only".to_owned(),
+                signature,
+            }]),
+        };
+        assert!(prepare_bedrock_history("anthropic.claude-sonnet-4-6", vec![message]).is_empty());
+    }
 }

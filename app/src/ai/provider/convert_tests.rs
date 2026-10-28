@@ -23,6 +23,7 @@ fn test_text_message_converts_to_single_block() {
     }];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         None,
         None,
@@ -54,6 +55,7 @@ fn test_multimodal_user_message_converts_image_to_bedrock_block() {
     }];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         None,
         None,
@@ -100,6 +102,7 @@ fn test_tool_use_produces_valid_json_input() {
     }];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         None,
         None,
@@ -134,6 +137,7 @@ fn test_tool_result_with_matching_id() {
     }];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         None,
         None,
@@ -166,6 +170,7 @@ fn test_tool_result_error_status() {
     }];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         None,
         None,
@@ -202,6 +207,7 @@ fn test_consecutive_same_role_messages_coalesced() {
     ];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         None,
         None,
@@ -237,6 +243,7 @@ fn test_alternating_roles_not_coalesced() {
     ];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         None,
         None,
@@ -262,6 +269,7 @@ fn test_system_prompt_separated_from_messages() {
     }];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         Some("You are a helpful assistant.".to_string()),
         None,
@@ -284,6 +292,7 @@ fn test_system_prompt_separated_from_messages() {
 #[test]
 fn test_empty_system_prompt_produces_empty_vec() {
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         vec![],
         Some("".to_string()),
         None,
@@ -297,6 +306,7 @@ fn test_empty_system_prompt_produces_empty_vec() {
     assert!(result.system.is_empty());
 
     let result2 = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         vec![],
         None,
         None,
@@ -313,6 +323,7 @@ fn test_empty_system_prompt_produces_empty_vec() {
 #[test]
 fn test_empty_tools_produce_none_config() {
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         vec![],
         None,
         None,
@@ -341,6 +352,7 @@ fn test_tool_definitions_produce_tool_config() {
     }];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         vec![],
         None,
         None,
@@ -363,6 +375,7 @@ fn test_tool_definitions_produce_tool_config() {
 #[test]
 fn test_inference_config_max_tokens_only() {
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         vec![],
         None,
         None,
@@ -382,6 +395,7 @@ fn test_inference_config_max_tokens_only() {
 #[test]
 fn test_inference_config_all_params() {
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         vec![],
         None,
         None,
@@ -413,6 +427,7 @@ fn test_multipart_content_produces_multiple_blocks() {
     }];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         None,
         None,
@@ -461,6 +476,7 @@ fn test_tool_result_after_tool_use_coalesced_into_user_message() {
     ];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         None,
         None,
@@ -511,6 +527,7 @@ fn test_caching_disabled_no_cache_points() {
     }];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         Some("System prompt".to_string()),
         None,
@@ -570,6 +587,7 @@ fn test_caching_enabled_has_cache_points() {
     }];
 
     let result = build_converse_request(
+        "anthropic.claude-sonnet-4-6",
         messages,
         Some("System prompt".to_string()),
         None,
@@ -606,5 +624,195 @@ fn test_caching_enabled_has_cache_points() {
             .iter()
             .any(|t| matches!(t, Tool::CachePoint(_)));
         assert!(has_tool_cache, "Tools should have cache point");
+    }
+}
+
+fn reasoning_test_request(model_id: &str, messages: Vec<ConversationMessage>) -> ConvertedRequest {
+    build_converse_request(
+        model_id,
+        messages,
+        None,
+        None,
+        vec![],
+        4096,
+        None,
+        None,
+        None,
+        CachingConfig {
+            enabled: false,
+            extended_ttl_requested: false,
+        },
+    )
+}
+
+#[test]
+fn unsupported_reasoning_history_preserves_visible_content_images_and_tool_pairs() {
+    for model_id in [
+        "us.deepseek.r1-v1:0",
+        "amazon.nova-2-lite-v1:0",
+        "openai.gpt-oss-120b-1:0",
+        "qwen.qwen3-32b-v1:0",
+        "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    ] {
+        let result = reasoning_test_request(
+            model_id,
+            vec![
+                ConversationMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::MultiPart(vec![
+                        ContentPart::Text("Inspect this image".to_owned()),
+                        ContentPart::Image {
+                            data: vec![1, 2, 3, 4],
+                            mime_type: "image/png".to_owned(),
+                        },
+                    ]),
+                },
+                ConversationMessage {
+                    role: MessageRole::Assistant,
+                    content: MessageContent::MultiPart(vec![
+                        ContentPart::Reasoning {
+                            text: "Display-only reasoning".to_owned(),
+                            signature: None,
+                        },
+                        ContentPart::Reasoning {
+                            text: "Reasoning from an earlier Claude turn".to_owned(),
+                            signature: Some("original-claude-signature".to_owned()),
+                        },
+                        ContentPart::Text("I will inspect the manifest.".to_owned()),
+                        ContentPart::ToolUse {
+                            tool_use_id: "manifest-call".to_owned(),
+                            name: "read_files".to_owned(),
+                            input: json!({"files": ["Cargo.toml"]}),
+                        },
+                    ]),
+                },
+                ConversationMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::ToolResult {
+                        tool_use_id: "manifest-call".to_owned(),
+                        content: "[package]".to_owned(),
+                        is_error: false,
+                    },
+                },
+                ConversationMessage {
+                    role: MessageRole::Assistant,
+                    content: MessageContent::MultiPart(vec![ContentPart::Reasoning {
+                        text: "No visible assistant content".to_owned(),
+                        signature: None,
+                    }]),
+                },
+                ConversationMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::Text("Continue".to_owned()),
+                },
+            ],
+        );
+        assert_eq!(result.messages.len(), 3, "model: {model_id}");
+        assert!(result.messages.iter().all(|message| {
+            !message.content().is_empty()
+                && message
+                    .content()
+                    .iter()
+                    .all(|part| !matches!(part, ContentBlock::ReasoningContent(_)))
+        }));
+        let user_content = result.messages[0].content();
+        assert!(
+            matches!(&user_content[0], ContentBlock::Text(text) if text == "Inspect this image")
+        );
+        let ContentBlock::Image(image) = &user_content[1] else {
+            panic!("the image must survive reasoning filtering");
+        };
+        assert_eq!(
+            image.source().unwrap().as_bytes().unwrap().as_ref(),
+            &[1, 2, 3, 4]
+        );
+        let assistant_content = result.messages[1].content();
+        assert_eq!(assistant_content.len(), 2);
+        assert!(
+            matches!(&assistant_content[0], ContentBlock::Text(text) if text == "I will inspect the manifest.")
+        );
+        let ContentBlock::ToolUse(tool) = &assistant_content[1] else {
+            panic!("the tool call must survive reasoning filtering");
+        };
+        assert_eq!(tool.tool_use_id(), "manifest-call");
+        assert_eq!(tool.name(), "read_files");
+        let final_user_content = result.messages[2].content();
+        let ContentBlock::ToolResult(tool_result) = &final_user_content[0] else {
+            panic!("the paired tool result must survive reasoning filtering");
+        };
+        assert_eq!(tool_result.tool_use_id(), "manifest-call");
+        assert!(matches!(&final_user_content[1], ContentBlock::Text(text) if text == "Continue"));
+    }
+}
+
+#[test]
+fn signed_claude_reasoning_keeps_exact_text_signatures_and_tool_order() {
+    use aws_sdk_bedrockruntime::types::ReasoningContentBlock;
+
+    let result = reasoning_test_request(
+        "global.anthropic.claude-sonnet-4-6[1m]",
+        vec![ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::MultiPart(vec![
+                ContentPart::Reasoning {
+                    text: "Exact signed thinking\nincluding whitespace.\n".to_owned(),
+                    signature: Some("first-signature".to_owned()),
+                },
+                ContentPart::Reasoning {
+                    text: String::new(),
+                    signature: Some("signature-only-block".to_owned()),
+                },
+                ContentPart::ToolUse {
+                    tool_use_id: "signed-call".to_owned(),
+                    name: "read_files".to_owned(),
+                    input: json!({"files": ["Cargo.toml"]}),
+                },
+            ]),
+        }],
+    );
+    assert_eq!(result.messages.len(), 1);
+    let parts = result.messages[0].content();
+    assert_eq!(parts.len(), 3);
+    for (index, text, signature) in [
+        (
+            0,
+            "Exact signed thinking\nincluding whitespace.\n",
+            "first-signature",
+        ),
+        (1, "", "signature-only-block"),
+    ] {
+        let ContentBlock::ReasoningContent(ReasoningContentBlock::ReasoningText(reasoning)) =
+            &parts[index]
+        else {
+            panic!("signed Claude reasoning must retain its native block");
+        };
+        assert_eq!(reasoning.text(), text);
+        assert_eq!(reasoning.signature(), Some(signature));
+    }
+    assert!(
+        matches!(&parts[2], ContentBlock::ToolUse(tool) if tool.tool_use_id() == "signed-call")
+    );
+}
+
+#[test]
+fn unsigned_reasoning_is_not_replayed_even_to_claude() {
+    for signature in [None, Some(String::new()), Some("   ".to_owned())] {
+        let result = reasoning_test_request(
+            "anthropic.claude-sonnet-4-6",
+            vec![ConversationMessage {
+                role: MessageRole::Assistant,
+                content: MessageContent::MultiPart(vec![
+                    ContentPart::Reasoning {
+                        text: "Unsigned reasoning cannot be replayed as Claude thinking".to_owned(),
+                        signature,
+                    },
+                    ContentPart::Text("Visible answer".to_owned()),
+                ]),
+            }],
+        );
+        assert_eq!(result.messages.len(), 1);
+        assert!(
+            matches!(result.messages[0].content(), [ContentBlock::Text(text)] if text == "Visible answer")
+        );
     }
 }

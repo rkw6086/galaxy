@@ -8,6 +8,7 @@ use aws_sdk_bedrockruntime::types::{
     ToolUseBlock,
 };
 use aws_smithy_types::{Blob, Document};
+use galaxy_agent_rig::prepare_bedrock_history;
 use serde_json::Value as JsonValue;
 
 use super::external_config::ExternalBedrockConfig;
@@ -65,6 +66,7 @@ pub struct ConvertedRequest {
 
 #[allow(clippy::too_many_arguments)]
 pub fn build_converse_request(
+    model_id: &str,
     messages: Vec<ConversationMessage>,
     system_prompt: Option<String>,
     compact_summary: Option<String>,
@@ -75,6 +77,7 @@ pub fn build_converse_request(
     stop_sequences: Option<Vec<String>>,
     caching_config: CachingConfig,
 ) -> ConvertedRequest {
+    let messages = prepare_bedrock_history(model_id, messages);
     let bedrock_messages = convert_messages(messages, &caching_config);
     let system = convert_system_prompt(system_prompt, compact_summary, &caching_config);
     let inference_config = build_inference_config(max_tokens, temperature, top_p, stop_sequences);

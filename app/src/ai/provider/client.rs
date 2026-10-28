@@ -211,6 +211,7 @@ impl BedrockClient {
         );
 
         let converted = build_converse_request(
+            model_id,
             messages.clone(),
             system_prompt.clone(),
             compact_summary,
@@ -321,6 +322,7 @@ impl BedrockClient {
         let caching_config = CachingConfig::from_external_config(&external_config);
 
         let converted = build_converse_request(
+            model_id,
             messages,
             system_prompt,
             None,
