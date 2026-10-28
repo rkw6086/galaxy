@@ -1102,13 +1102,15 @@ fn command_finished_block_id(result: &AIAgentActionResultType) -> Option<&BlockI
             TransferShellCommandControlToUserResult::CommandFinished { block_id, .. },
         ) => Some(block_id),
         AIAgentActionResultType::RequestCommandOutput(
-            RequestCommandOutputResult::LongRunningCommandSnapshot { .. }
+            RequestCommandOutputResult::BackgroundJobStarted { .. }
+            | RequestCommandOutputResult::LongRunningCommandSnapshot { .. }
             | RequestCommandOutputResult::CancelledBeforeExecution
             | RequestCommandOutputResult::ExecutionError { .. }
             | RequestCommandOutputResult::Denylisted { .. },
         )
         | AIAgentActionResultType::WriteToLongRunningShellCommand(
-            WriteToLongRunningShellCommandResult::Snapshot { .. }
+            WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested { .. }
+            | WriteToLongRunningShellCommandResult::Snapshot { .. }
             | WriteToLongRunningShellCommandResult::Cancelled
             | WriteToLongRunningShellCommandResult::Error(_),
         )

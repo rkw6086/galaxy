@@ -1211,6 +1211,12 @@ impl<'a> std::fmt::Display for MarkdownActionResult<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             AIAgentActionResultType::RequestCommandOutput(result) => match result {
+                RequestCommandOutputResult::BackgroundJobStarted { job_id, command } => {
+                    write!(
+                        f,
+                        "\n**Started in background:**\n```bash\n{command}\n```\n\nJob: `{job_id}`. Completion results will arrive when it exits."
+                    )
+                }
                 RequestCommandOutputResult::Completed {
                     command, output, ..
                 } => {
@@ -1243,6 +1249,11 @@ impl<'a> std::fmt::Display for MarkdownActionResult<'a> {
                 }
             },
             AIAgentActionResultType::WriteToLongRunningShellCommand(result) => match result {
+                WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested {
+                    job_id,
+                } => {
+                    write!(f, "\n_Cancellation requested for background job `{job_id}`_")
+                }
                 WriteToLongRunningShellCommandResult::CommandFinished { output, .. } => {
                     write!(f, "\n```\n{output}\n```")
                 }
@@ -3075,6 +3086,16 @@ impl AIAgentInput {
         matches!(
             self,
             AIAgentInput::AutoCodeDiffQuery { .. } | AIAgentInput::TriggerPassiveSuggestion { .. }
+        )
+    }
+
+    /// Background job completion uses a hidden observation, but remains a normal agent turn
+    /// rather than the legacy tool-free assessment of an interactively monitored command.
+    pub fn is_background_job_completion(&self) -> bool {
+        matches!(
+            self,
+            Self::CommandCompletionAssessment { completed_command, .. }
+                if completed_command.block_id.as_str().starts_with("background-job:")
         )
     }
 

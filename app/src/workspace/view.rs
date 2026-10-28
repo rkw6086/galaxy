@@ -181,6 +181,8 @@ use crate::ai::ambient_agents::telemetry::{CloudAgentTelemetryEvent, CloudModeEn
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
 use crate::ai::ambient_agents::telemetry::{HandoffEntryPoint, HandoffInjectionPath};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use crate::ai::background_jobs::view::BackgroundJobsView;
 use crate::ai::blocklist::agent_view::agent_input_footer::editor::AgentToolbarEditorMode;
 use crate::ai::blocklist::agent_view::editor::{AgentToolbarEditorEvent, AgentToolbarEditorModal};
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
@@ -1056,6 +1058,8 @@ pub struct Workspace {
     pending_session_config_tab_config_chip_tutorial:
         Option<PendingSessionConfigTabConfigChipTutorial>,
     new_worktree_modal: ModalViewState<Modal<NewWorktreeModal>>,
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    background_jobs_modal: ModalViewState<Modal<BackgroundJobsView>>,
     close_session_confirmation_dialog: ViewHandle<CloseSessionConfirmationDialog>,
     rewind_confirmation_dialog: ViewHandle<RewindConfirmationDialog>,
     delete_conversation_confirmation_dialog: ViewHandle<DeleteConversationConfirmationDialog>,
@@ -2140,6 +2144,43 @@ impl Workspace {
         ModalViewState::new(modal)
     }
 
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    fn build_background_jobs_modal(
+        ctx: &mut ViewContext<Self>,
+    ) -> ModalViewState<Modal<BackgroundJobsView>> {
+        let body = ctx.add_typed_action_view(BackgroundJobsView::new);
+        let modal = ctx.add_typed_action_view(|ctx| {
+            Modal::new(Some("Background jobs".to_owned()), body, ctx)
+                .with_modal_style(UiComponentStyles {
+                    width: Some(1040.),
+                    height: Some(700.),
+                    ..Default::default()
+                })
+                .with_header_style(UiComponentStyles {
+                    height: Some(58.),
+                    ..Default::default()
+                })
+                .with_body_style(UiComponentStyles {
+                    padding: Some(Coords::uniform(12.)),
+                    height: Some(620.),
+                    ..Default::default()
+                })
+                .with_max_height_percentage(0.9)
+                .with_dismiss_on_click()
+        });
+        ctx.subscribe_to_view(&modal, |me, _, event, ctx| {
+            if matches!(event, ModalEvent::Close) {
+                me.background_jobs_modal.close();
+                me.background_jobs_modal.view.update(ctx, |modal, ctx| {
+                    modal.body().update(ctx, |view, _| view.on_close());
+                });
+                me.focus_active_tab(ctx);
+                ctx.notify();
+            }
+        });
+        ModalViewState::new(modal)
+    }
+
     fn build_remove_tab_config_confirmation_dialog(
         ctx: &mut ViewContext<Self>,
     ) -> ViewHandle<RemoveTabConfigConfirmationDialog> {
@@ -2983,6 +3024,8 @@ impl Workspace {
 
         let tab_config_params_modal = Self::build_tab_config_params_modal(ctx);
         let new_worktree_modal = Self::build_new_worktree_modal(ctx);
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        let background_jobs_modal = Self::build_background_jobs_modal(ctx);
 
         let session_config_modal = Self::build_session_config_modal(ctx);
 
@@ -3382,6 +3425,8 @@ impl Workspace {
             show_session_config_tab_config_chip: false,
             pending_session_config_tab_config_chip_tutorial: None,
             new_worktree_modal,
+            #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+            background_jobs_modal,
             close_session_confirmation_dialog,
             rewind_confirmation_dialog,
             delete_conversation_confirmation_dialog,
@@ -16824,6 +16869,29 @@ impl Workspace {
                     ctx,
                 );
             }
+            pane_group::Event::OpenBackgroundJobs {
+                working_directory,
+                project_root,
+                host_id,
+                job_id,
+            } => {
+                #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                {
+                    self.background_jobs_modal.view.update(ctx, |modal, ctx| {
+                        modal.body().update(ctx, |view, ctx| {
+                            view.on_open(
+                                working_directory.clone(),
+                                project_root.clone(),
+                                host_id.clone(),
+                                *job_id,
+                                ctx,
+                            );
+                        });
+                    });
+                    self.background_jobs_modal.open();
+                    ctx.notify();
+                }
+            }
             pane_group::Event::OpenAddPromptPane { initial_content } => {
                 if UserWorkspaces::as_ref(ctx).personal_drive(ctx).is_some() {
                     self.update_warp_drive_view(ctx, |drive_view, ctx| {
@@ -26796,6 +26864,10 @@ impl View for Workspace {
 
         if self.new_worktree_modal.is_open() {
             stack.add_child(self.new_worktree_modal.render());
+        }
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        if self.background_jobs_modal.is_open() {
+            stack.add_child(self.background_jobs_modal.render());
         }
 
         if self.workflow_modal.as_ref(app).is_open() {

@@ -299,3 +299,18 @@ fn read_only_advertises_shell_only_when_explicit_command_approvals_exist() {
     assert!(!base.contains(&api::ToolType::ApplyFileDiffs));
     assert!(!base.contains(&api::ToolType::RunAgents));
 }
+
+#[test]
+fn explicit_overrides_cannot_restore_interactive_shell_tools() {
+    let mut params = request_params_with_ask_user_question_enabled(false);
+    params.supported_tools_override = Some(vec![
+        api::ToolType::RunShellCommand,
+        api::ToolType::WriteToLongRunningShellCommand,
+        api::ToolType::ReadShellCommandOutput,
+        api::ToolType::TransferShellCommandControlToUser,
+    ]);
+    let (normal, cli) = super::prepare_direct_provider_params(&mut params);
+    for tools in [normal, cli] {
+        assert_eq!(tools, vec![api::ToolType::RunShellCommand]);
+    }
+}

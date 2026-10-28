@@ -386,7 +386,7 @@ fn completed_command_assessment_is_tool_free_and_persists_hidden_provider_histor
 }
 
 #[test]
-fn running_command_turn_gets_monitor_prompt_and_cli_tools() {
+fn legacy_command_turn_cannot_restore_interactive_tools() {
     let request = api::Request {
         input: Some(api::request::Input {
             r#type: Some(api::request::input::Type::UserInputs(
@@ -432,41 +432,17 @@ fn running_command_turn_gets_monitor_prompt_and_cli_tools() {
         .iter()
         .map(|tool| tool.name.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(
-        names,
-        vec![
-            "write_to_long_running_shell_command",
-            "interrupt_shell_command",
-            "read_shell_command_output",
-            "transfer_shell_command_control_to_user",
-            "recall_tool_history",
-        ]
-    );
-
+    for retired in [
+        "write_to_long_running_shell_command",
+        "read_shell_command_output",
+        "transfer_shell_command_control_to_user",
+    ] {
+        assert!(!names.contains(&retired));
+    }
     let prompt = extract_system_prompt(&request, &[]).unwrap();
-    assert!(prompt.contains("## Running Command Monitor"));
-    assert!(prompt.contains("command ID"));
-    assert!(prompt.contains("read_shell_command_output"));
-    assert!(prompt.contains("interrupt_shell_command"));
-    assert!(prompt.contains("next assistant output MUST be a tool call"));
-    assert!(prompt.contains("alternate screen containing `(END)` is `less`"));
-    assert!(prompt.contains("`write_to_long_running_shell_command` with input `q` and mode `raw`"));
-    assert!(prompt.contains("Do not end a still-running monitor turn with prose"));
-    assert!(prompt.contains("Never try to encode Ctrl+C"));
-    assert!(!prompt.contains("- Use `run_shell_command`"));
-
-    let read_schema = &tools
-        .iter()
-        .find(|tool| tool.name == "read_shell_command_output")
-        .expect("read tool should be advertised")
-        .input_schema;
-    assert_eq!(
-        read_schema["properties"]["wait_seconds"]["maximum"],
-        serde_json::json!(10)
-    );
-    assert!(read_schema["properties"]
-        .get("wait_until_complete")
-        .is_none());
+    assert!(prompt.contains("## Background Shell Jobs"));
+    assert!(!prompt.contains("next assistant output MUST be a tool call"));
+    assert!(!prompt.contains("## Running Command Monitor"));
 }
 
 #[test]
@@ -514,8 +490,8 @@ fn long_running_tool_result_preserves_command_id() {
     };
     assert!(content.contains("Command ID: block-456"));
     assert!(content.contains("running 42 tests"));
-    assert!(content.contains("read_shell_command_output"));
-    assert!(content.contains("interrupt_shell_command"));
+    assert!(content.contains("command monitoring are retired"));
+    assert!(!content.contains("continue monitoring"));
 }
 
 #[test]
@@ -706,4 +682,18 @@ fn leaf_capabilities_do_not_advertise_child_recovery_or_delegation() {
     ] {
         assert!(!names.iter().any(|advertised| advertised == name));
     }
+}
+
+#[test]
+fn compatibility_background_acknowledgment_does_not_invent_monitoring() {
+    let content = json!({
+        "background_job_started": {"job_id": "job-123", "command": "cargo build"}
+    })
+    .to_string();
+    let snapshot = api::LongRunningShellCommandSnapshot {
+        command_id: "background-job:job-123".to_owned(),
+        output: content.clone(),
+        ..Default::default()
+    };
+    assert_eq!(super::long_running_command_content(&snapshot), content);
 }

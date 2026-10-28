@@ -128,8 +128,14 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
                 redact_context(Arc::make_mut(context));
                 match &mut result.result {
                     AIAgentActionResultType::RequestCommandOutput(output) => {
-                        if let RequestCommandOutputResult::Completed { output, .. } = output {
-                            redact_secrets(output);
+                        match output {
+                            RequestCommandOutputResult::BackgroundJobStarted {
+                                command, ..
+                            } => redact_secrets(command),
+                            RequestCommandOutputResult::Completed { output, .. } => {
+                                redact_secrets(output);
+                            }
+                            _ => {}
                         }
                     }
                     AIAgentActionResultType::WriteToLongRunningShellCommand(result) => {
@@ -137,7 +143,9 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
                         match result {
                             Snapshot { grid_contents, .. } => redact_secrets(grid_contents),
                             CommandFinished { output, .. } => redact_secrets(output),
-                            Error(_) | Cancelled => {}
+                            BackgroundJobCancellationRequested { .. }
+                            | Error(_)
+                            | Cancelled => {}
                         }
                     }
                     AIAgentActionResultType::ReadShellCommandOutput(result) => {

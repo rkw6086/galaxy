@@ -93,6 +93,20 @@ impl ActiveSession {
         self.current_working_directory.as_ref()
     }
 
+    /// Snapshot the shell integration's environment for an independent command process.
+    /// This does not execute in or change the user's interactive shell.
+    /// `None` means integration has not supplied a snapshot; an empty snapshot is intentional.
+    pub fn environment_variables(
+        &self,
+        app: &AppContext,
+    ) -> Option<std::collections::HashMap<String, String>> {
+        self.session(app).and_then(|session| {
+            self.sessions
+                .as_ref(app)
+                .get_env_vars_for_session(session.id())
+        })
+    }
+
     /// Returns a session-aware path for `path`.
     ///
     /// Local session paths are canonicalized to match git-detected repository paths on

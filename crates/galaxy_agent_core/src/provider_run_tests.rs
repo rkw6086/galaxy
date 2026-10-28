@@ -1850,3 +1850,93 @@ fn failed_child_launch_allows_a_corrective_model_turn() {
     run.commit_tool_batch(&batch.work_id).unwrap();
     assert!(matches!(run.state(), ProviderRunState::ReadyToCallModel));
 }
+
+#[test]
+fn background_job_launch_yields_after_committing_the_complete_tool_batch() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![
+                tool_call("build", "run_shell_command"),
+                tool_call("inspect", "read_files"),
+            ],
+            &["run_shell_command", "read_files"],
+        ),
+    );
+    assert!(
+        batch
+            .calls
+            .iter()
+            .all(|pending| matches!(pending.state, PendingToolCallState::Proposed))
+    );
+    run.complete_tool(
+        &batch.work_id,
+        successful_result(
+            "build",
+            &json!({
+                "background_job_started": { "job_id": "job-1", "command": "cargo build" },
+            })
+            .to_string(),
+        ),
+    )
+    .unwrap();
+    assert!(run.commit_tool_batch(&batch.work_id).is_err());
+    run.complete_tool(
+        &batch.work_id,
+        successful_result("inspect", "file contents"),
+    )
+    .unwrap();
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    assert!(matches!(run.state(), ProviderRunState::Done { .. }));
+    assert_serialization_round_trip(&run);
+    let MessageContent::MultiPart(parts) = &run.transcript().last().unwrap().content else {
+        panic!("the batch should remain in provider history");
+    };
+    assert_eq!(
+        parts
+            .iter()
+            .filter(|part| matches!(part, ContentPart::ToolResult { .. }))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn failed_or_legacy_shell_results_allow_the_normal_corrective_turn() {
+    for (status, content) in [
+        (
+            ToolResultStatus::Error,
+            json!({"background_job_started": {"job_id": "failed", "command": "build"}}).to_string(),
+        ),
+        (
+            ToolResultStatus::Success,
+            "legacy terminal snapshot".to_owned(),
+        ),
+        (
+            ToolResultStatus::Success,
+            json!({"output": "background_job_started", "exit_code": 0}).to_string(),
+        ),
+    ] {
+        let mut run = run();
+        let batch = accept_tool_turn(
+            &mut run,
+            tool_turn(
+                vec![tool_call("shell", "run_shell_command")],
+                &["run_shell_command"],
+            ),
+        );
+        run.complete_tool(
+            &batch.work_id,
+            ToolResult {
+                call_id: "shell".to_owned(),
+                content,
+                status,
+                images: Vec::new(),
+            },
+        )
+        .unwrap();
+        run.commit_tool_batch(&batch.work_id).unwrap();
+        assert!(matches!(run.state(), ProviderRunState::ReadyToCallModel));
+    }
+}

@@ -110,6 +110,8 @@ pub fn initialize_app_for_terminal_view(app: &mut App) {
     // QueuedQueryModel subscribes to history events; register after the
     // history model is in place.
     app.add_singleton_model(QueuedQueryModel::new);
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    app.add_singleton_model(crate::ai::background_jobs::BackgroundJobsModel::new);
     // Pill bar model subscribes to history events; register after the
     // history model is in place.
     app.add_singleton_model(|ctx| OrchestrationPillBarModel::new(Default::default(), ctx));

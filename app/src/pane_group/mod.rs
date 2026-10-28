@@ -692,6 +692,12 @@ pub enum Event {
     OpenThemeChooser,
     InvalidatedActiveConversation,
     OpenConversationHistory,
+    OpenBackgroundJobs {
+        working_directory: Option<LocalOrRemotePath>,
+        project_root: Option<LocalOrRemotePath>,
+        host_id: Option<galaxy_core::HostId>,
+        job_id: Option<Uuid>,
+    },
     OpenMCPSettingsPage {
         page: Option<MCPServersSettingsPage>,
     },

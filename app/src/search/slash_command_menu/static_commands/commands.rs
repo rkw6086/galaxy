@@ -95,6 +95,15 @@ pub static INVOKE_SKILL: LazyLock<StaticCommand> = LazyLock::new(|| StaticComman
     argument: None,
 });
 
+pub const BACKGROUND_JOBS: StaticCommand = StaticCommand {
+    name: "/background-jobs",
+    description: "View background command history, logs, and running jobs",
+    icon_path: "bundled/svg/terminal.svg",
+    availability: Availability::empty(),
+    auto_enter_ai_mode: false,
+    argument: None,
+};
+
 pub static ADD_PROMPT: LazyLock<StaticCommand> = LazyLock::new(|| StaticCommand {
     name: "/add-prompt",
     description: "Add new Agent prompt",
@@ -704,6 +713,9 @@ fn all_commands() -> Vec<StaticCommand> {
 
     if !cfg!(target_family = "wasm") {
         commands.extend([EDIT.clone(), EXPORT_TO_FILE.clone()]);
+    }
+    if cfg!(all(feature = "local_fs", not(target_family = "wasm"))) {
+        commands.push(BACKGROUND_JOBS);
     }
 
     if FeatureFlag::ListSkills.is_enabled() && !cfg!(target_family = "wasm") {

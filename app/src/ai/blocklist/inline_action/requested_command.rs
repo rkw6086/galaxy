@@ -14,8 +14,8 @@ use galaxyui::elements::new_scrollable::{
 use galaxyui::elements::{
     Align, Border, ChildView, Clipped, ClippedScrollStateHandle, ConstrainedBox, Container,
     CornerRadius, CrossAxisAlignment, Expanded, Fill, Flex, MainAxisSize, MouseStateHandle,
-    NewScrollable, OffsetPositioning, ParentElement, Radius, ScrollbarWidth, SelectableArea,
-    SelectionHandle, Stack, Text,
+    NewScrollable, OffsetPositioning, Padding, ParentElement, Radius, ScrollbarWidth,
+    SelectableArea, SelectionHandle, Stack, Text,
 };
 use galaxyui::keymap::{Context, EditableBinding, FixedBinding, Keystroke};
 use galaxyui::ui_components::components::UiComponent as _;
@@ -379,6 +379,13 @@ impl RequestedCommandView {
         ai_block_view_id: EntityId,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        ctx.subscribe_to_model(
+            &crate::ai::background_jobs::BackgroundJobsModel::handle(ctx),
+            |_, _, _, ctx| {
+                ctx.notify();
+            },
+        );
         let cancel_button = CompactibleActionButton::new(
             REQUESTED_COMMAND_REJECT_LABEL.to_string(),
             Some(KeystrokeSource::Fixed(
@@ -1165,6 +1172,78 @@ impl RequestedCommandView {
         }
     }
 
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    fn render_background_job(
+        &self,
+        job_id: &str,
+        command: &str,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        use crate::ai::background_jobs::{BackgroundJobStatus, BackgroundJobsModel};
+        use crate::terminal::view::TerminalAction;
+        let appearance = Appearance::as_ref(app);
+        let theme = appearance.theme();
+        let id = uuid::Uuid::parse_str(job_id).ok();
+        let job = id
+            .and_then(|id| BackgroundJobsModel::as_ref(app).job(id))
+            .filter(|job| {
+                job.conversation_id == self.client_ids.conversation_id
+                    && job.action_id == self.action_id
+            });
+        let status = job.map_or(BackgroundJobStatus::Cancelled, |job| job.status);
+        let label = match job.map(|job| job.status) {
+            Some(BackgroundJobStatus::Running) => "Running in background",
+            Some(BackgroundJobStatus::Succeeded) => "Succeeded",
+            Some(BackgroundJobStatus::Failed) => "Failed",
+            Some(BackgroundJobStatus::Cancelled) => "Canceled",
+            None => "Job history unavailable",
+        };
+        let mut row = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_spacing(8.);
+        row.add_child(crate::ai::background_jobs::view::status_icon(&status, app));
+        row.add_child(
+            Expanded::new(
+                1.,
+                Text::new_inline(
+                    command.to_owned(),
+                    appearance.monospace_font_family(),
+                    appearance.monospace_font_size() - 1.,
+                )
+                .with_color(theme.font_color(theme.surface_2()).into())
+                .with_clip(galaxyui::text_layout::ClipConfig::ellipsis())
+                .finish(),
+            )
+            .finish(),
+        );
+        row.add_child(
+            Text::new_inline(
+                label.to_owned(),
+                appearance.ui_font_family(),
+                appearance.monospace_font_size() - 2.,
+            )
+            .with_color(theme.sub_text_color(theme.surface_2()).into())
+            .finish(),
+        );
+        let content = Container::new(row.finish())
+            .with_padding(Padding::uniform(12.))
+            .finish();
+        let content = if job.is_some() {
+            let id = id.expect("a registered job has a valid identity");
+            galaxyui::elements::Hoverable::new(self.header_mouse_state.clone(), move |_| content)
+                .on_click(move |ctx, _, _| {
+                    ctx.dispatch_typed_action(TerminalAction::OpenBackgroundJobs {
+                        job_id: Some(id),
+                    })
+                })
+                .with_cursor(galaxyui::platform::Cursor::PointingHand)
+                .finish()
+        } else {
+            content
+        };
+        render_tool_pane_shell(content, false, true, false, app)
+    }
+
     fn render_header(
         &self,
         should_round_bottom_corners: bool,
@@ -1545,6 +1624,16 @@ impl View for RequestedCommandView {
             &self.action_id,
             app,
         );
+
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        if let Some(AIActionStatus::Finished(result)) = &action_status {
+            if let AIAgentActionResultType::RequestCommandOutput(
+                RequestCommandOutputResult::BackgroundJobStarted { job_id, command },
+            ) = &result.result
+            {
+                return self.render_background_job(job_id, command, app);
+            }
+        }
 
         let is_last_output_message_in_output = self
             .block_model

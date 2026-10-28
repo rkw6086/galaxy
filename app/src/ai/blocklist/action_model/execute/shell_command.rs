@@ -54,7 +54,19 @@ impl ShellCommandExecutor {
         &self,
         conversation_id: crate::AIConversationId,
         block_id: &BlockId,
+        app: &galaxyui::AppContext,
     ) -> bool {
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        {
+            let value = block_id.to_string();
+            if let Ok(id) =
+                uuid::Uuid::parse_str(value.strip_prefix("background-job:").unwrap_or(&value))
+            {
+                return crate::ai::background_jobs::BackgroundJobsModel::as_ref(app)
+                    .job(id)
+                    .is_some_and(|job| job.conversation_id == conversation_id);
+            }
+        }
         let model = self.terminal_model.lock();
         let Some(block) = model.block_list().block_with_id(block_id) else {
             return false;
@@ -286,339 +298,201 @@ impl ShellCommandExecutor {
         &mut self,
         input: ExecuteActionInput,
         ctx: &mut ModelContext<Self>,
-    ) -> impl Into<AnyActionExecution> {
-        crate::ai::tool_diagnostics::tool_debug!(
-            "ShellCommandExecutor::execute: action_type={:?}",
-            std::mem::discriminant(&input.action.action)
-        );
-        let model = self.terminal_model.lock();
-
-        // Determine the action we want to take based on the input.
-        let action_id = input.action.id.clone();
-        let diagnostic_action_id = action_id.clone();
-        let conversation_id = input.conversation_id;
-
-        let handle = ctx.handle();
+    ) -> AnyActionExecution {
         match &input.action.action {
-            AIAgentActionType::RequestCommandOutput {
-                command,
-                wait_until_completion,
-                ..
-            } => {
-                if model
-                    .block_list()
-                    .active_block()
-                    .is_active_and_long_running()
-                {
-                    let running_command = model
-                        .block_list()
-                        .active_block()
-                        .command_with_secrets_unobfuscated(false);
-                    return ActionExecution::Sync(terminal_busy_execution_error(
-                        command,
-                        &running_command,
-                    ));
-                }
-                // If another conversation has taken over the agent view since this command
-                // was requested, cancel instead of executing.
-                let is_displaced_by_other_conversation = model
-                    .block_list()
-                    .agent_view_state()
-                    .active_conversation_id()
-                    .is_some_and(|active_id| active_id != input.conversation_id);
-                if is_displaced_by_other_conversation {
-                    return ActionExecution::Sync(AIAgentActionResultType::RequestCommandOutput(
-                        RequestCommandOutputResult::CancelledBeforeExecution,
-                    ));
-                }
-                // A command expected to finish must not enter an implicit pager. Do not trust the
-                // model-provided pager hint: commands such as `git log` can page implicitly.
-                let decorated_command = command_for_execution(
-                    command,
-                    self.active_session.as_ref(ctx).shell_type(ctx),
-                    *wait_until_completion,
-                );
-                ctx.emit(ShellCommandExecutorEvent::ExecuteCommand {
-                    action_id: action_id.clone(),
-                    command: decorated_command,
-                });
-
-                let block_selector = BlockSelector::RequestedCommandId(action_id.clone());
-                let command = command.clone();
-                let delay = if *wait_until_completion {
-                    Some(ShellCommandDelay::OnCompletion)
-                } else {
-                    None
-                };
-                drop(model);
-
-                ActionExecution::new_async(
-                    self.action_result_future(block_selector.clone(), delay),
-                    move |result, ctx| {
-                        // Remove the senders from the maps.
-                        if let Some(handle) = handle.upgrade(ctx) {
-                            handle.update(ctx, |me, ctx| {
-                                log_shell_wait_result(
-                                    conversation_id,
-                                    &diagnostic_action_id,
-                                    &result,
-                                    ctx,
-                                );
-                                me.prune_closed_senders(&block_selector);
-                                if matches!(
-                                    result,
-                                    ActionResult::BlockNotFound | ActionResult::Cancelled
-                                ) {
-                                    ctx.emit(ShellCommandExecutorEvent::CancelExecution {
-                                        action_id: action_id.clone(),
-                                    });
-                                }
-                            });
-                        }
-
-                        action_result_for_requested_command(command, result)
-                    },
-                )
+            AIAgentActionType::RequestCommandOutput { command, .. } => {
+                self.start_background_command(input, command, ctx)
             }
             AIAgentActionType::WriteToLongRunningShellCommand {
                 block_id,
-                input,
+                input: bytes,
                 mode,
             } => {
-                let Some(block) = model.block_list().block_with_id(block_id) else {
-                    return ActionExecution::Sync(
-                        AIAgentActionResultType::WriteToLongRunningShellCommand(
-                            WriteToLongRunningShellCommandResult::Error(
-                                ShellCommandError::BlockNotFound,
-                            ),
-                        ),
-                    );
+                let result = if *mode == AIAgentPtyWriteMode::Raw && bytes.as_ref() == [3] {
+                    self.cancel_background_job(input.conversation_id, block_id, ctx)
+                } else {
+                    WriteToLongRunningShellCommandResult::Error(
+                        ShellCommandError::NonInteractiveOnly,
+                    )
                 };
-                if block.finished() {
-                    let output: String = block.output_with_secrets_unobfuscated();
-                    let exit_code = block.exit_code();
-                    let start_ts = block.start_ts().cloned();
-                    let completed_ts = block.completed_ts().cloned();
-                    let result = ActionResult::CommandFinished {
-                        block_id: block.id().clone(),
-                        output,
-                        exit_code,
-                        start_ts,
-                        completed_ts,
-                    };
-                    drop(model);
-                    log_shell_wait_result(conversation_id, &action_id, &result, ctx);
-                    return ActionExecution::Sync(
-                        action_result_for_write_to_long_running_shell_command(result),
-                    );
-                }
-                // Drop immutable borrow.
-                drop(model);
-
-                let mut model = self.terminal_model.lock();
-                if let Some(block) = model.block_list_mut().mut_block_from_id(block_id) {
-                    block.mark_agent_written_to_block();
-                }
-                drop(model);
-
-                ctx.emit(ShellCommandExecutorEvent::WriteToPty {
-                    input: input.clone(),
-                    mode: *mode,
-                });
-
-                let block_selector = BlockSelector::Id(block_id.clone());
-                ActionExecution::new_async(
-                    self.action_result_future(
-                        block_selector.clone(),
-                        Some(ShellCommandDelay::Duration(Duration::from_millis(200))),
+                AnyActionExecution::Sync(AIAgentActionResultType::WriteToLongRunningShellCommand(
+                    result,
+                ))
+            }
+            AIAgentActionType::ReadShellCommandOutput { .. } => {
+                AnyActionExecution::Sync(AIAgentActionResultType::ReadShellCommandOutput(
+                    ReadShellCommandOutputResult::Error(ShellCommandError::NonInteractiveOnly),
+                ))
+            }
+            AIAgentActionType::TransferShellCommandControlToUser { .. } => {
+                AnyActionExecution::Sync(
+                    AIAgentActionResultType::TransferShellCommandControlToUser(
+                        TransferShellCommandControlToUserResult::Error(
+                            ShellCommandError::NonInteractiveOnly,
+                        ),
                     ),
-                    move |result, ctx| {
-                        // Remove the senders from the maps.
-                        if let Some(handle) = handle.upgrade(ctx) {
-                            handle.update(ctx, |me, ctx| {
-                                log_shell_wait_result(
-                                    conversation_id,
-                                    &diagnostic_action_id,
-                                    &result,
-                                    ctx,
-                                );
-                                me.prune_closed_senders(&block_selector);
-                            });
-                        }
-
-                        action_result_for_write_to_long_running_shell_command(result)
-                    },
                 )
             }
-            AIAgentActionType::ReadShellCommandOutput { block_id, delay } => {
-                let Some(block) = model.block_list().block_with_id(block_id) else {
-                    return ActionExecution::Sync(AIAgentActionResultType::ReadShellCommandOutput(
-                        ReadShellCommandOutputResult::Error(ShellCommandError::BlockNotFound),
-                    ));
+            _ => AnyActionExecution::InvalidAction,
+        }
+    }
+
+    fn start_background_command(
+        &self,
+        input: ExecuteActionInput,
+        command: &str,
+        ctx: &mut ModelContext<Self>,
+    ) -> AnyActionExecution {
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        {
+            use std::path::PathBuf;
+
+            use crate::ai::background_jobs::{BackgroundJobLaunch, BackgroundJobsModel};
+            use crate::ai::blocklist::SessionContext;
+            let session = self.active_session.as_ref(ctx);
+            let context = SessionContext::from_session(session, ctx);
+            let Some(cwd) = context.current_working_directory().as_deref() else {
+                return background_launch_error(
+                    command,
+                    "The session working directory is unavailable".to_owned(),
+                );
+            };
+            let directory = if context.is_remote() {
+                cwd.to_owned()
+            } else {
+                ai::paths::host_native_absolute_path(
+                    cwd,
+                    context.shell(),
+                    context.current_working_directory(),
+                )
+            };
+            let session_id = session.session(ctx).map(|session| session.id());
+            let launch = BackgroundJobLaunch {
+                conversation_id: input.conversation_id,
+                action_id: input.action.id.clone(),
+                command: command.to_owned(),
+                working_directory: PathBuf::from(directory),
+                shell: context.shell().clone(),
+                environment: session.environment_variables(ctx),
+                host_id: context.host_id().cloned(),
+            };
+            if context.is_remote() {
+                let Some(host_id) = context.host_id() else {
+                    return background_launch_error(
+                        command,
+                        "Connect to the command's remote host before running it".to_owned(),
+                    );
                 };
-                if block.finished() {
-                    let command = block.command_with_secrets_unobfuscated(false);
-                    let output: String = block.output_with_secrets_unobfuscated();
-                    let exit_code = block.exit_code();
-                    let start_ts = block.start_ts().cloned();
-                    let completed_ts = block.completed_ts().cloned();
-                    let result = ActionResult::CommandFinished {
-                        block_id: block_id.clone(),
-                        output,
-                        exit_code,
-                        start_ts,
-                        completed_ts,
-                    };
-                    drop(model);
-                    log_shell_wait_result(conversation_id, &action_id, &result, ctx);
-                    return ActionExecution::Sync(action_result_for_read_shell_command_output(
-                        command, result,
-                    ));
-                }
-                let command = block.command_with_secrets_unobfuscated(false);
-                drop(model);
-
-                let block_selector = BlockSelector::Id(block_id.clone());
-                ActionExecution::new_async(
-                    self.action_result_future(block_selector.clone(), delay.clone()),
-                    move |result, ctx| {
-                        // Remove the senders from the maps.
-                        if let Some(handle) = handle.upgrade(ctx) {
-                            handle.update(ctx, |me, ctx| {
-                                log_shell_wait_result(
-                                    conversation_id,
-                                    &diagnostic_action_id,
-                                    &result,
-                                    ctx,
-                                );
-                                me.prune_closed_senders(&block_selector);
-                            });
-                        }
-
-                        action_result_for_read_shell_command_output(command.clone(), result)
-                    },
-                )
-            }
-            AIAgentActionType::TransferShellCommandControlToUser { reason } => {
-                let active_block = model.block_list().active_block();
-                if !active_block.is_active_and_long_running() {
-                    return ActionExecution::Sync(
-                        AIAgentActionResultType::TransferShellCommandControlToUser(
-                            TransferShellCommandControlToUserResult::Error(
-                                ShellCommandError::BlockNotFound,
-                            ),
-                        ),
+                let Some(session_id) = session_id else {
+                    return background_launch_error(
+                        command,
+                        "The remote shell session is unavailable".to_owned(),
+                    );
+                };
+                let Some(client) = remote_server::manager::RemoteServerManager::as_ref(ctx)
+                    .client_for_host(host_id)
+                    .cloned()
+                else {
+                    return background_launch_error(
+                        command,
+                        "The command's remote host is disconnected".to_owned(),
+                    );
+                };
+                if !client.supports_background_jobs() {
+                    return background_launch_error(
+                        command,
+                        "Update Galaxy on the remote host to run agent background jobs".to_owned(),
                     );
                 }
-
-                let block_id = active_block.id().clone();
-                drop(model);
-
-                // Emit event to transfer control to user.
-                ctx.emit(ShellCommandExecutorEvent::TransferControlToUser {
-                    action_id: action_id.clone(),
-                    reason: reason.clone(),
+                let transport = Arc::new(
+                    remote_server::manager::RemoteServerManager::as_ref(ctx)
+                        .host_request_handle(host_id),
+                );
+                let result = BackgroundJobsModel::handle(ctx).update(ctx, |jobs, ctx| {
+                    crate::ai::background_jobs::remote::start(
+                        transport, launch, session_id, jobs, ctx,
+                    )
                 });
-
-                // Create a channel to wait for control handback.
-                let (handback_tx, handback_rx) = oneshot::channel();
-                self.control_handback_sender = Some(handback_tx);
-
-                let block_selector = BlockSelector::Id(block_id.clone());
-
-                // Set up a future to also wait for block completion.
-                let (block_finished_tx, block_finished_rx) = oneshot::channel();
-                self.block_finished_senders
-                    .entry(block_selector.clone())
-                    .or_default()
-                    .push(block_finished_tx);
-
-                // Build the future that captures terminal model and block data.
-                let transfer_future = {
-                    let terminal_model = self.terminal_model.clone();
-                    let block_id = block_id.clone();
-                    async move {
-                        pin!(handback_rx);
-                        pin!(block_finished_rx);
-
-                        // Wait for either control handback or block completion.
-                        let transfer_result = select! {
-                            val = handback_rx => match val {
-                                Ok(_) => TransferControlResult::ControlHandedBack,
-                                Err(_) => TransferControlResult::Cancelled,
-                            },
-                            val = block_finished_rx => match val {
-                                Ok(_) => TransferControlResult::BlockFinished,
-                                Err(_) => TransferControlResult::Cancelled,
-                            },
-                        };
-
-                        // Convert to ActionResult
-                        let model = terminal_model.lock();
-                        match transfer_result {
-                            TransferControlResult::ControlHandedBack
-                            | TransferControlResult::BlockFinished => {
-                                match model.block_list().block_with_id(&block_id) {
-                                    Some(block) => {
-                                        if block.finished() {
-                                            ActionResult::CommandFinished {
-                                                block_id: block.id().clone(),
-                                                output: block.output_with_secrets_unobfuscated(),
-                                                exit_code: block.exit_code(),
-                                                start_ts: block.start_ts().cloned(),
-                                                completed_ts: block.completed_ts().cloned(),
-                                            }
-                                        } else {
-                                            let grid_contents = if model.is_alt_screen_active() {
-                                                formatted_terminal_contents_for_input(
-                                                    model.alt_screen().grid_handler(),
-                                                    None,
-                                                    CURSOR_MARKER,
-                                                )
-                                            } else {
-                                                formatted_terminal_contents_for_input(
-                                                    block.output_grid().grid_handler(),
-                                                    Some(1000),
-                                                    CURSOR_MARKER,
-                                                )
-                                            };
-                                            ActionResult::LongRunningCommandSnapshot {
-                                                block_id: block.id().clone(),
-                                                grid_contents,
-                                                cursor: CURSOR_MARKER,
-                                                is_alt_screen_active: model.is_alt_screen_active(),
-                                                is_preempted: false,
-                                                wake_reason: "control_handed_back",
-                                            }
-                                        }
-                                    }
-                                    None => ActionResult::BlockNotFound,
-                                }
-                            }
-                            TransferControlResult::Cancelled => ActionResult::Cancelled,
-                        }
-                    }
-                };
-
-                ActionExecution::new_async(transfer_future, move |result, ctx| {
-                    // Clean up.
-                    if let Some(handle) = handle.upgrade(ctx) {
-                        handle.update(ctx, |me, ctx| {
-                            log_shell_wait_result(
-                                conversation_id,
-                                &diagnostic_action_id,
-                                &result,
-                                ctx,
-                            );
-                            me.prune_closed_senders(&block_selector);
-                            me.control_handback_sender = None;
-                        });
-                    }
-
-                    action_result_for_transfer_shell_command_control_to_user(result)
-                })
+                return AnyActionExecution::Sync(AIAgentActionResultType::RequestCommandOutput(
+                    match result {
+                        Ok(id) => RequestCommandOutputResult::BackgroundJobStarted {
+                            job_id: id.to_string(),
+                            command: command.to_owned(),
+                        },
+                        Err(message) => RequestCommandOutputResult::ExecutionError {
+                            command: command.to_owned(),
+                            message,
+                        },
+                    },
+                ));
             }
-            _ => ActionExecution::InvalidAction,
+            let result =
+                BackgroundJobsModel::handle(ctx).update(ctx, |jobs, ctx| jobs.start(launch, ctx));
+            AnyActionExecution::Sync(AIAgentActionResultType::RequestCommandOutput(
+                match result {
+                    Ok(id) => RequestCommandOutputResult::BackgroundJobStarted {
+                        job_id: id.to_string(),
+                        command: command.to_owned(),
+                    },
+                    Err(message) => RequestCommandOutputResult::ExecutionError {
+                        command: command.to_owned(),
+                        message,
+                    },
+                },
+            ))
+        }
+        #[cfg(not(all(feature = "local_fs", not(target_family = "wasm"))))]
+        {
+            let _ = (input, ctx);
+            background_launch_error(
+                command,
+                "Background commands are unavailable in this session".to_owned(),
+            )
+        }
+    }
+
+    fn cancel_background_job(
+        &self,
+        conversation_id: crate::AIConversationId,
+        block_id: &BlockId,
+        ctx: &mut ModelContext<Self>,
+    ) -> WriteToLongRunningShellCommandResult {
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        {
+            use crate::ai::background_jobs::BackgroundJobsModel;
+            let value = block_id.to_string();
+            let parsed =
+                uuid::Uuid::parse_str(value.strip_prefix("background-job:").unwrap_or(&value));
+            let Ok(id) = parsed else {
+                return WriteToLongRunningShellCommandResult::Error(
+                    ShellCommandError::NonInteractiveOnly,
+                );
+            };
+            if !BackgroundJobsModel::as_ref(ctx)
+                .job(id)
+                .is_some_and(|job| job.conversation_id == conversation_id)
+            {
+                return WriteToLongRunningShellCommandResult::Error(
+                    ShellCommandError::BlockNotFound,
+                );
+            }
+            return match BackgroundJobsModel::handle(ctx)
+                .update(ctx, |jobs, ctx| jobs.cancel(id, ctx))
+            {
+                Ok(()) => {
+                    WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested {
+                        job_id: id.to_string(),
+                    }
+                }
+                Err(message) => WriteToLongRunningShellCommandResult::Error(
+                    ShellCommandError::BackgroundJobError(message),
+                ),
+            };
+        }
+        #[cfg(not(all(feature = "local_fs", not(target_family = "wasm"))))]
+        {
+            let _ = (conversation_id, block_id, ctx);
+            WriteToLongRunningShellCommandResult::Error(ShellCommandError::NonInteractiveOnly)
         }
     }
 
@@ -626,140 +500,6 @@ impl ShellCommandExecutor {
     pub fn notify_control_handed_back(&mut self) {
         if let Some(sender) = self.control_handback_sender.take() {
             let _ = sender.send(());
-        }
-    }
-
-    /// Produces a future which resolves when the action is complete and
-    /// we have a result to send to the agent.
-    fn action_result_future(
-        &mut self,
-        block_selector: BlockSelector,
-        delay: Option<ShellCommandDelay>,
-    ) -> impl Spawnable<Output = ActionResult> {
-        // Create a channel to notify us when we receive block metadata.
-        let (block_metadata_received_tx, block_metadata_received_rx) = oneshot::channel();
-        self.block_finished_senders
-            .entry(block_selector.clone())
-            .or_default()
-            .push(block_metadata_received_tx);
-
-        // Create a channel so `Check now` or the automatic monitor watchdog can short-circuit
-        // the timeout and deliver the agent a fresh snapshot immediately.
-        let (force_refresh_tx, force_refresh_rx) = oneshot::channel();
-        self.force_refresh_senders
-            .entry(block_selector.clone())
-            .or_default()
-            .push(force_refresh_tx);
-
-        // Create a future that resolves when we should send a result to the agent.
-        let terminal_model = self.terminal_model.clone();
-
-        #[derive(Debug, Clone, Copy)]
-        enum WakeReason {
-            BlockFinished,
-            Timeout,
-            /// The pending poll was explicitly refreshed before its agent-set timer elapsed.
-            /// Treated as a preemption so the provider does not interpret the early snapshot as
-            /// a completion.
-            ForceRefresh,
-        }
-
-        async move {
-            // If we support long-running commands, set up a timeout after which we'll
-            // treat the command as long-running and give the agent a snapshot of the
-            // current state.  Otherwise, we'll wait indefinitely for the command to
-            // finish executing.
-            let mut timeout = match delay {
-                Some(ShellCommandDelay::Duration(duration)) => {
-                    // Enforce a maximum allowed delay that the agent may request, never waiting longer than MAX_AGENT_DELAY_DURATION.
-                    // If the requested duration exceeds this cap, we'll still behave as if the agent may expect a running command,
-                    // so there's no need to signal preemption (the agent already anticipates an incomplete command state).
-                    Timer::after(duration.min(Self::MAX_AGENT_DELAY_DURATION))
-                }
-                Some(ShellCommandDelay::OnCompletion) => {
-                    Timer::after(Self::MAX_AGENT_DELAY_DURATION)
-                }
-                None => Timer::after(Self::MAX_WAIT_DURATION),
-            }
-            .fuse();
-
-            pin!(block_metadata_received_rx);
-            pin!(force_refresh_rx);
-
-            let wake_reason = select! {
-                val = block_metadata_received_rx => match val {
-                    Ok(_) => WakeReason::BlockFinished,
-                    Err(_) => return ActionResult::Cancelled,
-                },
-                val = force_refresh_rx => match val {
-                    // An explicit refresh was requested; fall through to the snapshot code path.
-                    // Treat it as a preemption because it arrived before the agent's timer.
-                    Ok(_) => WakeReason::ForceRefresh,
-                    // Sender was dropped (e.g. because the executor is being torn down).
-                    Err(_) => return ActionResult::Cancelled,
-                },
-                _ = timeout => WakeReason::Timeout,
-            };
-
-            // Mark the snapshot as preempted if woken early, allowing the server to distinguish
-            // true completion from a forced client poll (`ForceRefresh`) or a timeout during `on_completion`.
-            let is_preempted = matches!(wake_reason, WakeReason::ForceRefresh)
-                || matches!(
-                    (&wake_reason, &delay),
-                    (WakeReason::Timeout, Some(ShellCommandDelay::OnCompletion))
-                );
-
-            // At this point, we've either received block metadata or we've timed out.
-            // Check the current state of the block and produce a result accordingly.
-            let model = terminal_model.lock();
-            let result = match block_selector.get_block(&model) {
-                Some(block) => {
-                    if block.finished() {
-                        ActionResult::CommandFinished {
-                            block_id: block.id().clone(),
-                            output: block.output_with_secrets_unobfuscated(),
-                            exit_code: block.exit_code(),
-                            start_ts: block.start_ts().cloned(),
-                            completed_ts: block.completed_ts().cloned(),
-                        }
-                    } else {
-                        let selected_block_owns_alt_screen = selected_block_owns_alt_screen(
-                            model.is_alt_screen_active(),
-                            model.active_block_id(),
-                            block.id(),
-                        );
-                        let grid_contents = if selected_block_owns_alt_screen {
-                            formatted_terminal_contents_for_input(
-                                model.alt_screen().grid_handler(),
-                                None,
-                                CURSOR_MARKER,
-                            )
-                        } else {
-                            formatted_terminal_contents_for_input(
-                                block.output_grid().grid_handler(),
-                                // TODO(vorporeal): This is probably too large.
-                                Some(1000),
-                                CURSOR_MARKER,
-                            )
-                        };
-                        ActionResult::LongRunningCommandSnapshot {
-                            block_id: block.id().clone(),
-                            grid_contents,
-                            cursor: CURSOR_MARKER,
-                            is_alt_screen_active: selected_block_owns_alt_screen,
-                            is_preempted,
-                            wake_reason: match wake_reason {
-                                WakeReason::BlockFinished => "block_finished",
-                                WakeReason::Timeout => "timeout",
-                                WakeReason::ForceRefresh => "force_refresh",
-                            },
-                        }
-                    }
-                }
-                None => ActionResult::BlockNotFound,
-            };
-
-            result
         }
     }
 
@@ -931,6 +671,15 @@ fn terminal_busy_execution_error(command: &str, running_command: &str) -> AIAgen
         command: command.to_string(),
         message: format!("terminal is busy running command '{running_command}'"),
     })
+}
+
+fn background_launch_error(command: &str, message: String) -> AnyActionExecution {
+    AnyActionExecution::Sync(AIAgentActionResultType::RequestCommandOutput(
+        RequestCommandOutputResult::ExecutionError {
+            command: command.to_owned(),
+            message,
+        },
+    ))
 }
 
 fn selected_block_owns_alt_screen(

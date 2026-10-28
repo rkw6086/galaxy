@@ -1301,6 +1301,19 @@ fn handle_terminal_view_event(
             Event::OpenConversationHistory => {
                 ctx.emit(OpenConversationHistory);
             }
+            Event::OpenBackgroundJobs {
+                working_directory,
+                project_root,
+                host_id,
+                job_id,
+            } => {
+                ctx.emit(pane_group::Event::OpenBackgroundJobs {
+                    working_directory: working_directory.clone(),
+                    project_root: project_root.clone(),
+                    host_id: host_id.clone(),
+                    job_id: *job_id,
+                });
+            }
             Event::FileUploadFinished(exit_code) => {
                 ctx.emit(pane_group::Event::FileUploadFinished {
                     local_pane_id: terminal_pane_id,

@@ -319,7 +319,7 @@ fn prepare_rig_turn_for_provider(
     if !command_allowlist.is_empty() {
         system_prompt.push_str(&format!("\nExplicit command allowlist (regular expressions): {}. Matching shell commands are permitted even in Read Only; denylist and workspace restrictions still win. Do not broaden a command to exploit a pattern.\n", serde_json::to_string(&command_allowlist).unwrap_or_default()));
     }
-    system_prompt.push_str("Approval of a long-running command covers monitoring and interaction with that same conversation-owned command while you retain control. Use the existing command block; do not request permission again or restart the command just to interact with it. A new command requires its own permission decision.\n");
+    system_prompt.push_str("Approval covers starting that exact background command and terminating its owned process tree. It does not authorize another command or interactive process input. Every new command follows the current permission mode.\n");
 
     let mut new_messages = input_messages(input, tool_results, max_context_tokens);
     let mut persistent_messages = message_history;
@@ -461,6 +461,9 @@ fn input_message(
             context,
             completed_command,
         } => {
+            if completed_command.block_id.as_str().starts_with("background-job:") {
+                (prompt, image_parts(&context))
+            } else {
             let output = bounded_terminal_output_for_provider_request(
                 &completed_command.grid_contents,
                 max_context_tokens,
@@ -472,6 +475,7 @@ fn input_message(
                 ),
                 image_parts(&context),
             )
+            }
         }
         AIAgentInput::ActionResult { .. } => return None,
         AIAgentInput::AutoCodeDiffQuery { query, .. } => (query, Vec::new()),
@@ -649,10 +653,10 @@ pub(crate) enum RigRequestMode {
 }
 
 fn request_mode(inputs: &[AIAgentInput]) -> RigRequestMode {
-    if inputs
-        .iter()
-        .any(|input| matches!(input, AIAgentInput::CommandCompletionAssessment { .. }))
-    {
+    if inputs.iter().any(|input| {
+        matches!(input, AIAgentInput::CommandCompletionAssessment { .. })
+            && !input.is_background_job_completion()
+    }) {
         return RigRequestMode::CompletedCommandAssessment;
     }
 
@@ -859,7 +863,7 @@ fn build_system_prompt(
         "## Task Tracking\nUse task tracking only for substantial work with multiple concrete steps, after planning has established those steps or when the user provides an actionable plan. Skip it for simple requests, questions, and exploratory planning. Each task must name a specific change or deliverable with a clear completion condition. Do not create generic workflow items such as 'research the request', 'critique the plan', 'execute the plan', or 'verify the result'. Update tasks only when their actual work is complete; a tool call or model turn alone is not evidence of completion.\n\n",
     );
     prompt.push_str(
-        "## Shell Working Directory\nShell commands run in this conversation's persistent terminal session. The supplied working directory is the shell's location when the request was prepared. Start there without a redundant `cd` or `pwd`. Track successful directory changes across tool calls; do not assume later commands reset to the project root. Use `cd` only when the next command needs a different directory, and use `pwd` only when the location is missing or uncertain. A `cd` inside a subshell or separate script does not change the parent shell's directory. Each sub-agent has its own terminal; never assume it shares another agent's directory changes.\n\n",
+        "## Shell Working Directory\nAgent commands run as independent background jobs in the session directory supplied with this request. Directory and environment changes inside one job do not change later jobs or the user's terminal. Use explicit paths or cd within the same job when a command needs another directory.\n\n",
     );
     prompt.push_str(SHELL_EXECUTION_GUIDANCE);
     prompt.push_str(PROGRESS_COMMUNICATION_GUIDANCE);
@@ -1046,7 +1050,7 @@ fn build_system_prompt(
             "## Orchestration Mode\nDelegate only independent, bounded work where parallelism materially helps, then synthesize the results.\n\n",
         ),
         RigRequestMode::Cli => prompt.push_str(
-"## Running Command Monitor\nKeep an eye on the existing command while continuing the user's request. Use the command ID from the tool result for every read/write operation. If the result says the command finished, report its outcome and stop polling. If the result says the command is still running, make the polling tool call. Only when the latest output adds material information, precede it with one concise, user-facing sentence describing what changed; otherwise poll without repeating the previous status. Do not send a text-only progress response, repeat a generic 'still running' message, or mention internal polling mechanics. If the snapshot clearly shows an interactive pager or editor, do not keep polling: an alternate screen containing `(END)` is `less`, so call `write_to_long_running_shell_command` with input `q` and mode `raw`; for a clearly identified Vim screen, send input `:q` with mode `line`. Poll briefly after sending quit input to verify the outcome. Use `interrupt_shell_command` immediately when the user's explicit stop condition is met. Never choose a poll interval that crosses a user-specified deadline or stop condition. After an interrupt, poll briefly to verify the outcome. Never start a duplicate command merely to check its state, and never report completion while a result says it is still running.\n\n",
+            "## Legacy Command Context\nAgent command monitoring and interactive terminal access are retired. Do not poll, send process input, or transfer terminal control. New commands run as independent noninteractive background jobs.\n\n",
         ),
         RigRequestMode::CompletedCommandAssessment => prompt.push_str(
             "## Completed Command Assessment\nThe monitored command has finished. Use its command, command ID, final terminal output, and the assessment instruction in the latest hidden input to provide the final user-facing outcome. Do not continue polling, request more terminal output, or call tools.\n\n",

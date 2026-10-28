@@ -115,6 +115,19 @@ impl Command {
         }
     }
 
+    /// Sets Windows process creation flags while preserving the wrapper's default flags.
+    #[cfg(windows)]
+    pub fn creation_flags(&mut self, flags: u32) -> &mut Self {
+        use async_process::windows::CommandExt;
+
+        #[cfg(not(feature = "test-util"))]
+        let flags = flags
+            | windows::Win32::System::Threading::CREATE_NO_WINDOW.0
+            | windows::Win32::System::Threading::CREATE_BREAKAWAY_FROM_JOB.0;
+        self.inner.creation_flags(flags);
+        self
+    }
+
     /// Adds a single argument to pass to the program.
     ///
     /// # Examples

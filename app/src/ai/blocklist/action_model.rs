@@ -426,7 +426,11 @@ fn domain_tool_result(action_result: &AIAgentActionResult, permission_denied: bo
         content
     };
     ToolResult {
-        images: if permission_denied { Vec::new() } else { images },
+        images: if permission_denied {
+            Vec::new()
+        } else {
+            images
+        },
         call_id: action_result.id.to_string(),
         content,
         status,
@@ -534,7 +538,17 @@ fn action_result_type_name(result: &AIAgentActionResultType) -> &'static str {
 
 #[cfg(not(target_family = "wasm"))]
 fn action_result_status(result: &AIAgentActionResultType) -> &'static str {
-    if action_result_is_success_for_remote_log(result) {
+    if matches!(
+        result,
+        AIAgentActionResultType::RequestCommandOutput(
+            RequestCommandOutputResult::BackgroundJobStarted { .. },
+        ) | AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested { .. },
+        )
+    ) {
+        // Launch/cancellation acceptance does not establish the command's exit outcome.
+        "accepted"
+    } else if action_result_is_success_for_remote_log(result) {
         "success"
     } else if result.is_failed() || action_result_failure_summary(result).is_some() {
         "error"
@@ -559,7 +573,8 @@ fn action_result_is_success_for_remote_log(result: &AIAgentActionResultType) -> 
             WriteToLongRunningShellCommandResult::CommandFinished { exit_code, .. },
         ) => exit_code.was_successful(),
         AIAgentActionResultType::WriteToLongRunningShellCommand(
-            WriteToLongRunningShellCommandResult::Cancelled
+            WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested { .. }
+            | WriteToLongRunningShellCommandResult::Cancelled
             | WriteToLongRunningShellCommandResult::Error(_),
         )
         | AIAgentActionResultType::RequestCommandOutput(_)
@@ -697,12 +712,14 @@ fn action_result_failure_summary(result: &AIAgentActionResultType) -> Option<Str
             RequestCommandOutputResult::ExecutionError { message, .. },
         ) => Some(message.clone()),
         AIAgentActionResultType::RequestCommandOutput(
-            RequestCommandOutputResult::Completed { .. }
+            RequestCommandOutputResult::BackgroundJobStarted { .. }
+            | RequestCommandOutputResult::Completed { .. }
             | RequestCommandOutputResult::CancelledBeforeExecution
             | RequestCommandOutputResult::LongRunningCommandSnapshot { .. },
         )
         | AIAgentActionResultType::WriteToLongRunningShellCommand(
-            WriteToLongRunningShellCommandResult::Cancelled
+            WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested { .. }
+            | WriteToLongRunningShellCommandResult::Cancelled
             | WriteToLongRunningShellCommandResult::CommandFinished { .. }
             | WriteToLongRunningShellCommandResult::Snapshot { .. },
         )

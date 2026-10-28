@@ -2860,8 +2860,19 @@ fn provider_command_result_classifier_covers_snapshot_and_finished_variants() {
 }
 
 #[test]
-fn provider_command_result_classifier_ignores_cancelled_and_error_variants() {
+fn provider_command_result_classifier_ignores_background_jobs_cancelled_and_error_variants() {
     let results = [
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested {
+                job_id: "cancelled-background-job".to_owned(),
+            },
+        ),
+        AIAgentActionResultType::RequestCommandOutput(
+            RequestCommandOutputResult::BackgroundJobStarted {
+                job_id: Uuid::new_v4().to_string(),
+                command: "cargo build".to_owned(),
+            },
+        ),
         AIAgentActionResultType::RequestCommandOutput(
             RequestCommandOutputResult::CancelledBeforeExecution,
         ),
@@ -2888,6 +2899,34 @@ fn provider_command_result_classifier_ignores_cancelled_and_error_variants() {
     assert!(results
         .iter()
         .all(|result| super::classify_provider_command_result(result).is_none()));
+}
+
+#[test]
+fn background_job_completions_are_hidden_observations_not_user_authorization() {
+    let mut input = AIAgentInput::CommandCompletionAssessment {
+        prompt: "The background build completed with exit code 0.".to_owned(),
+        context: Arc::from([]),
+        completed_command: RunningCommand {
+            command: "cargo build".to_owned(),
+            block_id: format!("background-job:{}", Uuid::new_v4()).into(),
+            grid_contents: String::new(),
+            cursor: String::new(),
+            requested_command_id: None,
+            is_alt_screen_active: false,
+        },
+    };
+    assert!(input.is_background_job_completion());
+    assert!(!input.is_user_query());
+    assert_eq!(input.display_query(), None);
+
+    let AIAgentInput::CommandCompletionAssessment {
+        completed_command, ..
+    } = &mut input
+    else {
+        unreachable!();
+    };
+    completed_command.block_id = BlockId::new();
+    assert!(!input.is_background_job_completion());
 }
 
 #[test]

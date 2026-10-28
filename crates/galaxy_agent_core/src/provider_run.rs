@@ -1320,19 +1320,20 @@ impl ProviderRun {
                 })?);
             }
         }
-        let yielded_to_children = batch.calls.iter().any(|pending| {
-            is_local_agent_launch(&pending.call)
-                && pending
-                    .state
-                    .result()
-                    .is_some_and(|result| result.status == ToolResultStatus::Success)
+        let yielded_to_external_work = batch.calls.iter().any(|pending| {
+            pending.state.result().is_some_and(|result| {
+                result.status == ToolResultStatus::Success
+                    && (is_local_agent_launch(&pending.call)
+                        || is_background_job_launch(&pending.call, result))
+            })
         });
         self.transcript.push(tool_result_message(results));
         self.task_list = task_list;
         self.epoch = next_epoch;
         // Launch acknowledgement is a yield, not an invitation to issue more tools.
-        // The client persists child membership and supplies a new input once the group finishes.
-        self.state = if yielded_to_children {
+        // The client owns the independent child/job lifecycle and supplies a new input once
+        // that work finishes. Every result in this batch is committed before yielding.
+        self.state = if yielded_to_external_work {
             ProviderRunState::Done {
                 completion: ProviderRunCompletion {
                     stop_reason: StopReason::Completed,
@@ -1734,6 +1735,24 @@ fn usage_contains(total: &Usage, part: &Usage) -> bool {
 fn is_local_agent_launch(call: &ToolCall) -> bool {
     // Galaxy normalizes direct-provider delegation to local child execution.
     matches!(call.name.as_str(), "run_agents" | "start_agent")
+}
+
+fn is_background_job_launch(call: &ToolCall, result: &ToolResult) -> bool {
+    if call.name != "run_shell_command" {
+        return false;
+    }
+    let Ok(content) = serde_json::from_str::<serde_json::Value>(&result.content) else {
+        return false;
+    };
+    content.get("background_job_started").is_some_and(|job| {
+        job.get("job_id")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|id| !id.is_empty())
+            && job
+                .get("command")
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+    })
 }
 
 fn validate_model_turn(turn: &CompletedModelTurn) -> Result<(), ProviderRunProtocolError> {

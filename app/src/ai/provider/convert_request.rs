@@ -709,7 +709,7 @@ fn tool_definition_for_name(name: &str) -> ToolDefinition {
     match name {
         "run_shell_command" => ToolDefinition {
             name: "run_shell_command".to_string(),
-            description: "Execute a shell command and return its output.".to_string(),
+            description: "Start a noninteractive background job with closed stdin and return its job ID. Output and exit status arrive when it finishes. Never poll, monitor, or send input; give unavoidable interactive commands to the user to run.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {

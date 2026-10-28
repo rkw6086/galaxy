@@ -779,6 +779,9 @@ impl Input {
                 // Open the skill selector menu for invocation - skill command will be inserted into buffer
                 self.open_invoke_skill_selector(ctx);
             }
+            _background_jobs if command.name == commands::BACKGROUND_JOBS.name => {
+                ctx.dispatch_typed_action(&TerminalAction::OpenBackgroundJobs { job_id: None });
+            }
             _ if command.name == commands::HOST.name => {
                 if !self.is_cloud_mode_input_v2_composing(ctx) {
                     return false;

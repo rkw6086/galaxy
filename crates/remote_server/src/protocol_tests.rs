@@ -8,6 +8,50 @@ use crate::proto::{
 };
 
 #[tokio::test]
+async fn background_job_requests_preserve_identity_and_byte_log_cursors() {
+    let request = ClientMessage::host_scoped(
+        "background-status".to_owned(),
+        crate::proto::host_scoped_request::Message::BackgroundJob(
+            crate::proto::BackgroundJobRequest {
+                operation: crate::proto::background_job_request::Operation::Status as i32,
+                job_id: "2ce65749-03d4-4482-910f-b9224575e9bd".to_owned(),
+                conversation_id: "43131875-abf9-4f98-b20a-b607d1b99125".to_owned(),
+                action_id: "job-action".to_owned(),
+                log_offset: 128 * 1024 + 3,
+                has_environment: true,
+                ..Default::default()
+            },
+        ),
+    );
+    let mut buffer = Vec::new();
+    write_message(&mut buffer, &request).await.unwrap();
+    let decoded: ClientMessage = read_message(&mut buffer.as_slice()).await.unwrap();
+    assert_eq!(decoded, request);
+
+    let response = ServerMessage {
+        request_id: request.request_id,
+        message: Some(server_message::Message::BackgroundJobResponse(
+            crate::proto::BackgroundJobResponse {
+                job_json: "{}".to_owned(),
+                log_chunk: vec![0xf0, 0x9f, 0x92, 0xa1, 0, 0xff],
+                next_log_offset: 128 * 1024 + 9,
+                total_log_bytes: 1024 * 1024,
+                logs_available: true,
+                error: String::new(),
+                completion_log_tail: "retained completion output".as_bytes().to_vec(),
+                completion_log_bytes: 1024 * 1024 + 7,
+                completion_log_tail_available: true,
+                job_not_found: false,
+            },
+        )),
+    };
+    let mut buffer = Vec::new();
+    write_message(&mut buffer, &response).await.unwrap();
+    let decoded: ServerMessage = read_message(&mut buffer.as_slice()).await.unwrap();
+    assert_eq!(decoded, response);
+}
+
+#[tokio::test]
 async fn round_trip_client_message() {
     let msg = ClientMessage::session_scoped(
         "test-123".to_string(),
@@ -108,6 +152,7 @@ async fn round_trip_server_message() {
             InitializeResponse {
                 server_version: "0.1.0".to_string(),
                 host_id: "test-host".to_string(),
+                supports_background_jobs: true,
             },
         )),
     };

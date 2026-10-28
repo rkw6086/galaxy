@@ -507,12 +507,12 @@ impl BlocklistAIActionModel {
                 .as_ref(ctx)
                 .shell_command_executor()
                 .as_ref(ctx)
-                .can_continue_authorized_command(conversation_id, block_id);
+                .can_continue_authorized_command(conversation_id, block_id, ctx);
             if owns_command {
                 return Some(true);
             }
             self.reject_action_for_mode(action, conversation_id,
-                "PTY input is only authorized for this conversation's active, approved long-running command while the agent retains control. This input was not sent.", ctx);
+                "Only this conversation's owned background job can be cancelled. No process input was sent.", ctx);
             return None;
         }
         if mode == PermissionMode::ReadOnly && !is_read_only_inspection(&action.action) {

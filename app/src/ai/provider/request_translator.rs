@@ -1202,6 +1202,14 @@ fn collect_tool_result_ids(content: &MessageContent, ids: &mut std::collections:
     }
 }
 
+fn cli_query_is_background_job(query: &api::request::input::CliAgentUserQuery) -> bool {
+    query
+        .running_command
+        .as_ref()
+        .and_then(|command| command.snapshot.as_ref())
+        .is_some_and(|snapshot| snapshot.command_id.starts_with("background-job:"))
+}
+
 fn cli_query_is_completed_assessment(cli_query: &api::request::input::CliAgentUserQuery) -> bool {
     cli_query
         .user_query
@@ -1213,6 +1221,9 @@ fn cli_query_text(
     cli_query: &api::request::input::CliAgentUserQuery,
     user_query: &api::request::input::UserQuery,
 ) -> String {
+    if cli_query_is_background_job(cli_query) {
+        return user_query.query.clone();
+    }
     let Some(command) = &cli_query.running_command else {
         return user_query.query.clone();
     };
@@ -1269,7 +1280,7 @@ fn request_agent_mode(request: &api::Request) -> AgentMode {
             &user_input.input,
             Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
                 cli_query
-            )) if cli_query_is_completed_assessment(cli_query)
+            )) if cli_query_is_completed_assessment(cli_query) && !cli_query_is_background_job(cli_query)
         )
     }) {
         return AgentMode::CompletedCommandAssessment;
@@ -1278,8 +1289,10 @@ fn request_agent_mode(request: &api::Request) -> AgentMode {
     let mut mode = AgentMode::Normal;
     for user_input in &user_inputs.inputs {
         match &user_input.input {
-            Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(_)) => {
-                return AgentMode::Cli;
+            Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(query)) => {
+                if !cli_query_is_background_job(query) {
+                    return AgentMode::Cli;
+                }
             }
             Some(api::request::input::user_inputs::user_input::Input::UserQuery(query)) => {
                 match query.mode.as_ref().and_then(|mode| mode.r#type.as_ref()) {
@@ -1303,17 +1316,16 @@ fn request_agent_mode(request: &api::Request) -> AgentMode {
 
 fn tool_result_is_cli_command(result: &api::request::input::ToolCallResult) -> bool {
     use api::request::input::tool_call_result::Result;
-
     match &result.result {
-        Some(Result::RunShellCommand(result)) => matches!(
-            result.result,
-            Some(api::run_shell_command_result::Result::LongRunningCommandSnapshot(_))
-        ),
-        Some(
-            Result::WriteToLongRunningShellCommand(_)
-            | Result::ReadShellCommandOutput(_)
-            | Result::TransferShellCommandControlToUser(_),
-        ) => true,
+        Some(Result::RunShellCommand(result)) => matches!(&result.result,
+            Some(api::run_shell_command_result::Result::LongRunningCommandSnapshot(snapshot))
+                if !snapshot.command_id.starts_with("background-job:")),
+        Some(Result::WriteToLongRunningShellCommand(result)) => matches!(&result.result,
+            Some(api::write_to_long_running_shell_command_result::Result::LongRunningCommandSnapshot(snapshot))
+                if !snapshot.command_id.starts_with("background-job:")),
+        Some(Result::ReadShellCommandOutput(_) | Result::TransferShellCommandControlToUser(_)) => {
+            true
+        }
         _ => false,
     }
 }
@@ -1476,9 +1488,9 @@ pub fn extract_system_prompt(
          changes and make the smallest coherent change that solves the problem.\n",
     );
     prompt.push_str(
-        "- Prefer non-interactive commands. Disable pagers (`--no-pager`, `PAGER=cat`, or the \
-         tool-specific equivalent) and avoid commands that wait for an editor or prompt unless \
-         interaction is intentional.\n",
+        "- Use only noninteractive commands. Disable pagers (`--no-pager`, `PAGER=cat`, or the \
+         tool-specific equivalent). If interaction cannot be avoided, give the command to the \
+         user to run in their own terminal.\n",
     );
     prompt.push_str(
         "- Treat tool results as evidence. Check exit codes and output, fix failures when they are \
@@ -1516,28 +1528,7 @@ pub fn extract_system_prompt(
             );
         }
         AgentMode::Cli => {
-            prompt.push_str("## Running Command Monitor\n");
-            prompt.push_str(
-                "This turn concerns a running or just-finished shell command. Act as its dedicated \
-                 monitor while still following the user's steering messages. Use the command ID from \
-                 the running-command context or tool result for every read/write operation. If the \
-                 result says the command finished, report its outcome and stop polling. If it says the \
-                 command is still running, the next assistant output MUST be a tool call. Use \
-                 `read_shell_command_output` with a short delay for normal progress. If the snapshot \
-                 clearly shows an interactive pager or editor, do not keep polling: an alternate screen \
-                 containing `(END)` is `less`, so call `write_to_long_running_shell_command` with input \
-                 `q` and mode `raw`; for a clearly identified Vim screen, send input `:q` with mode \
-                 `line`. Poll briefly after sending quit input to verify the outcome. Call \
-                 `interrupt_shell_command` immediately when the user's explicit stop condition is met. \
-                 Do not end a still-running monitor turn with prose, a status message, or a request for \
-                 the user to say continue. Never choose a poll interval that crosses a user-specified \
-                 deadline or stop condition. After an interrupt, poll briefly to verify the outcome. \
-                 Never try to encode Ctrl+C as `C-c`, `^C`, `\\x03`, or `\\u0003` through \
-                 `write_to_long_running_shell_command`; that tool is only for actual process input. \
-                 Never start a duplicate command merely to check its state, and never report completion \
-                 while a result says it is still running. If user interaction is the right next step and \
-                 the transfer tool is available, transfer control with a clear reason.\n\n",
-            );
+            prompt.push_str("## Legacy Command Context\nAgent command monitoring and interactive terminal access are retired. Do not poll, send input, or transfer terminal control. Use the recorded command result as evidence; new agent commands must use independent background jobs.\n\n");
         }
         AgentMode::CompletedCommandAssessment => {
             prompt.push_str("## Completed Command Assessment\n");
@@ -1586,12 +1577,7 @@ pub fn extract_system_prompt(
     }
     if has_tool("run_shell_command") {
         prompt.push_str(
-            "- Use `run_shell_command` for builds, tests, package managers, git, and terminal work. \
-             Set `is_read_only` accurately, set `uses_pager=false`, and set \
-             `rationale` when permission review needs an explanation of scope or authorization. \
-             Keep `command` executable shell text only; never append justification as a # comment, echo, or no-op. \
-             Set `wait_until_complete=false` for commands that may run longer than a few seconds so they \
-             can be monitored asynchronously.\n",
+            "- Use `run_shell_command` for independent noninteractive background jobs. Set `is_read_only` accurately and provide `rationale` when permission review needs scope or authorization. A launch acknowledgment is not completion; await the automatic exit-status/log event before dependent work.\n",
         );
     }
     if !tool_names.is_empty() {
@@ -1611,6 +1597,14 @@ pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
     }
 
     let mut tools = default_tool_definitions();
+    tools.retain(|tool| {
+        !matches!(
+            tool.name.as_str(),
+            "write_to_long_running_shell_command"
+                | "read_shell_command_output"
+                | "transfer_shell_command_control_to_user"
+        )
+    });
     let mut seen_names: std::collections::HashSet<String> =
         tools.iter().map(|t| t.name.clone()).collect();
 
@@ -1697,12 +1691,10 @@ pub(crate) fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolTy
         "grep" => has(ToolType::Grep),
         "file_glob" => has(ToolType::FileGlob) || has(ToolType::FileGlobV2),
         "search_codebase" => has(ToolType::SearchCodebase),
-        "write_to_long_running_shell_command" => has(ToolType::WriteToLongRunningShellCommand),
-        "interrupt_shell_command" => has(ToolType::WriteToLongRunningShellCommand),
-        "read_shell_command_output" => has(ToolType::ReadShellCommandOutput),
-        "transfer_shell_command_control_to_user" => {
-            has(ToolType::TransferShellCommandControlToUser)
-        }
+        "write_to_long_running_shell_command" => false,
+        "interrupt_shell_command" => has(ToolType::RunShellCommand),
+        "read_shell_command_output" => false,
+        "transfer_shell_command_control_to_user" => false,
         "read_mcp_resource" => has(ToolType::ReadMcpResource),
         name if name.starts_with("mcp__") => has(ToolType::CallMcpTool),
         "read_plan" | "read_notebook" => has(ToolType::ReadDocuments),
@@ -1730,7 +1722,7 @@ pub(crate) const PROGRESS_COMMUNICATION_GUIDANCE: &str = "## Progress Updates\nF
 
 pub(crate) const IMPLEMENTATION_PROGRESS_GUIDANCE: &str = "## Incremental Implementation\nFor an authorized implementation task, reuse the parent handoff's paths, findings, constraints, and acceptance criteria. Search until you have just enough context to make the requested change. Read the immediate implementation and a relevant example or test as needed, then make the smallest coherent change. The parent can review and request follow-up changes; do not try to anticipate every possible review concern before editing, and still validate your own work. Validate that slice before expanding the investigation. Do not inventory every related subsystem before editing. Further discovery must resolve a concrete uncertainty that affects the next change. When a local code change is reversible and a focused build or test can settle an uncertainty, make a small, evidence-based attempt and use the result to refine it instead of searching for complete certainty. Do not guess APIs or edit files you have not inspected. Read known files directly and batch independent focused reads; avoid repeating discovery already supplied by the parent. Prefer the nearest relevant check before a full build. Investigate first when a mistake could destroy data, affect production, expose credentials, or create irreversible external effects. For review-only work, inspect the changed code and its immediate dependencies, then report actionable findings; expand the search only to test a specific suspected defect. For delegated implementation work, include known paths and symbols, established findings, changes to preserve, a concrete first change, and its acceptance check; distinguish known facts from unanswered questions. Do not invent missing discoveries. Research-only, review, and planning requests remain read-only unless the user authorizes changes.\n\n";
 
-pub(crate) const SHELL_EXECUTION_GUIDANCE: &str = "## Shell Execution\nCommands use a persistent terminal. Never exit, log out of, replace with exec, or kill that shell or Galaxy. Do not append `exit $status` to a command to report its result; let the command's exit status be returned naturally. If a script needs exit, run it in an explicit child shell such as `sh -c '...'`. Stop a running agent command with interrupt_shell_command, not broad kill/pkill commands.\nRun builds, tests, installs, and workspace checks as separate shell tool calls so each has its own output and exit status. Keep stdout and stderr live: do not hide them in subprocess capture_output/PIPE, redirect everything to a file, or buffer a whole validation suite and print only its final tail. If a log file is needed, stream through tee while preserving the original command's exit status. Use non-interactive, non-watch modes and disable pagers. Give intentionally quiet commands a descriptive tool title so the user knows what is running; silence alone is not evidence of a hang. If repeated snapshots show no progress, investigate whether the command is waiting for input, watching, or buffering; do not blindly poll forever or start duplicate commands. Interrupt and correct an unintended watcher or blocked command before retrying.\n\n";
+pub(crate) const SHELL_EXECUTION_GUIDANCE: &str = "## Background Shell Jobs\nEvery agent-requested shell command runs as an independent, noninteractive background job with closed stdin and no terminal. A launch acknowledgment is not an exit result. Never poll or monitor jobs, send process input, open an interactive shell, or use terminal takeover. Galaxy automatically sends the command, logs, and exit status when a job succeeds, fails, or is canceled. Wait for that event before dependent work; independent jobs may be launched together. Do not restart a command merely because it is still running.\nUse noninteractive flags, disable pagers, and keep the job's main process in the foreground: do not append '&', use nohup/disown, or detach child processes. If interaction cannot be avoided, give the exact command to the user to run in their own terminal instead of executing it. Commands typed by users retain their normal interactive terminal behavior. Each job starts in the supplied working directory and inherits the session environment; cd/export changes inside a job do not persist to later jobs. Use explicit paths or a cd within that job when needed. Galaxy stores stdout/stderr in temporary logs; do not hide all output in another file. The user can view retained logs and terminate jobs through /background-jobs. Use interrupt_shell_command only to cancel this conversation's specific background job when requested or when an explicit stop condition is reached.\n\n";
 
 fn computer_target_schema() -> serde_json::Value {
     serde_json::json!({
@@ -1805,16 +1797,14 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "run_shell_command".to_string(),
-            description: "Execute a shell command in the user's terminal and return its output. Use for builds, tests, git, package managers, and other shell work. Commands run in this conversation's persistent shell and environment, starting in the supplied working directory. Successful cd commands affect subsequent calls in this shell; subshell directory changes do not. Avoid prefixing commands with cd to the directory you are already in, and use pwd only when the current location is uncertain. Never exit, log out of, replace, or kill this persistent shell. Run each build/test/install separately and keep its output live; avoid buffered subprocess wrappers and redirecting all output to files. Set wait_until_complete=false for commands that might run longer than a few seconds; Galaxy will return a command_id that can be monitored with read_shell_command_output.".to_string(),
+            description: "Start a noninteractive background job for a shell command and return its job_id immediately. The conversation remains free while it runs. Galaxy sends completion with command, logs, and exit status automatically; never poll, monitor, or write input. Closed stdin and no terminal: use noninteractive flags and give unavoidable interactive commands to the user to run themselves. Each job inherits the current session directory/environment independently; cd/export do not persist. Keep the main command in the foreground; do not append &, nohup, disown, or otherwise detach it. Logs are visible only on /background-jobs and supplied to the model on completion.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "command": { "type": "string", "description": "The shell command to execute. Put explanations in rationale, never append permission justification as shell comments or extra commands." },
                     "rationale": { "type": "string", "description": "Optional permission-review justification: explain scope, expected effects, and relevant user authorization. Passed to the reviewer separately; never executed in the shell." },
                     "is_read_only": { "type": "boolean", "description": "True if command only reads data and makes no changes" },
-                    "is_risky": { "type": "boolean", "description": "True if command is destructive or irreversible (rm -rf, git push --force)" },
-                    "uses_pager": { "type": "boolean", "default": false, "description": "True only when the command intentionally launches a pager. Prefer false." },
-                    "wait_until_complete": { "type": "boolean", "default": false, "description": "Whether to wait for the process to exit. Defaults to false so builds, servers, watchers, and other potentially long-running commands can be monitored asynchronously." }
+                    "is_risky": { "type": "boolean", "description": "True if command is destructive or irreversible (rm -rf, git push --force)" }
                 },
                 "required": ["command"]
             }),
@@ -1928,13 +1918,13 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "interrupt_shell_command".to_string(),
-            description: "Interrupt a currently running shell command with a real terminal Ctrl+C. Use when the user explicitly asks to stop/cancel/interrupt the command, or when a user-specified stop condition or deadline is met. Do not use merely because a command is slow. After interrupting, read the command output to verify whether it exited.".to_string(),
+            description: "Request cancellation of this conversation's background job. Use only when the user asks to stop it or an explicit stop condition is met. This terminates the owned process tree; a completion message with logs and final status follows automatically.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "command_id": { "type": "string", "description": "Command ID returned by a long-running command result" }
+                    "job_id": { "type": "string", "description": "job_id returned by run_shell_command" }
                 },
-                "required": ["command_id"]
+                "required": ["job_id"]
             }),
         },
         ToolDefinition {
@@ -2606,20 +2596,16 @@ fn command_finished_content(finished: &api::ShellCommandFinished) -> (String, bo
 }
 
 fn long_running_command_content(snapshot: &api::LongRunningShellCommandSnapshot) -> String {
-    let output = if snapshot.output.is_empty() {
-        "(no output yet)"
-    } else {
-        &snapshot.output
-    };
+    if snapshot.command_id.starts_with("background-job:") {
+        // The compatibility protocol carries native launch/cancellation acknowledgments
+        // in this envelope. Preserve their evidence without inventing monitoring work.
+        return snapshot.output.clone();
+    }
     format!(
-        "Command is still running.\nCommand ID: {}\nCurrent terminal output:\n{}\n\
-         The next assistant output MUST be a tool call: continue monitoring with \
-         `read_shell_command_output` using command_id `{}` and a short wait. Use \
-         `write_to_long_running_shell_command` with the same command_id only if input is required. \
-         If the user's explicit stop condition is met, use `interrupt_shell_command` immediately \
-         with the same command_id. Do not end this turn with prose or report the command as complete \
-         while it is still running.",
-        snapshot.command_id, output, snapshot.command_id
+        "Legacy terminal snapshot.\nCommand ID: {}\nRecorded output:\n{}\n\
+         Interactive terminal tools and command monitoring are retired. Do not poll or send input. \
+         New agent commands run as independent noninteractive background jobs.",
+        snapshot.command_id, snapshot.output
     )
 }
 

@@ -49,6 +49,9 @@ pub mod text {
             | AIAgentInput::TriggerPassiveSuggestion { .. } => Ok(()),
             AIAgentInput::ActionResult { result, .. } => match &result.result {
                 AIAgentActionResultType::RequestCommandOutput(result) => match result {
+                    RequestCommandOutputResult::BackgroundJobStarted { job_id, command } => {
+                        writeln!(w, "Background job {job_id} accepted: `{command}`. Completion will arrive separately.")
+                    }
                     RequestCommandOutputResult::Completed {
                         command,
                         output,
@@ -72,6 +75,9 @@ pub mod text {
                     }
                 },
                 AIAgentActionResultType::WriteToLongRunningShellCommand(result) => match result {
+                    WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested {
+                        job_id,
+                    } => writeln!(w, "Cancellation requested for background job {job_id}. Its final status will arrive separately."),
                     WriteToLongRunningShellCommandResult::Snapshot { .. } => {
                         writeln!(w, "Command is still running...")
                     }
@@ -708,6 +714,8 @@ pub mod json {
     #[derive(Serialize)]
     #[serde(tag = "status", rename_all = "snake_case")]
     enum JsonRunCommandResult<'a> {
+        Accepted { job_id: &'a str, command: &'a str },
+        CancellationRequested { job_id: &'a str },
         Complete { exit_code: i32, output: &'a str },
         Running,
     }
@@ -822,6 +830,11 @@ pub mod json {
         fn from_action_result(result: &'a AIAgentActionResultType) -> Option<Self> {
             match result {
                 AIAgentActionResultType::RequestCommandOutput(result) => match result {
+                    RequestCommandOutputResult::BackgroundJobStarted { job_id, command } => {
+                        Some(JsonMessage::ToolResult(JsonToolResult::RunCommand(
+                            JsonRunCommandResult::Accepted { job_id, command },
+                        )))
+                    }
                     RequestCommandOutputResult::Completed {
                         output, exit_code, ..
                     } => Some(JsonMessage::ToolResult(JsonToolResult::RunCommand(
@@ -850,6 +863,11 @@ pub mod json {
                     }),
                 },
                 AIAgentActionResultType::WriteToLongRunningShellCommand(result) => match result {
+                    WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested {
+                        job_id,
+                    } => Some(JsonMessage::ToolResult(JsonToolResult::RunCommand(
+                        JsonRunCommandResult::CancellationRequested { job_id },
+                    ))),
                     WriteToLongRunningShellCommandResult::Snapshot { .. } => {
                         Some(JsonMessage::ToolResult(JsonToolResult::RunCommand(
                             JsonRunCommandResult::Running,

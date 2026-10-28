@@ -214,8 +214,10 @@ async fn initialize_round_trip() {
         server_message::Message::InitializeResponse(InitializeResponse {
             server_version: "test-0.1.0".to_string(),
             host_id: "test-host-id".to_string(),
+            supports_background_jobs: true,
         })
     });
+    assert!(!client.supports_background_jobs());
 
     let resp = client
         .initialize(
@@ -229,6 +231,8 @@ async fn initialize_round_trip() {
         )
         .await
         .unwrap();
+    assert!(resp.supports_background_jobs);
+    assert!(client.supports_background_jobs());
     assert_eq!(resp.server_version, "test-0.1.0");
     assert_eq!(resp.host_id, "test-host-id");
 }
@@ -243,6 +247,7 @@ async fn initialize_sends_empty_auth_token_when_none() {
         server_message::Message::InitializeResponse(InitializeResponse {
             server_version: "test-0.1.0".to_string(),
             host_id: "test-host-id".to_string(),
+            supports_background_jobs: true,
         })
     });
 
@@ -270,6 +275,7 @@ async fn initialize_sends_auth_token_when_provided() {
         server_message::Message::InitializeResponse(InitializeResponse {
             server_version: "test-0.1.0".to_string(),
             host_id: "test-host-id".to_string(),
+            supports_background_jobs: true,
         })
     });
 
@@ -381,6 +387,7 @@ async fn is_disconnected_starts_false() {
         server_message::Message::InitializeResponse(InitializeResponse {
             server_version: "test-0.1.0".to_string(),
             host_id: "test-host-id".to_string(),
+            supports_background_jobs: true,
         })
     });
 
@@ -427,6 +434,7 @@ async fn concurrent_in_flight_requests() {
         server_message::Message::InitializeResponse(InitializeResponse {
             server_version: "test-0.1.0".to_string(),
             host_id: "test-host-id".to_string(),
+            supports_background_jobs: true,
         })
     });
     let client = std::sync::Arc::new(client);
@@ -472,6 +480,7 @@ async fn mock_server_with_error_handling(
                         InitializeResponse {
                             server_version: "test-0.1.0".to_string(),
                             host_id: "test-host-id".to_string(),
+                            supports_background_jobs: true,
                         },
                     )),
                 };

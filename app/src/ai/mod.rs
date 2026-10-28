@@ -18,6 +18,8 @@ pub(crate) mod attachment_utils;
 pub mod auth_secret_types;
 #[cfg(not(target_family = "wasm"))]
 pub mod aws_credentials;
+#[cfg(all(not(target_family = "wasm"), feature = "local_fs"))]
+pub(crate) mod background_jobs;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod bedrock_credentials;
 pub(crate) mod block_context;
@@ -85,6 +87,8 @@ pub mod outline;
 pub(crate) use ai::paths;
 
 pub fn init(app: &mut AppContext) {
+    #[cfg(all(not(target_family = "wasm"), feature = "local_fs"))]
+    app.add_singleton_model(background_jobs::BackgroundJobsModel::new);
     #[cfg(not(target_family = "wasm"))]
     app.add_singleton_model(provider::authentication::BedrockAuthentication::new);
     #[cfg(not(target_family = "wasm"))]

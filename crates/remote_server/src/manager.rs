@@ -888,6 +888,23 @@ pub struct HostRequestHandle {
 }
 
 impl HostRequestHandle {
+    pub async fn background_job(
+        &self,
+        request: crate::proto::BackgroundJobRequest,
+    ) -> Result<crate::proto::BackgroundJobResponse, HostRequestError> {
+        let message = self
+            .send(crate::proto::host_scoped_request::Message::BackgroundJob(
+                request,
+            ))
+            .await?;
+        match message.message {
+            Some(crate::proto::server_message::Message::BackgroundJobResponse(response)) => {
+                Ok(response)
+            }
+            _ => Err(HostRequestError::UnexpectedResponse),
+        }
+    }
+
     /// Sends a host-scoped request and awaits the raw `ServerMessage`.
     ///
     /// Bounces to the main thread to call `send_host_request`, then

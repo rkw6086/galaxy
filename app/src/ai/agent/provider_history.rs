@@ -181,6 +181,8 @@ struct SavedResultDetails {
     cancelled: bool,
     file_edit: Option<(String, usize, usize)>,
     command_error: Option<(String, String)>,
+    background_job: Option<(String, String)>,
+    background_job_cancellation: Option<String>,
 }
 
 /// Supplement fields that the server's request/result protocol does not round-trip.
@@ -223,6 +225,18 @@ pub(crate) fn restore_result_details(
             super::RequestCommandOutputResult::ExecutionError { command, message },
         );
     }
+    if let Some((job_id, command)) = details.background_job {
+        result.result = super::AIAgentActionResultType::RequestCommandOutput(
+            super::RequestCommandOutputResult::BackgroundJobStarted { job_id, command },
+        );
+    }
+    if let Some(job_id) = details.background_job_cancellation {
+        result.result = super::AIAgentActionResultType::WriteToLongRunningShellCommand(
+            super::WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested {
+                job_id,
+            },
+        );
+    }
 }
 
 // FileGlob remains part of saved history even though the server deprecated it.
@@ -247,6 +261,20 @@ pub(crate) fn result_message(result: &AIAgentActionResult) -> anyhow::Result<api
             super::AIAgentActionResultType::RequestCommandOutput(
                 super::RequestCommandOutputResult::ExecutionError { command, message },
             ) => Some((command.clone(), message.clone())),
+            _ => None,
+        },
+        background_job: match &result.result {
+            super::AIAgentActionResultType::RequestCommandOutput(
+                super::RequestCommandOutputResult::BackgroundJobStarted { job_id, command },
+            ) => Some((job_id.clone(), command.clone())),
+            _ => None,
+        },
+        background_job_cancellation: match &result.result {
+            super::AIAgentActionResultType::WriteToLongRunningShellCommand(
+                super::WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested {
+                    job_id,
+                },
+            ) => Some(job_id.clone()),
             _ => None,
         },
     };

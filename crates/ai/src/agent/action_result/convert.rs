@@ -6,7 +6,6 @@ use warp_multi_agent_api::ask_user_question_result::answer_item::{
 use warp_multi_agent_api::{self as api};
 
 use super::*;
-use crate::agent::action_result::ShellCommandError;
 use crate::agent::convert::ConvertToAPITypeError;
 
 fn local_datetime_to_timestamp(timestamp: DateTime<Local>) -> prost_types::Timestamp {
@@ -21,6 +20,27 @@ impl TryFrom<RequestCommandOutputResult> for api::request::input::tool_call_resu
 
     fn try_from(result: RequestCommandOutputResult) -> Result<Self, Self::Error> {
         match result {
+            RequestCommandOutputResult::BackgroundJobStarted { job_id, command } => Ok(
+                api::request::input::tool_call_result::Result::RunShellCommand(
+                    #[allow(deprecated)]
+                    api::RunShellCommandResult {
+                        command: command.clone(),
+                        output: Default::default(),
+                        exit_code: Default::default(),
+                        result: Some(
+                            api::run_shell_command_result::Result::LongRunningCommandSnapshot(
+                                api::LongRunningShellCommandSnapshot {
+                                    command_id: format!("background-job:{job_id}"),
+                                    output: background_job_started_content(&job_id, &command),
+                                    cursor: String::new(),
+                                    is_alt_screen_active: false,
+                                    is_preempted: false,
+                                },
+                            ),
+                        ),
+                    },
+                ),
+            ),
             RequestCommandOutputResult::Completed {
                 command,
                 block_id,
@@ -144,6 +164,21 @@ impl TryFrom<WriteToLongRunningShellCommandResult>
 
     fn try_from(result: WriteToLongRunningShellCommandResult) -> Result<Self, Self::Error> {
         match result {
+            WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested { job_id } => Ok(
+                api::request::input::tool_call_result::Result::WriteToLongRunningShellCommand(
+                    api::WriteToLongRunningShellCommandResult {
+                        result: Some(api::write_to_long_running_shell_command_result::Result::LongRunningCommandSnapshot(
+                            api::LongRunningShellCommandSnapshot {
+                                command_id: format!("background-job:{job_id}"),
+                                output: format!("Cancellation requested for background job {job_id}. Completion will arrive separately."),
+                                cursor: String::new(),
+                                is_alt_screen_active: false,
+                                is_preempted: false,
+                            }
+                        )),
+                    },
+                )
+            ),
             WriteToLongRunningShellCommandResult::Snapshot { block_id, grid_contents, cursor, is_alt_screen_active, is_preempted } => Ok(
                 api::request::input::tool_call_result::Result::WriteToLongRunningShellCommand(
                     api::WriteToLongRunningShellCommandResult {
@@ -191,7 +226,7 @@ impl TryFrom<WriteToLongRunningShellCommandResult>
                     ),
                 )
             }
-            WriteToLongRunningShellCommandResult::Error(ShellCommandError::BlockNotFound) => {
+            WriteToLongRunningShellCommandResult::Error(_) => {
                 Ok(api::request::input::tool_call_result::Result::WriteToLongRunningShellCommand(
                         api::WriteToLongRunningShellCommandResult {
                             result: Some(
@@ -881,7 +916,7 @@ impl TryFrom<ReadShellCommandOutputResult> for api::request::input::tool_call_re
                     },
                 ),
             ),
-            ReadShellCommandOutputResult::Error(ShellCommandError::BlockNotFound) => {
+            ReadShellCommandOutputResult::Error(_) => {
                 Ok(api::request::input::tool_call_result::Result::ReadShellCommandOutput(
                         api::ReadShellCommandOutputResult {
                             command: "".to_owned(),
@@ -965,7 +1000,7 @@ impl TryFrom<TransferShellCommandControlToUserResult>
                     },
                 ),
             ),
-            TransferShellCommandControlToUserResult::Error(ShellCommandError::BlockNotFound) => {
+            TransferShellCommandControlToUserResult::Error(_) => {
                 Ok(api::request::input::tool_call_result::Result::TransferShellCommandControlToUser(
                         api::TransferShellCommandControlToUserResult {
                             result: Some(

@@ -49,9 +49,8 @@ pub(crate) fn action_from_tool_call(
                 command: required_nonempty_string(input, "command")?,
                 is_read_only: Some(optional_boolean(input, "is_read_only")?.unwrap_or(false)),
                 is_risky: Some(optional_boolean(input, "is_risky")?.unwrap_or(false)),
-                wait_until_completion: optional_boolean(input, "wait_until_complete")?
-                    .unwrap_or(false),
-                uses_pager: Some(optional_boolean(input, "uses_pager")?.unwrap_or(false)),
+                wait_until_completion: false,
+                uses_pager: Some(false),
                 rationale: optional_string(input, "rationale")?,
                 citations: Vec::new(),
             },
@@ -114,7 +113,10 @@ pub(crate) fn action_from_tool_call(
                 }
             }
             "interrupt_shell_command" => AIAgentActionType::WriteToLongRunningShellCommand {
-                block_id: required_nonempty_string(input, "command_id")?.into(),
+                block_id: optional_string(input, "job_id")?
+                    .filter(|value| !value.trim().is_empty())
+                    .or(optional_string(input, "command_id")?)
+                    .ok_or("job_id is required to cancel a background job")?.into(),
                 input: vec![galaxy_terminal::model::escape_sequences::C0::ETX].into(),
                 mode: AIAgentPtyWriteMode::Raw,
             },

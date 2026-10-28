@@ -50,6 +50,14 @@ pub(crate) fn prepare_direct_provider_params(
     );
     supported_cli_agent_tools.retain(|tool| !matches!(tool, api::ToolType::UseComputer | api::ToolType::RequestComputerUse));
     supported_cli_agent_tools.retain(|tool| *tool != api::ToolType::AskUserQuestion);
+    // Explicit overrides cannot restore retired terminal monitoring or PTY access.
+    for tools in [&mut supported_tools, &mut supported_cli_agent_tools] {
+        tools.retain(|tool| !matches!(tool,
+            api::ToolType::WriteToLongRunningShellCommand
+                | api::ToolType::ReadShellCommandOutput
+                | api::ToolType::TransferShellCommandControlToUser
+        ));
+    }
     if params.permission_mode == crate::ai::execution_profiles::PermissionMode::ReadOnly {
         let permitted = |tool: &api::ToolType| is_read_only_tool(tool)
             || (!params.command_allowlist.is_empty() && matches!(tool, api::ToolType::RunShellCommand | api::ToolType::ReadShellCommandOutput | api::ToolType::WriteToLongRunningShellCommand));
@@ -83,8 +91,6 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
         api::ToolType::ReadMcpResource,
         api::ToolType::CallMcpTool,
         api::ToolType::RunShellCommand,
-        api::ToolType::WriteToLongRunningShellCommand,
-        api::ToolType::ReadShellCommandOutput,
         api::ToolType::ReadDocuments,
         api::ToolType::CreateDocuments,
         api::ToolType::EditDocuments,
@@ -135,16 +141,10 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
 
 fn get_supported_cli_agent_tools(params: &RequestParams) -> Vec<api::ToolType> {
     let mut supported_cli_agent_tools = vec![
-        api::ToolType::WriteToLongRunningShellCommand,
-        api::ToolType::ReadShellCommandOutput,
         api::ToolType::Grep,
         api::ToolType::FileGlob,
         api::ToolType::FileGlobV2,
     ];
-
-    if FeatureFlag::TransferControlTool.is_enabled() {
-        supported_cli_agent_tools.push(api::ToolType::TransferShellCommandControlToUser);
-    }
 
     match params.session_context.session_type() {
         None | Some(SessionType::Local) => {

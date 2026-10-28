@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -84,7 +85,9 @@ const MAX_BRANCH_COUNT_CAP: usize = 500;
 /// Unique identifier for a connected proxy session in daemon mode.
 pub type ConnectionId = uuid::Uuid;
 use super::protocol::RequestId;
-use crate::ai::agent::FileLocations;
+use crate::ai::agent::conversation::AIConversationId;
+use crate::ai::agent::{AIAgentActionId, FileLocations};
+use crate::ai::background_jobs::{BackgroundJobLaunch, BackgroundJobsModel};
 use crate::ai::blocklist::handoff::snapshot::upload_result_to_proto;
 use crate::ai::blocklist::{read_local_file_context, ReadFileContextResult};
 use crate::ai::skills::{
@@ -296,6 +299,7 @@ pub struct ServerModel {
     remote_agent_context_snapshot_sent: HashSet<ConnectionId>,
     /// Per-session command executors created from `SessionBootstrapped` notifications.
     executors: HashMap<SessionId, Arc<LocalCommandExecutor>>,
+    background_job_shells: HashMap<SessionId, crate::terminal::shell::ShellLaunchData>,
     /// Tracks in-flight file write/delete operations and handles cleanup.
     pending_file_ops: PendingFileOps,
     /// Daemon-wide auth credentials and user identity.
@@ -356,6 +360,7 @@ impl ServerModel {
             remote_agent_context_snapshot,
             remote_agent_context_snapshot_sent: HashSet::new(),
             executors: HashMap::new(),
+            background_job_shells: HashMap::new(),
             pending_file_ops: PendingFileOps::new(),
             auth_state: AuthStateProvider::as_ref(ctx).get().clone(),
             buffers: ServerBufferTracker::new(),
@@ -947,6 +952,9 @@ impl ServerModel {
                     }
                     Some(host_scoped_request::Message::RipgrepSearch(m)) => {
                         self.handle_ripgrep_search(m, &request_id, conn_id, ctx)
+                    }
+                    Some(host_scoped_request::Message::BackgroundJob(m)) => {
+                        self.handle_background_job(m, ctx)
                     }
                     None => {
                         log::warn!(
@@ -1657,6 +1665,7 @@ impl ServerModel {
             InitializeResponse {
                 server_version,
                 host_id: self.host_id.clone(),
+                supports_background_jobs: true,
             },
         ))
     }
@@ -1867,6 +1876,15 @@ impl ServerModel {
                  LocalCommandExecutor will fall back to bare shell name",
             );
         }
+        self.background_job_shells.insert(
+            session_id,
+            crate::terminal::shell::ShellLaunchData::Executable {
+                executable_path: shell_path
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from(shell_type.name())),
+                shell_type,
+            },
+        );
         let executor = Arc::new(LocalCommandExecutor::new(shell_path, shell_type));
         if self.executors.insert(session_id, executor).is_some() {
             log::warn!(
@@ -1875,6 +1893,186 @@ impl ServerModel {
                 msg.shell_type,
             );
         }
+    }
+
+    fn handle_background_job(
+        &mut self,
+        request: remote_server::proto::BackgroundJobRequest,
+        ctx: &mut ModelContext<Self>,
+    ) -> HandlerOutcome {
+        let response = self
+            .background_job_response(request, ctx)
+            .unwrap_or_else(|error| remote_server::proto::BackgroundJobResponse {
+                error,
+                ..Default::default()
+            });
+        HandlerOutcome::Sync(server_message::Message::BackgroundJobResponse(response))
+    }
+
+    fn background_job_response(
+        &mut self,
+        request: remote_server::proto::BackgroundJobRequest,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<remote_server::proto::BackgroundJobResponse, String> {
+        use remote_server::proto::background_job_request::Operation;
+        let operation = Operation::try_from(request.operation)
+            .map_err(|_| "Unsupported background job operation".to_owned())?;
+        let conversation_id = AIConversationId::try_from(request.conversation_id.clone())
+            .map_err(|_| "Invalid background job conversation identity".to_owned())?;
+        if request.action_id.is_empty() || request.action_id.len() > 1024 {
+            return Err("Invalid background job action identity".to_owned());
+        }
+        let action_id = AIAgentActionId::from(request.action_id.clone());
+        let requested_id = uuid::Uuid::parse_str(&request.job_id)
+            .map_err(|_| "Invalid background job ID".to_owned())?;
+        if requested_id.is_nil() {
+            return Err("Invalid background job ID".to_owned());
+        }
+        let jobs = BackgroundJobsModel::handle(ctx);
+        let id = if operation == Operation::Start {
+            // Host-scoped requests can be retried after connection loss. The action identity
+            // is the idempotency key, including when the original command finished already.
+            let existing = jobs
+                .as_ref(ctx)
+                .records()
+                .find(|job| job.conversation_id == conversation_id && job.action_id == action_id)
+                .cloned();
+            if let Some(existing) = existing {
+                let requested_directory = std::fs::canonicalize(&request.working_directory)
+                    .unwrap_or_else(|_| PathBuf::from(&request.working_directory));
+                if existing.id != requested_id
+                    || existing.command != request.command
+                    || existing.working_directory != requested_directory
+                {
+                    return Err(
+                        "Background job action identity was reused with different contents"
+                            .to_owned(),
+                    );
+                }
+                existing.id
+            } else {
+                let shell = self.background_job_shells.get(&SessionId::from(request.session_id))
+                    .cloned().ok_or("The remote shell session is not initialized. Reconnect before running an agent command.")?;
+                let working_directory = PathBuf::from(&request.working_directory);
+                if !working_directory.is_absolute() {
+                    return Err(
+                        "A remote background job requires an absolute working directory".to_owned(),
+                    );
+                }
+                jobs.update(ctx, |model, ctx| {
+                    model.start_with_id(
+                        requested_id,
+                        BackgroundJobLaunch {
+                            conversation_id,
+                            action_id,
+                            command: request.command.clone(),
+                            working_directory,
+                            shell: Some(shell),
+                            environment: request
+                                .has_environment
+                                .then_some(request.environment.clone()),
+                            host_id: None,
+                        },
+                        ctx,
+                    )
+                })?
+            }
+        } else {
+            let id = requested_id;
+            let Some(job) = jobs.as_ref(ctx).job(id) else {
+                if operation == Operation::Cancel {
+                    // Cancellation may arrive before a delayed Start. A durable terminal
+                    // record prevents that exact UUID/action from launching afterward.
+                    if jobs.as_ref(ctx).records().any(|job| {
+                        job.conversation_id == conversation_id && job.action_id == action_id
+                    }) {
+                        return Err(
+                            "Background job action identity belongs to another job".to_owned()
+                        );
+                    }
+                    return jobs.update(ctx, |model, ctx| {
+                        model.cancel_before_start(
+                            id,
+                            BackgroundJobLaunch {
+                                conversation_id,
+                                action_id,
+                                command: request.command.clone(),
+                                working_directory: PathBuf::from(&request.working_directory),
+                                shell: None,
+                                environment: None,
+                                host_id: None,
+                            },
+                            ctx,
+                        )?;
+                        let job = model.job(id).ok_or("Cancelled background job not found")?;
+                        Ok(remote_server::proto::BackgroundJobResponse {
+                            job_json: serde_json::to_string(job)
+                                .map_err(|error| error.to_string())?,
+                            ..Default::default()
+                        })
+                    });
+                }
+                return Ok(remote_server::proto::BackgroundJobResponse {
+                    job_not_found: true,
+                    ..Default::default()
+                });
+            };
+            if job.conversation_id != conversation_id || job.action_id != action_id {
+                return Err(
+                    "Background job identity does not match its owning conversation/action"
+                        .to_owned(),
+                );
+            }
+            if operation == Operation::Cancel && !job.status.is_terminal() {
+                jobs.update(ctx, |model, ctx| model.cancel(id, ctx))?;
+            }
+            id
+        };
+        let job = jobs
+            .as_ref(ctx)
+            .job(id)
+            .cloned()
+            .ok_or("Background job not found")?;
+        let mut response = remote_server::proto::BackgroundJobResponse {
+            job_json: serde_json::to_string(&job).map_err(|error| error.to_string())?,
+            next_log_offset: request.log_offset,
+            ..Default::default()
+        };
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        if let Ok(mut file) = options.open(&job.log_path) {
+            if let Ok(metadata) = file.metadata() {
+                if metadata.is_file() {
+                    response.logs_available = true;
+                    response.total_log_bytes = metadata.len();
+                    let offset = request.log_offset.min(metadata.len());
+                    file.seek(SeekFrom::Start(offset))
+                        .map_err(|error| error.to_string())?;
+                    file.take(64 * 1024)
+                        .read_to_end(&mut response.log_chunk)
+                        .map_err(|error| error.to_string())?;
+                    response.next_log_offset = offset + response.log_chunk.len() as u64;
+                }
+            }
+        }
+        if job.status.is_terminal() && !response.logs_available {
+            let mut start = job.output.len().saturating_sub(64 * 1024);
+            while !job.output.is_char_boundary(start) {
+                start += 1;
+            }
+            response.completion_log_tail = job.output.as_bytes()[start..].to_vec();
+            response.completion_log_bytes = job.log_bytes;
+            response.completion_log_tail_available = true;
+        }
+        if job.status.is_terminal() && response.next_log_offset >= response.total_log_bytes {
+            jobs.update(ctx, |model, ctx| model.acknowledge_completion(id, ctx))?;
+        }
+        Ok(response)
     }
 
     /// Handles `RunCommand` by delegating to the session's `LocalCommandExecutor`.

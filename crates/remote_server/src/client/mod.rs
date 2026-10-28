@@ -201,6 +201,7 @@ pub struct RemoteServerClient {
     /// `send_request` after inserting into `pending_requests` to avoid hanging
     /// on a dead connection.
     disconnected: Arc<AtomicBool>,
+    background_jobs_supported: AtomicBool,
 
     /// Dedicated channel for `RequestFailed` telemetry events. Separate from
     /// the lifecycle `event_tx` so that holding this sender does not keep the
@@ -313,6 +314,7 @@ impl RemoteServerClient {
                 outbound_tx,
                 pending_requests,
                 disconnected,
+                background_jobs_supported: AtomicBool::new(false),
                 failure_tx,
                 host_response_tx,
             },
@@ -336,6 +338,10 @@ impl RemoteServerClient {
         self.disconnected.load(Ordering::Acquire)
     }
 
+    pub fn supports_background_jobs(&self) -> bool {
+        self.background_jobs_supported.load(Ordering::Acquire)
+    }
+
     /// Sends an `Initialize` request and awaits the `InitializeResponse`.
     pub async fn initialize(
         &self,
@@ -357,7 +363,11 @@ impl RemoteServerClient {
         let response = self.send_request_internal(request_id, msg).await?;
 
         match response.message {
-            Some(server_message::Message::InitializeResponse(resp)) => Ok(resp),
+            Some(server_message::Message::InitializeResponse(resp)) => {
+                self.background_jobs_supported
+                    .store(resp.supports_background_jobs, Ordering::Release);
+                Ok(resp)
+            }
             other => {
                 safe_error!(
                     safe: ("Remote server unexpected response for Initialize"),

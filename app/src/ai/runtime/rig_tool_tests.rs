@@ -262,7 +262,7 @@ fn known_tools_reject_malformed_required_inputs() {
         (
             "interrupt_shell_command",
             serde_json::json!({}),
-            "command_id",
+            "job_id",
         ),
         (
             "read_shell_command_output",

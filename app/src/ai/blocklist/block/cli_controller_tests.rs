@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn background_job_acknowledgements_never_attach_a_cli_monitor() {
+    for result in [
+        AIAgentActionResultType::RequestCommandOutput(
+            RequestCommandOutputResult::BackgroundJobStarted {
+                job_id: "independent-job".to_owned(),
+                command: "cargo build".to_owned(),
+            },
+        ),
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested {
+                job_id: "independent-job".to_owned(),
+            },
+        ),
+    ] {
+        assert_eq!(snapshot_block_id_for_action_result(&result), None);
+        assert_eq!(command_finished_block_id(&result), None);
+        assert!(!result.triggers_server_subagent());
+    }
+}
+
+#[test]
 fn stop_takeover_does_not_request_a_completion_assessment() {
     let state = LongRunningCommandControlState::User {
         reason: UserTakeOverReason::Stop,

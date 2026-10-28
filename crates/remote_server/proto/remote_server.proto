@@ -49,6 +49,7 @@ message HostScopedRequest {
     GitGenerateCommitMessageRequest git_generate_commit_message = 18;
     GitGetCommittedBranchFilesRequest git_get_committed_branch_files = 19;
     RipgrepSearchRequest ripgrep_search = 21;
+    BackgroundJobRequest background_job = 22;
   }
 }
 
@@ -125,6 +126,7 @@ message ServerMessage {
     GitHubRepositoryInfoPush github_repository_info_push = 36;
     RipgrepSearchResponse ripgrep_search_response = 37;
     RemoteAgentContextSnapshot remote_agent_context_snapshot = 33;
+    BackgroundJobResponse background_job_response = 38;
   }
 }
 
@@ -177,6 +179,42 @@ message Abort {
 message InitializeResponse {
   string server_version = 1;
   string host_id = 2;
+  bool supports_background_jobs = 3;
+}
+
+// Agent commands run independently of the requesting connection. Repeated starts with the
+// same conversation/action identity return the existing job rather than running it again.
+message BackgroundJobRequest {
+  enum Operation {
+    START = 0;
+    STATUS = 1;
+    CANCEL = 2;
+  }
+  Operation operation = 1;
+  string job_id = 2;
+  string conversation_id = 3;
+  string action_id = 4;
+  string command = 5;
+  string working_directory = 6;
+  map<string, string> environment = 7;
+  uint64 session_id = 8;
+  uint64 log_offset = 9;
+  // Distinguish an absent shell snapshot from a known, explicitly empty environment.
+  bool has_environment = 10;
+}
+
+message BackgroundJobResponse {
+  string job_json = 1;
+  bytes log_chunk = 2;
+  uint64 next_log_offset = 3;
+  uint64 total_log_bytes = 4;
+  bool logs_available = 5;
+  string error = 6;
+  // Bounded completion evidence survives unlinking the daemon's temporary log file.
+  bytes completion_log_tail = 7;
+  uint64 completion_log_bytes = 8;
+  bool completion_log_tail_available = 9;
+  bool job_not_found = 10;
 }
 
 // Sent by the client after the SSH session has been bootstrapped.

@@ -408,6 +408,9 @@ pub enum TerminalAction {
     /// Cancel the ambient agent task while it's loading
     CancelAmbientAgentTask,
     OpenInlineHistoryMenu,
+    OpenBackgroundJobs {
+        job_id: Option<uuid::Uuid>,
+    },
     OpenModelSelector,
     ResolvePromptSuggestion(PromptSuggestionResolution),
     AwsBedrockLoginBanner(AwsBedrockLoginBannerAction),
@@ -740,6 +743,7 @@ impl fmt::Debug for TerminalAction {
             ToggleConversationDetailsPanel => write!(f, "ToggleConversationDetailsPanel"),
             CancelAmbientAgentTask => write!(f, "CancelAmbientAgentTask"),
             OpenInlineHistoryMenu => write!(f, "OpenInlineHistoryMenu"),
+            OpenBackgroundJobs { .. } => write!(f, "OpenBackgroundJobs"),
             OpenModelSelector => write!(f, "OpenModelSelector"),
             ResolvePromptSuggestion(..) => write!(f, "ResolvePromptSuggestion"),
             AwsBedrockLoginBanner(action) => write!(f, "AwsBedrockLoginBanner({action:?})"),

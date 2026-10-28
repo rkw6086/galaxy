@@ -1965,6 +1965,12 @@ pub enum Event {
 
     OpenThemeChooser,
     OpenConversationHistory,
+    OpenBackgroundJobs {
+        working_directory: Option<LocalOrRemotePath>,
+        project_root: Option<LocalOrRemotePath>,
+        host_id: Option<galaxy_core::HostId>,
+        job_id: Option<Uuid>,
+    },
     OpenMCPSettingsPage {
         page: Option<MCPServersSettingsPage>,
     },
@@ -26701,6 +26707,7 @@ impl TypedActionView for TerminalView {
             | ToggleConversationDetailsPanel
             | CancelAmbientAgentTask
             | OpenInlineHistoryMenu
+            | OpenBackgroundJobs { .. }
             | OpenModelSelector
             | ResolvePromptSuggestion(..)
             | AwsBedrockLoginBanner(_)
@@ -27790,6 +27797,22 @@ impl TypedActionView for TerminalView {
             OpenInlineHistoryMenu => {
                 self.input.update(ctx, |input, ctx| {
                     input.handle_action(&InputAction::OpenInlineHistoryMenu, ctx);
+                });
+            }
+            OpenBackgroundJobs { job_id } => {
+                let session = self.active_session.as_ref(ctx);
+                let working_directory = session.current_working_directory_location(ctx);
+                let project_root = working_directory.as_ref().and_then(|directory| {
+                    DetectedRepositories::as_ref(ctx).get_root_for_path(directory)
+                });
+                let host_id = crate::ai::blocklist::SessionContext::from_session(session, ctx)
+                    .host_id()
+                    .cloned();
+                ctx.emit(Event::OpenBackgroundJobs {
+                    working_directory,
+                    project_root,
+                    host_id,
+                    job_id: *job_id,
                 });
             }
             OpenModelSelector => {

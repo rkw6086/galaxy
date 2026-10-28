@@ -126,6 +126,9 @@ impl AIAgentActionResultType {
             | AIAgentActionResultType::RequestCommandOutput(
                 RequestCommandOutputResult::LongRunningCommandSnapshot { command, .. },
             )
+            | AIAgentActionResultType::RequestCommandOutput(
+                RequestCommandOutputResult::BackgroundJobStarted { command, .. },
+            )
             | AIAgentActionResultType::ReadShellCommandOutput(
                 ReadShellCommandOutputResult::CommandFinished { command, .. },
             )
@@ -143,6 +146,9 @@ impl AIAgentActionResultType {
     pub fn model_content(&self) -> String {
         match self {
             Self::RequestCommandOutput(result) => match result {
+                RequestCommandOutputResult::BackgroundJobStarted { job_id, command } => {
+                    background_job_started_content(job_id, command)
+                }
                 RequestCommandOutputResult::Completed {
                     command,
                     output,
@@ -188,6 +194,7 @@ impl AIAgentActionResultType {
                     output, exit_code, ..
                 } => command_result_content(None, output, exit_code.value()),
                 WriteToLongRunningShellCommandResult::Cancelled
+                | WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested { .. }
                 | WriteToLongRunningShellCommandResult::Error(_) => result.to_string(),
             },
             Self::ReadFiles(result) => match result {
@@ -359,7 +366,7 @@ fn shell_snapshot_content(
         .map(|is_preempted| format!("\nPreempted: {is_preempted}"))
         .unwrap_or_default();
     format!(
-        "{command}Command is still running.\nCommand ID: {block_id}\nCurrent output:\n{grid_contents}\nCursor: {cursor}\nAlt screen active: {is_alt_screen_active}{preempted}\nThe next assistant output MUST be a tool call: continue monitoring with `read_shell_command_output` using command_id `{block_id}` and a short wait. If the user's explicit stop condition is met, call `interrupt_shell_command` immediately. Do not end this turn with prose or report completion while the command is still running."
+        "{command}Command is still running.\nCommand ID: {block_id}\nCurrent output:\n{grid_contents}\nCursor: {cursor}\nAlt screen active: {is_alt_screen_active}{preempted}\nThis is a legacy terminal snapshot, not a new completion. Interactive terminal tools and command monitoring are retired. Do not poll or send process input; new commands use independent noninteractive background jobs."
     )
 }
 
@@ -432,6 +439,9 @@ impl Display for AIAgentActionResultType {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RequestCommandOutputResult {
+    /// The command was accepted by the independent noninteractive job runner.
+    /// Completion arrives later as a separate conversation event.
+    BackgroundJobStarted { job_id: String, command: String },
     Completed {
         block_id: BlockId,
         command: String,
@@ -460,7 +470,7 @@ impl RequestCommandOutputResult {
     pub fn is_successful(&self) -> bool {
         match self {
             Self::Completed { exit_code, .. } => exit_code.was_successful(),
-            Self::LongRunningCommandSnapshot { .. } => true,
+            Self::LongRunningCommandSnapshot { .. } | Self::BackgroundJobStarted { .. } => true,
             Self::CancelledBeforeExecution
             | Self::ExecutionError { .. }
             | Self::Denylisted { .. } => false,
@@ -471,7 +481,9 @@ impl RequestCommandOutputResult {
         match self {
             Self::Completed { exit_code, .. } => !exit_code.was_successful(),
             Self::ExecutionError { .. } | Self::Denylisted { .. } => true,
-            Self::CancelledBeforeExecution | Self::LongRunningCommandSnapshot { .. } => false,
+            Self::CancelledBeforeExecution
+            | Self::LongRunningCommandSnapshot { .. }
+            | Self::BackgroundJobStarted { .. } => false,
         }
     }
 
@@ -479,6 +491,7 @@ impl RequestCommandOutputResult {
     pub fn loop_description(&self) -> String {
         match self {
             Self::Completed { command, .. }
+            | Self::BackgroundJobStarted { command, .. }
             | Self::LongRunningCommandSnapshot { command, .. }
             | Self::ExecutionError { command, .. }
             | Self::Denylisted { command } => command.clone(),
@@ -490,6 +503,9 @@ impl RequestCommandOutputResult {
 impl Display for RequestCommandOutputResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            RequestCommandOutputResult::BackgroundJobStarted { job_id, command } => {
+                write!(f, "Background job {job_id} started: {command}")
+            }
             RequestCommandOutputResult::Completed {
                 command,
                 output,
@@ -520,13 +536,25 @@ impl Display for RequestCommandOutputResult {
     }
 }
 
+fn background_job_started_content(job_id: &str, command: &str) -> String {
+    serde_json::json!({
+        "background_job_started": { "job_id": job_id, "command": command },
+        "message": "The command is running independently in the background. This is a launch acknowledgment, not a successful exit. Do not monitor, poll, or interact with it. A completion message will provide the command, logs, and exit status. Wait for that message before starting dependent work; the conversation remains available for further user instructions."
+    }).to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum ShellCommandError {
     BlockNotFound,
+    NonInteractiveOnly,
+    BackgroundJobError(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum WriteToLongRunningShellCommandResult {
+    BackgroundJobCancellationRequested {
+        job_id: String,
+    },
     Snapshot {
         block_id: BlockId,
         grid_contents: String,
@@ -548,6 +576,7 @@ pub enum WriteToLongRunningShellCommandResult {
 impl Display for WriteToLongRunningShellCommandResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::BackgroundJobCancellationRequested { job_id } => write!(f, "Cancellation requested for background job {job_id}. Its final status and logs will arrive separately."),
             Self::Snapshot { .. } => {
                 write!(f, "Sent snapshot of long-running shell command to agent")
             }
@@ -1054,6 +1083,9 @@ impl AIAgentActionResultType {
     pub fn is_successful(&self) -> bool {
         match self {
             Self::RequestCommandOutput(r) => r.is_successful(),
+            Self::WriteToLongRunningShellCommand(
+                WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested { .. },
+            ) => true,
             Self::RequestFileEdits(RequestFileEditsResult::Success { .. })
             | Self::ReadFiles(ReadFilesResult::Success { .. })
             | Self::UploadArtifact(UploadArtifactResult::Success { .. })

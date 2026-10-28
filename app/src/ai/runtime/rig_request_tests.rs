@@ -531,7 +531,7 @@ fn completed_command_assessment_bounds_only_the_provider_payload() {
 }
 
 #[test]
-fn forced_cli_profile_uses_monitor_prompt_and_tools_for_an_initial_query() {
+fn forced_legacy_cli_profile_retires_monitoring_and_interactive_tools() {
     let mut params = RequestParams::new_for_test();
     params.input = vec![user_query("Run the checks")];
 
@@ -544,27 +544,64 @@ fn forced_cli_profile_uses_monitor_prompt_and_tools_for_an_initial_query() {
     );
     let prompt = prepared.request.system_prompt.expect("system prompt");
 
-    assert!(prompt.contains("## Running Command Monitor"));
-    assert!(prepared
-        .request
-        .tools
-        .iter()
-        .any(|tool| tool.name == "read_shell_command_output"));
-    assert!(!prepared
-        .request
-        .tools
-        .iter()
-        .any(|tool| tool.name == "run_shell_command"));
-    assert!(!prepared
-        .request
-        .tools
-        .iter()
-        .any(|tool| tool.name == "recall_tool_history"));
-    assert!(!prepared
-        .request
-        .tools
-        .iter()
-        .any(|tool| tool.name == "update_task_list"));
+    assert!(prompt.contains("## Legacy Command Context"));
+    assert!(prompt.contains("Do not poll, send process input, or transfer terminal control"));
+    assert!(prompt.contains("independent noninteractive background jobs"));
+    assert!(!prompt.contains("## Running Command Monitor"));
+    assert!(prepared.request.tools.is_empty());
+}
+
+#[test]
+fn background_job_completion_is_a_hidden_normal_turn_with_base_tools() {
+    let prompt = "[BACKGROUND JOB COMPLETION]\nCommand: cargo build\nExit code: 0\nCommand logs:\nFinished build";
+    let mut params = RequestParams::new_for_test();
+    params.root_task_id = Some("root-task".to_string());
+    params.message_history = vec![galaxy_agent_core::ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text("Build and review the requested change".to_string()),
+    }];
+    params.input = vec![AIAgentInput::CommandCompletionAssessment {
+        prompt: prompt.to_string(),
+        context: Arc::from([]),
+        completed_command: crate::ai::agent::RunningCommand {
+            command: "cargo build".to_string(),
+            block_id: "background-job:11111111-1111-4111-8111-111111111111"
+                .to_string()
+                .into(),
+            grid_contents: String::new(),
+            cursor: String::new(),
+            requested_command_id: None,
+            is_alt_screen_active: false,
+        },
+    }];
+    assert_eq!(super::request_mode(&params.input), RigRequestMode::Normal);
+
+    let prepared = prepare_rig_turn(
+        &config(),
+        params,
+        vec![ToolType::RunShellCommand, ToolType::ReadFiles],
+        vec![ToolType::ReadShellCommandOutput],
+    );
+    assert_eq!(prepared.task_id, "root-task");
+    assert_eq!(prepared.user_query, None);
+    for name in ["run_shell_command", "read_files", "update_task_list"] {
+        assert!(prepared.request.tools.iter().any(|tool| tool.name == name));
+    }
+    assert!(!prepared.request.tools.iter().any(|tool| matches!(
+        tool.name.as_str(),
+        "read_shell_command_output" | "write_to_long_running_shell_command"
+    )));
+    let system_prompt = prepared.request.system_prompt.expect("system prompt");
+    assert!(!system_prompt.contains("## Completed Command Assessment"));
+    assert!(!system_prompt.contains("## Legacy Command Context"));
+    assert!(prepared.persistent_messages.iter().any(|message| matches!(
+        &message.content,
+        MessageContent::Text(text) if text == "Build and review the requested change"
+    )));
+    assert!(prepared.persistent_messages.iter().any(|message| matches!(
+        &message.content,
+        MessageContent::Text(text) if text == prompt
+    )));
 }
 
 #[test]
@@ -590,7 +627,7 @@ fn task_progress_is_available_with_explicit_status_guidance_and_ui_title() {
 }
 
 #[test]
-fn lrc_snapshot_follow_up_uses_the_cli_monitor_prompt_and_tools() {
+fn legacy_lrc_snapshot_retains_recorded_output_without_monitoring_tools() {
     let block_id: galaxy_terminal::model::BlockId = "precmd-lrc-test".to_string().into();
     let result = AIAgentActionResult {
         id: AIAgentActionId::from("run-call".to_owned()),
@@ -637,25 +674,10 @@ fn lrc_snapshot_follow_up_uses_the_cli_monitor_prompt_and_tools() {
     );
     let prompt = prepared.request.system_prompt.expect("system prompt");
 
-    assert!(prompt.contains("## Running Command Monitor"));
-    assert!(
-        prompt.contains("Use the command ID from the tool result for every read/write operation")
-    );
-    assert!(prompt.contains("one concise, user-facing sentence"));
-    assert!(prompt.contains("Do not send a text-only progress response"));
-    assert!(prompt.contains("alternate screen containing `(END)` is `less`"));
-    assert!(prompt.contains("`write_to_long_running_shell_command` with input `q` and mode `raw`"));
-    assert!(prompt.contains("make the polling tool call in the same response"));
-    assert!(prepared
-        .request
-        .tools
-        .iter()
-        .any(|tool| tool.name == "read_shell_command_output"));
-    assert!(!prepared
-        .request
-        .tools
-        .iter()
-        .any(|tool| tool.name == "recall_tool_history"));
+    assert!(prompt.contains("## Legacy Command Context"));
+    assert!(prompt.contains("Do not poll, send process input, or transfer terminal control"));
+    assert!(!prompt.contains("## Running Command Monitor"));
+    assert!(prepared.request.tools.is_empty());
     assert!(prepared
         .request
         .messages
@@ -663,14 +685,18 @@ fn lrc_snapshot_follow_up_uses_the_cli_monitor_prompt_and_tools() {
         .any(|message| match &message.content {
             MessageContent::ToolResult { content, .. } => {
                 content.contains("Command ID: precmd-lrc-test")
-                    && content.contains("The next assistant output MUST be a tool call")
+                    && content.contains("Running for 2 seconds...")
+                    && content.contains("command monitoring are retired")
+                    && !content.contains("The next assistant output MUST be a tool call")
             }
             MessageContent::MultiPart(parts) => parts.iter().any(|part| {
                 matches!(
                     part,
                     ContentPart::ToolResult { content, .. }
                         if content.contains("Command ID: precmd-lrc-test")
-                            && content.contains("The next assistant output MUST be a tool call")
+                            && content.contains("Running for 2 seconds...")
+                            && content.contains("command monitoring are retired")
+                            && !content.contains("The next assistant output MUST be a tool call")
                 )
             }),
             _ => false,
