@@ -263,6 +263,8 @@ impl From<&gql_usage::ConversationUsage> for ConversationUsageInfo {
             lines_removed: tool.apply_file_diff_stats.lines_removed,
             commands_executed: tool.run_command_stats.commands_executed,
             current_context_tokens: 0,
+            provider_context_usage: None,
+            latest_model_call_reported_context_tokens: None,
             estimated_cost_cents: 0.0,
             total_cache_read_tokens: 0,
             total_cache_write_tokens: 0,

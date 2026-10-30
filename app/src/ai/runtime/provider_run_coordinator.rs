@@ -25,6 +25,7 @@ use crate::ai::model_output_logging;
 pub(crate) const BASE_PROVIDER_PROFILE: &str = "base";
 pub(crate) const CLI_MONITOR_PROVIDER_PROFILE: &str = "cli-monitor";
 pub(crate) const COMPUTER_USE_PROVIDER_PROFILE: &str = "computer-use";
+pub(crate) const PROGRESSIVE_SUMMARY_TRIGGER_USAGE: f32 = 0.70;
 const PROVIDER_MODEL_START_TIMEOUT: Duration = Duration::from_secs(120);
 const PROVIDER_MODEL_EVENT_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 const PROVIDER_MODEL_RETRY_DELAYS: [Duration; 3] = [
@@ -32,6 +33,99 @@ const PROVIDER_MODEL_RETRY_DELAYS: [Duration; 3] = [
     Duration::from_secs(3),
     Duration::from_secs(5),
 ];
+
+/// Estimated occupancy of the same bounded request projection sent to a provider.
+/// The durable transcript remains complete; this snapshot contains no message content.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct ProviderContextProfileUsage {
+    pub(crate) profile: String,
+    pub(crate) model_id: String,
+    pub(crate) context_limit: u32,
+    pub(crate) estimated_input_tokens: u32,
+    pub(crate) fixed_input_tokens: u32,
+    pub(crate) reserved_output_tokens: u32,
+    pub(crate) history_tokens: u32,
+    pub(crate) history_capacity_tokens: u32,
+}
+
+impl ProviderContextProfileUsage {
+    pub(crate) fn input_usage(&self) -> f32 {
+        self.estimated_input_tokens as f32 / self.context_limit.max(1) as f32
+    }
+
+    pub(crate) fn total_reserved_tokens(&self) -> u32 {
+        self.estimated_input_tokens
+            .saturating_add(self.reserved_output_tokens)
+    }
+
+    fn with_transcript(&self, messages: &[ConversationMessage]) -> Self {
+        let messages = project_messages_for_context(messages, Some(self.context_limit));
+        let text_bytes = messages
+            .iter()
+            .map(estimate_conversation_message_bytes)
+            .sum::<usize>();
+        let image_tokens = messages
+            .iter()
+            .map(|message| count_images_in_content(&message.content))
+            .sum::<u64>()
+            .saturating_mul(ESTIMATED_IMAGE_TOKENS);
+        let history_tokens = (text_bytes as u64)
+            .div_ceil(ESTIMATED_BYTES_PER_TOKEN)
+            .saturating_add(image_tokens);
+        let mut usage = self.clone();
+        usage.history_tokens = u32::try_from(history_tokens).unwrap_or(u32::MAX);
+        // Without retaining the fixed prompt itself, rounding its token estimate
+        // separately from history can differ from the next full estimate by one token.
+        usage.estimated_input_tokens = usage
+            .fixed_input_tokens
+            .saturating_add(usage.history_tokens);
+        usage
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct ProviderContextUsage {
+    pub(crate) active: ProviderContextProfileUsage,
+    pub(crate) compaction: ProviderContextProfileUsage,
+    #[serde(default)]
+    pub(crate) monitor: Option<ProviderContextProfileUsage>,
+}
+
+impl ProviderContextUsage {
+    pub(crate) fn compaction_usage(&self) -> f32 {
+        self.compaction.history_tokens as f32
+            / self.compaction.history_capacity_tokens.max(1) as f32
+    }
+
+    pub(crate) fn with_transcript(&self, messages: &[ConversationMessage]) -> Self {
+        let active = self.active.with_transcript(messages);
+        let monitor = self
+            .monitor
+            .as_ref()
+            .map(|usage| usage.with_transcript(messages));
+        let compaction = controlling_context_profile(&active, monitor.as_ref());
+        Self {
+            active,
+            compaction,
+            monitor,
+        }
+    }
+}
+
+fn controlling_context_profile(
+    active: &ProviderContextProfileUsage,
+    monitor: Option<&ProviderContextProfileUsage>,
+) -> ProviderContextProfileUsage {
+    monitor
+        .filter(|usage| {
+            // Profiles bound individual outputs differently. Compare actual
+            // projected pressure rather than only the available capacity.
+            u64::from(usage.history_tokens) * u64::from(active.history_capacity_tokens.max(1))
+                > u64::from(active.history_tokens) * u64::from(usage.history_capacity_tokens.max(1))
+        })
+        .unwrap_or(active)
+        .clone()
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ProviderRunProjection {
@@ -41,6 +135,7 @@ pub(crate) enum ProviderRunProjection {
         runtime_id: String,
         model_id: String,
         retry_attempt: u32,
+        context_usage: Option<ProviderContextUsage>,
     },
     ModelTurnStarted {
         work_id: ExternalWorkId,
@@ -267,33 +362,66 @@ impl ProviderRunCoordinator {
     pub(crate) fn progressive_summary_context_budget(&self) -> Option<(u32, u32)> {
         [self.run.profile().as_str(), CLI_MONITOR_PROVIDER_PROFILE]
             .into_iter()
-            .filter_map(|name| {
-                let profile = self.profiles.get(name)?;
-                let limit = profile.max_context_tokens.or(self.max_context_tokens)?;
-                let mut request = profile.request.clone();
-                request.prompt = None;
-                request.messages.clear();
-                add_task_list_context(&mut request, self.run.task_list());
-                let fixed = u32::try_from(estimate_turn_request_tokens(&request))
-                    .unwrap_or(u32::MAX);
-                Some((limit, fixed))
+            .filter_map(|name| self.context_profile_usage(name))
+            .min_by_key(|usage| usage.history_capacity_tokens)
+            .map(|usage| {
+                (
+                    usage.context_limit,
+                    usage
+                        .fixed_input_tokens
+                        .saturating_add(usage.reserved_output_tokens),
+                )
             })
-            .min_by_key(|(limit, fixed)| limit.saturating_sub(*fixed))
+    }
+
+    /// Shared by compaction decisions and the context display. Each profile is
+    /// projected with its own output bounds before measuring its usable history.
+    pub(crate) fn context_usage_snapshot(&self) -> Option<ProviderContextUsage> {
+        let active = self.context_profile_usage(self.run.profile().as_str())?;
+        let monitor = self.context_profile_usage(CLI_MONITOR_PROVIDER_PROFILE);
+        let compaction = controlling_context_profile(&active, monitor.as_ref());
+        Some(ProviderContextUsage {
+            active,
+            compaction,
+            monitor,
+        })
+    }
+
+    /// Retention can use these projected message sizes while preserving the same
+    /// indices into the complete durable transcript for prefix validation.
+    pub(crate) fn projected_transcript_for_context(
+        &self,
+        profile: &str,
+    ) -> Option<Vec<ConversationMessage>> {
+        Some(self.projected_request_for_context(profile)?.messages)
+    }
+
+    fn projected_request_for_context(&self, name: &str) -> Option<TurnRequest> {
+        let profile = self.profiles.get(name)?;
+        Some(project_request_for_messages(
+            profile.request.clone(),
+            self.run.transcript(),
+            profile.max_context_tokens.or(self.max_context_tokens),
+            self.run.task_list(),
+        ))
+    }
+
+    pub(crate) fn context_profile_usage(&self, name: &str) -> Option<ProviderContextProfileUsage> {
+        let profile = self.profiles.get(name)?;
+        let limit = profile.max_context_tokens.or(self.max_context_tokens)?;
+        let request = self.projected_request_for_context(name)?;
+        Some(context_profile_usage(name, limit, &request))
     }
 
     /// Includes the current transcript, fixed request context, tools, and output reservation.
     /// Read at the model boundary so newly committed tool output is included.
     pub(crate) fn estimated_context_tokens(&self) -> Option<(u32, u32)> {
-        let profile = self.profiles.get(self.run.profile().as_str())?;
-        let mut request = profile.request.clone();
-        request.prompt = None;
-        request.messages.clear();
-        add_task_list_context(&mut request, self.run.task_list());
-        let persistent_tokens = estimate_turn_request_tokens(&request);
-        request.messages = self.run.transcript().to_vec();
+        let request = self.projected_request_for_context(self.run.profile().as_str())?;
+        let mut fixed_request = request.clone();
+        fixed_request.messages.clear();
         Some((
             u32::try_from(estimate_turn_request_tokens(&request)).unwrap_or(u32::MAX),
-            u32::try_from(persistent_tokens).unwrap_or(u32::MAX),
+            u32::try_from(estimate_turn_request_tokens(&fixed_request)).unwrap_or(u32::MAX),
         ))
     }
 
@@ -516,7 +644,10 @@ impl ProviderRunCoordinator {
         // Provider tokenizers and request envelopes differ. Compact before the
         // estimate reaches the advertised limit, leaving room for that uncertainty.
         let safe_context_tokens = u64::from(max_context_tokens) * 9 / 10;
-        estimate_turn_request_tokens(&request) >= safe_context_tokens
+        u64::from(
+            context_profile_usage(call.profile.as_str(), max_context_tokens, &request)
+                .total_reserved_tokens(),
+        ) >= safe_context_tokens
     }
 
     async fn checkpoint_or_fail<C>(
@@ -585,6 +716,7 @@ impl ProviderRunCoordinator {
                     runtime_id: runtime_id.clone(),
                     model_id: model_id.clone(),
                     retry_attempt: call.retry_attempt,
+                    context_usage: self.context_usage_snapshot(),
                 },
                 project,
             )
@@ -1185,21 +1317,68 @@ fn validate_profile_runtime(
 }
 
 fn request_for_model_call(
-    mut template: TurnRequest,
+    template: TurnRequest,
     call: &ProviderModelCall,
     max_context_tokens: Option<u32>,
     task_list: Option<&TaskListSnapshot>,
 ) -> TurnRequest {
+    project_request_for_messages(template, &call.messages, max_context_tokens, task_list)
+}
+
+fn project_request_for_messages(
+    mut template: TurnRequest,
+    messages: &[ConversationMessage],
+    max_context_tokens: Option<u32>,
+    task_list: Option<&TaskListSnapshot>,
+) -> TurnRequest {
     template.prompt = None;
-    template.messages = call.messages.clone();
-    for message in &mut template.messages {
+    template.messages = project_messages_for_context(messages, max_context_tokens);
+    add_task_list_context(&mut template, task_list);
+    add_exploration_reminder(&mut template);
+    template
+}
+
+fn project_messages_for_context(
+    messages: &[ConversationMessage],
+    max_context_tokens: Option<u32>,
+) -> Vec<ConversationMessage> {
+    let mut messages = messages.to_vec();
+    for message in &mut messages {
         message.truncate_tool_results_for_provider_request_with_context(max_context_tokens);
         message
             .truncate_tagged_terminal_output_for_provider_request_with_context(max_context_tokens);
     }
-    add_task_list_context(&mut template, task_list);
-    add_exploration_reminder(&mut template);
-    template
+    messages
+}
+
+fn context_profile_usage(
+    profile: &str,
+    context_limit: u32,
+    request: &TurnRequest,
+) -> ProviderContextProfileUsage {
+    let reserved_output_tokens = request.max_output_tokens.unwrap_or_default();
+    let estimated_input_tokens =
+        estimate_turn_request_tokens(request).saturating_sub(reserved_output_tokens);
+    let mut fixed_request = request.clone();
+    fixed_request.messages.clear();
+    let fixed_input_tokens =
+        estimate_turn_request_tokens(&fixed_request).saturating_sub(reserved_output_tokens);
+    ProviderContextProfileUsage {
+        profile: profile.to_owned(),
+        model_id: request.model.as_str().to_owned(),
+        context_limit,
+        estimated_input_tokens: u32::try_from(estimated_input_tokens).unwrap_or(u32::MAX),
+        fixed_input_tokens: u32::try_from(fixed_input_tokens).unwrap_or(u32::MAX),
+        reserved_output_tokens: u32::try_from(reserved_output_tokens).unwrap_or(u32::MAX),
+        history_tokens: u32::try_from(estimated_input_tokens.saturating_sub(fixed_input_tokens))
+            .unwrap_or(u32::MAX),
+        history_capacity_tokens: u32::try_from(
+            u64::from(context_limit)
+                .saturating_sub(fixed_input_tokens)
+                .saturating_sub(reserved_output_tokens),
+        )
+        .unwrap_or(u32::MAX),
+    }
 }
 
 /// A transient prompt reminder, never a limit or a synthetic tool result. It is
@@ -1270,6 +1449,17 @@ fn consecutive_discovery_batches(messages: &[ConversationMessage]) -> usize {
 const ESTIMATED_BYTES_PER_TOKEN: u64 = 3;
 const ESTIMATED_REQUEST_OVERHEAD_TOKENS: u64 = 512;
 const ESTIMATED_IMAGE_TOKENS: u64 = 1_600;
+
+/// Per-message history estimate from the same bounded projection used by requests.
+/// Rounding each message separately is conservative by at most one token per message.
+pub(crate) fn estimated_context_message_tokens(message: &ConversationMessage) -> u32 {
+    let tokens = (estimate_conversation_message_bytes(message) as u64)
+        .div_ceil(ESTIMATED_BYTES_PER_TOKEN)
+        .saturating_add(
+            count_images_in_content(&message.content).saturating_mul(ESTIMATED_IMAGE_TOKENS),
+        );
+    u32::try_from(tokens).unwrap_or(u32::MAX)
+}
 
 /// Heuristic estimate, not an exact tokenizer count or provider-specific bound.
 /// UTF-8 bytes account for non-ASCII content better than character counts; raw

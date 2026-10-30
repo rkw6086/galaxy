@@ -29,6 +29,7 @@ use crate::ai::blocklist::usage::rollup::{
 };
 use crate::ai::blocklist::view_util::{format_credits, format_token_count};
 use crate::ai::blocklist::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
+use crate::ai::runtime::{ProviderContextUsage, PROGRESSIVE_SUMMARY_TRIGGER_USAGE};
 use crate::appearance::Appearance;
 use crate::persistence::model::{
     token_usage_category_display_name, ContextWindowSegment, ContextWindowSegmentType,
@@ -61,6 +62,10 @@ pub struct ConversationUsageInfo {
     pub commands_executed: i32,
     /// Live context window token count (from most recent Bedrock response).
     pub current_context_tokens: u32,
+    /// Local estimate for the projected direct-provider request and its compaction budget.
+    pub provider_context_usage: Option<ProviderContextUsage>,
+    /// Input tokens reported by the last completed provider call, separate from local estimates.
+    pub latest_model_call_reported_context_tokens: Option<u32>,
     /// Cumulative cost across all requests.
     pub estimated_cost_cents: f32,
     /// Cumulative cache read tokens (session total).
@@ -69,6 +74,44 @@ pub struct ConversationUsageInfo {
     pub total_cache_write_tokens: u32,
     /// Cumulative total input tokens across all requests (session total).
     pub total_input_tokens: u32,
+}
+
+pub(crate) fn provider_context_usage_tooltip(
+    usage: &ProviderContextUsage,
+    last_reported_input_tokens: Option<u32>,
+) -> String {
+    let active = &usage.active;
+    let compaction = &usage.compaction;
+    let last_reported = last_reported_input_tokens
+        .map(|tokens| format!("{tokens} tokens"))
+        .unwrap_or_else(|| "not yet available".to_string());
+    let trigger_percent = PROGRESSIVE_SUMMARY_TRIGGER_USAGE * 100.0;
+    format!(
+        "Local estimate for the projected request; provider tokenization may differ. Updates at model/tool boundaries.\n\
+         Active request: ~{} input tokens of {} effective context tokens ({:.1}%).\n\
+         Active profile: {} ({}).\n\
+         Fixed prompts and tools: ~{} input tokens. Reserved output: {} tokens.\n\
+         Compaction budget: ~{} history tokens of {} usable history tokens ({:.1}%).\n\
+         Limiting profile: {} ({}), {} effective context tokens, ~{} fixed input tokens and {} reserved output tokens.\n\
+         Compaction starts at {trigger_percent:.0}% of usable history.\n\
+         Last provider-reported input: {}.",
+        active.estimated_input_tokens,
+        active.context_limit,
+        active.input_usage() * 100.0,
+        active.profile,
+        active.model_id,
+        active.fixed_input_tokens,
+        active.reserved_output_tokens,
+        compaction.history_tokens,
+        compaction.history_capacity_tokens,
+        usage.compaction_usage() * 100.0,
+        compaction.profile,
+        compaction.model_id,
+        compaction.context_limit,
+        compaction.fixed_input_tokens,
+        compaction.reserved_output_tokens,
+        last_reported,
+    )
 }
 
 /// Timing information for the last set of agent responses
@@ -139,6 +182,29 @@ pub struct ConversationUsageView {
 }
 
 impl ConversationUsageView {
+    fn provider_context_usage(
+        &self,
+        app: &AppContext,
+    ) -> Option<(ProviderContextUsage, Option<u32>)> {
+        if let Some(conversation) = self
+            .parent_conversation_id
+            .and_then(|id| BlocklistAIHistoryModel::as_ref(app).conversation(&id))
+        {
+            if let Some(usage) = conversation.provider_context_usage() {
+                return Some((
+                    usage.clone(),
+                    conversation.latest_model_call_reported_context_tokens(),
+                ));
+            }
+        }
+        self.usage_info.provider_context_usage.clone().map(|usage| {
+            (
+                usage,
+                self.usage_info.latest_model_call_reported_context_tokens,
+            )
+        })
+    }
+
     pub fn new(
         usage_info: ConversationUsageInfo,
         display_mode: DisplayMode,
@@ -316,8 +382,14 @@ impl ConversationUsageView {
         let theme = appearance.theme();
         let font_size = appearance.ui_font_size() + 2.;
         let text_color = blended_colors::text_main(theme, theme.surface_2());
-        let context_window_breakdown_enabled = FeatureFlag::ContextWindowUsageBreakdown
-            .is_enabled()
+        let provider_context_usage = self.provider_context_usage(app);
+        let context_window_usage = provider_context_usage
+            .as_ref()
+            .map(|(usage, _)| usage.compaction_usage())
+            .unwrap_or(self.usage_info.context_window_usage)
+            .clamp(0.0, 1.0);
+        let context_window_breakdown_enabled = provider_context_usage.is_none()
+            && FeatureFlag::ContextWindowUsageBreakdown.is_enabled()
             && !context_window_segment_display_rows(
                 self.usage_info.context_window_usage,
                 &self.usage_info.context_window_segments,
@@ -478,8 +550,53 @@ impl ConversationUsageView {
             );
         }
 
-        // Context tokens (live state — current context window size)
-        if self.usage_info.current_context_tokens > 0 {
+        if let Some((usage, last_reported)) = &provider_context_usage {
+            let active = &usage.active;
+            let compaction = &usage.compaction;
+            for (label, value) in [
+                (
+                    "Projected input (local estimate)",
+                    format!("~{} tokens", active.estimated_input_tokens),
+                ),
+                (
+                    "Effective request context",
+                    format!("{} tokens", active.context_limit),
+                ),
+                (
+                    "Fixed prompts and tools (estimate)",
+                    format!("~{} tokens", active.fixed_input_tokens),
+                ),
+                (
+                    "Reserved output",
+                    format!("{} tokens", active.reserved_output_tokens),
+                ),
+                (
+                    "Compaction history (estimate)",
+                    format!(
+                        "~{} / {} tokens",
+                        compaction.history_tokens, compaction.history_capacity_tokens,
+                    ),
+                ),
+                ("Compaction profile", compaction.profile.clone()),
+                ("Compaction model", compaction.model_id.clone()),
+                (
+                    "Compaction trigger",
+                    format!(
+                        "{:.0}% of usable history",
+                        PROGRESSIVE_SUMMARY_TRIGGER_USAGE * 100.0
+                    ),
+                ),
+                (
+                    "Last provider-reported input",
+                    last_reported
+                        .map(|tokens| format!("{tokens} tokens"))
+                        .unwrap_or_else(|| "Not yet available".to_string()),
+                ),
+            ] {
+                labels.push(render_label_text(label, appearance));
+                values.push(render_value_text(value, appearance));
+            }
+        } else if self.usage_info.current_context_tokens > 0 {
             labels.push(render_label_text("Context tokens", appearance));
             values.push(render_value_text(
                 format_token_count(self.usage_info.current_context_tokens),
@@ -521,11 +638,22 @@ impl ConversationUsageView {
             }
         }
 
-        labels.push(render_label_text("Context window used", appearance));
-        let context_window_usage = self.usage_info.context_window_usage.clamp(0.0, 1.0);
-        let context_usage_pct = context_window_usage * 100.;
-        let context_usage_str = if context_window_breakdown_enabled && self.context_window_expanded
-        {
+        labels.push(render_label_text(
+            if provider_context_usage.is_some() {
+                "History budget used (estimate)"
+            } else {
+                "Context window used"
+            },
+            appearance,
+        ));
+        let context_usage_pct = provider_context_usage
+            .as_ref()
+            .map(|(usage, _)| usage.compaction_usage())
+            .unwrap_or(context_window_usage)
+            * 100.;
+        let context_usage_str = if provider_context_usage.is_some() {
+            format!("~{context_usage_pct:.1}%")
+        } else if context_window_breakdown_enabled && self.context_window_expanded {
             format!("{context_usage_pct:.2}%")
         } else {
             format!("{}%", context_usage_pct.round())

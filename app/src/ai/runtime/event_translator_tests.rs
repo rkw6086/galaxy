@@ -728,6 +728,7 @@ fn authentication_failures_identify_the_requested_transport_before_stream_start(
         ] {
             projector
                 .project(ProviderRunProjection::ModelTurnRequested {
+                    context_usage: None,
                     work_id: galaxy_agent_core::ExternalWorkId {
                         run_id: galaxy_agent_core::ProviderRunId::new("run"),
                         epoch: galaxy_agent_core::RunEpoch::new(1),

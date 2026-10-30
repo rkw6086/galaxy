@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 #[cfg(not(target_family = "wasm"))]
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ai::skills::SkillPathOrigin;
 use anyhow::anyhow;
@@ -84,12 +84,13 @@ use crate::ai::provider::ProviderConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::ai::runtime::{
-    prepare_provider_run, provider_context_window_tokens, provider_runtime_for_request,
-    restore_provider_config, OrchestrationModelOption, PreparedProviderRun, ProviderActionContext,
-    ProviderRunBlock, ProviderRunCoordinator, ProviderRunProfile, ProviderRunProjection,
+    estimated_context_message_tokens, prepare_provider_run, provider_context_window_tokens,
+    provider_runtime_for_request, restore_provider_config, OrchestrationModelOption,
+    PreparedProviderRun, ProviderActionContext, ProviderContextUsage, ProviderRunBlock,
+    ProviderRunCoordinator, ProviderRunProfile, ProviderRunProjection,
     ProviderRunResponseProjector, ProviderToolExecutionRef, ProviderToolLifecycleOutcome,
     RuntimeResponseConfig, BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE,
-    COMPUTER_USE_PROVIDER_PROFILE,
+    COMPUTER_USE_PROVIDER_PROFILE, PROGRESSIVE_SUMMARY_TRIGGER_USAGE,
 };
 use crate::ai::AIRequestUsageModel;
 use crate::cloud_object::model::persistence::CloudModel;
@@ -114,7 +115,6 @@ use crate::terminal::ShellLaunchData;
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
-const PROGRESSIVE_SUMMARY_TRIGGER_USAGE: f32 = 0.70;
 const PROGRESSIVE_SUMMARY_RETAINED_USAGE: f32 = 0.50;
 const PROGRESSIVE_SUMMARY_MIN_RECENT_MESSAGES: usize = 1;
 const PROGRESSIVE_SUMMARY_OUTPUT_TOKENS: u32 = 8_000;
@@ -148,6 +148,8 @@ struct ActiveProgressiveSummaryPlan {
     candidates: Vec<ProgressiveSummaryCandidate>,
     summarized_prefix: Vec<ConversationMessage>,
     summarize_messages: Vec<ConversationMessage>,
+    context_usage: Option<ProviderContextUsage>,
+    started_at: Instant,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -266,6 +268,18 @@ fn progressive_summary_split_point(
     messages: &[ConversationMessage],
     retained_token_budget: u32,
 ) -> usize {
+    progressive_summary_split_point_with_estimator(
+        messages,
+        retained_token_budget,
+        estimated_message_tokens,
+    )
+}
+
+fn progressive_summary_split_point_with_estimator(
+    messages: &[ConversationMessage],
+    retained_token_budget: u32,
+    estimate_message: fn(&ConversationMessage) -> u32,
+) -> usize {
     if messages.len() <= PROGRESSIVE_SUMMARY_MIN_RECENT_MESSAGES {
         return 0;
     }
@@ -273,7 +287,7 @@ fn progressive_summary_split_point(
     let mut retained_tokens = 0_u32;
     let mut split_point = messages.len();
     for index in (0..messages.len()).rev() {
-        let message_tokens = estimated_message_tokens(&messages[index]);
+        let message_tokens = estimate_message(&messages[index]);
         let retained_count = messages.len() - index;
         // Keep the latest message, then retain only as much history as fits.
         // A fixed message-count floor can retain many oversized file reads.
@@ -302,7 +316,12 @@ fn progressive_summary_split_point(
     if messages
         .last()
         .is_some_and(|message| content_contains_tool_result(&message.content))
-        && estimated_history_tokens(&messages[split_point..]) > retained_token_budget
+        && messages[split_point..]
+            .iter()
+            .fold(0_u32, |total, message| {
+                total.saturating_add(estimate_message(message))
+            })
+            > retained_token_budget
     {
         return messages.len();
     }
@@ -2046,6 +2065,7 @@ fn provider_llm_lifecycle(projection: &ProviderRunProjection) -> Option<Provider
             runtime_id,
             model_id,
             retry_attempt,
+            ..
         } => ProviderLlmLifecycle {
             phase: ProviderLlmLifecyclePhase::Requested,
             work_id: work_id.clone(),
@@ -2245,6 +2265,7 @@ fn provider_run_terminal_remote_log_record(
 enum ProviderDriveMessage {
     Projection {
         lifecycle: Box<Option<ProviderLlmLifecycle>>,
+        context_usage: Option<ProviderContextUsage>,
         latest_usage: Option<Usage>,
         tool_call_progress: ProviderToolCallProgressUpdate,
         events: Vec<warp_multi_agent_api::ResponseEvent>,
@@ -7137,6 +7158,73 @@ impl BlocklistAIController {
         }
     }
 
+    fn publish_provider_context_usage(
+        &self,
+        conversation_id: AIConversationId,
+        usage: Option<ProviderContextUsage>,
+        phase: &str,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let changed = BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .is_some_and(|conversation| conversation.provider_context_usage() != usage.as_ref());
+        if !changed {
+            return;
+        }
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+            if let Some(conversation) = history.conversation_mut(&conversation_id) {
+                conversation.set_provider_context_usage(usage.clone());
+                ctx.emit(BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated {
+                    conversation_id,
+                });
+            }
+        });
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(usage) = usage {
+            let slot = self.active_provider_runs.get(&conversation_id);
+            remote_logging::log_model_event(
+                ctx,
+                RemoteLogRecord {
+                    level: RemoteLogLevel::Info,
+                    message: "Provider context budget updated".to_owned(),
+                    context: serde_json::json!({
+                        "event": "provider_context_usage",
+                        "conversation_id": conversation_id,
+                        "provider_run_id": slot.map(|slot| slot.run_id.as_str()),
+                        "stream_id": slot.map(|slot| slot.stream_id.as_str()),
+                        "phase": phase,
+                        "source": "projected_request_estimate",
+                        "active": usage.active,
+                        "compaction": usage.compaction,
+                        "compaction_usage": usage.compaction_usage(),
+                        "compaction_trigger_usage": PROGRESSIVE_SUMMARY_TRIGGER_USAGE,
+                        "request_safety_usage": 0.90,
+                    }),
+                },
+            );
+        }
+    }
+
+    fn refresh_active_provider_context_usage(
+        &self,
+        conversation_id: AIConversationId,
+        phase: &str,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if let Some(run) = self
+            .active_provider_runs
+            .get(&conversation_id)
+            .and_then(|slot| slot.run.as_ref())
+        {
+            self.publish_provider_context_usage(
+                conversation_id,
+                run.coordinator.context_usage_snapshot(),
+                phase,
+                ctx,
+            );
+        }
+    }
+
     fn active_provider_context_estimate(
         &self,
         conversation_id: AIConversationId,
@@ -7166,9 +7254,7 @@ impl BlocklistAIController {
             .map(Self::live_provider_command_context_tokens)
             .unwrap_or(0);
         Some((
-            current_context_tokens
-                .max(estimated_context_tokens)
-                .saturating_add(live_command_output_tokens),
+            estimated_context_tokens.saturating_add(live_command_output_tokens),
             persistent_context_tokens,
         ))
     }
@@ -7229,17 +7315,22 @@ impl BlocklistAIController {
             .coordinator
             .progressive_summary_context_budget()
             .unwrap_or((active_context_limit, current_persistent_context_tokens));
+        let context_usage = active_run.coordinator.context_usage_snapshot();
         // Trigger and retain against the space history can actually use. Fixed
         // prompts and a large output reservation cannot be reduced by summarizing.
         let history_capacity =
             summary_context_limit.saturating_sub(summary_persistent_context_tokens);
-        let current_history_tokens =
-            current_context_tokens.saturating_sub(current_persistent_context_tokens);
+        let current_history_tokens = context_usage.as_ref().map_or_else(
+            || current_context_tokens.saturating_sub(current_persistent_context_tokens),
+            |usage| usage.compaction.history_tokens,
+        );
+        let compaction_usage = context_usage.as_ref().map_or_else(
+            || current_history_tokens as f32 / history_capacity.max(1) as f32,
+            ProviderContextUsage::compaction_usage,
+        );
         if summary_pending
             || last_failure_context_tokens == Some(current_context_tokens)
-            || (!force
-                && current_history_tokens as f32 / (history_capacity.max(1) as f32)
-                    < PROGRESSIVE_SUMMARY_TRIGGER_USAGE)
+            || (!force && compaction_usage < PROGRESSIVE_SUMMARY_TRIGGER_USAGE)
         {
             return false;
         }
@@ -7247,7 +7338,28 @@ impl BlocklistAIController {
             (history_capacity as f32 * PROGRESSIVE_SUMMARY_RETAINED_USAGE) as u32;
         let retained_history_budget =
             retained_history_budget.saturating_sub(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS);
-        let split_point = progressive_summary_split_point(transcript, retained_history_budget);
+        // Satisfy both profiles' own retention targets: per-profile output bounds
+        // can produce different history sizes even for the same durable transcript.
+        let split_point = [
+            active_run.coordinator.run().profile().as_str(),
+            CLI_MONITOR_PROVIDER_PROFILE,
+        ]
+        .into_iter()
+        .filter_map(|profile| {
+            let usage = active_run.coordinator.context_profile_usage(profile)?;
+            let messages = active_run
+                .coordinator
+                .projected_transcript_for_context(profile)?;
+            let budget =
+                (usage.history_capacity_tokens as f32 * PROGRESSIVE_SUMMARY_RETAINED_USAGE) as u32;
+            Some(progressive_summary_split_point_with_estimator(
+                &messages,
+                budget.saturating_sub(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS),
+                estimated_context_message_tokens,
+            ))
+        })
+        .max()
+        .unwrap_or_else(|| progressive_summary_split_point(transcript, retained_history_budget));
         if split_point == 0 {
             return false;
         }
@@ -7307,6 +7419,8 @@ impl BlocklistAIController {
                 role: MessageRole::User,
                 content: MessageContent::Text(summarize_content),
             }],
+            context_usage,
+            started_at: Instant::now(),
         };
 
         let Some(slot) = self.active_provider_runs.get(&conversation_id) else {
@@ -7348,6 +7462,26 @@ impl BlocklistAIController {
             plan.split_point,
             plan.retained_messages_count,
             candidate_names,
+        );
+        #[cfg(not(target_family = "wasm"))]
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Info,
+                message: "Provider background compaction started".to_owned(),
+                context: serde_json::json!({
+                    "event": "provider_compaction_started",
+                    "conversation_id": conversation_id,
+                    "provider_run_id": identity.run_id.as_str(),
+                    "stream_id": identity.stream_id.as_str(),
+                    "forced": force,
+                    "context_usage": plan.context_usage,
+                    "trigger_usage": PROGRESSIVE_SUMMARY_TRIGGER_USAGE,
+                    "retained_usage": PROGRESSIVE_SUMMARY_RETAINED_USAGE,
+                    "summarized_message_count": plan.split_point,
+                    "retained_message_count": plan.retained_messages_count,
+                }),
+            },
         );
         ctx.spawn(
             async move {
@@ -7418,6 +7552,25 @@ impl BlocklistAIController {
             });
             return;
         }
+
+        #[cfg(not(target_family = "wasm"))]
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Info,
+                message: "Provider background compaction finished".to_owned(),
+                context: serde_json::json!({
+                    "event": "provider_compaction_finished",
+                    "conversation_id": conversation_id,
+                    "provider_run_id": identity.run_id.as_str(),
+                    "stream_id": identity.stream_id.as_str(),
+                    "elapsed_ms": plan.started_at.elapsed().as_millis() as u64,
+                    "succeeded": result.is_ok(),
+                    "waiting_for_context": waiting_for_context,
+                    "context_usage": plan.context_usage,
+                }),
+            },
+        );
 
         self.active_provider_progressive_summaries.insert(
             conversation_id,
@@ -7630,6 +7783,7 @@ impl BlocklistAIController {
             );
             return true;
         }
+        self.refresh_active_provider_context_usage(conversation_id, "compaction_applied", ctx);
         false
     }
 
@@ -7807,6 +7961,7 @@ impl BlocklistAIController {
         if self.apply_ready_active_provider_progressive_summary(conversation_id, ctx) {
             return;
         }
+        self.refresh_active_provider_context_usage(conversation_id, "committed_boundary", ctx);
         self.schedule_provider_command_output_poll(conversation_id, ctx);
         // Ordinary background work never blocks the agent. Once a model has
         // exhausted its context, polling must not relaunch that same request
@@ -7866,6 +8021,12 @@ impl BlocklistAIController {
                         turn_control,
                         |projection| {
                             let lifecycle = provider_llm_lifecycle(&projection);
+                            let context_usage = match &projection {
+                                ProviderRunProjection::ModelTurnRequested {
+                                    context_usage, ..
+                                } => context_usage.clone(),
+                                _ => None,
+                            };
                             let tool_call_progress =
                                 provider_tool_call_progress_update(&projection);
                             let latest_usage = match &projection {
@@ -7888,6 +8049,7 @@ impl BlocklistAIController {
                                 projection_sender
                                     .send(ProviderDriveMessage::Projection {
                                         lifecycle: Box::new(lifecycle),
+                                        context_usage,
                                         latest_usage,
                                         tool_call_progress,
                                         events,
@@ -7951,20 +8113,32 @@ impl BlocklistAIController {
         match message {
             ProviderDriveMessage::Projection {
                 lifecycle,
+                context_usage,
                 latest_usage,
                 tool_call_progress,
                 events,
                 acknowledgement,
             } => {
+                let response_stream = slot.response_stream.clone();
+                let did_input_contain_user_query = slot.did_input_contain_user_query;
+                if let Some(usage) = context_usage {
+                    self.publish_provider_context_usage(
+                        conversation_id,
+                        Some(usage),
+                        "model_requested",
+                        ctx,
+                    );
+                }
                 if let Some(usage) = latest_usage {
-                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _| {
+                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
                         if let Some(conversation) = history.conversation_mut(&conversation_id) {
                             conversation.set_latest_model_call_usage(usage);
+                            ctx.emit(BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated {
+                                conversation_id,
+                            });
                         }
                     });
                 }
-                let response_stream = slot.response_stream.clone();
-                let did_input_contain_user_query = slot.did_input_contain_user_query;
                 let mut result = Ok(());
                 for event in events {
                     let event = ResponseStream::projected_event(event);
@@ -8271,6 +8445,18 @@ impl BlocklistAIController {
         result: Result<ProviderRunBlock, String>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if self
+            .active_provider_runs
+            .get(&conversation_id)
+            .is_some_and(|slot| slot.run_id == *run.coordinator.run().id())
+        {
+            self.publish_provider_context_usage(
+                conversation_id,
+                run.coordinator.context_usage_snapshot(),
+                "committed_result",
+                ctx,
+            );
+        }
         let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
             return;
         };
@@ -9380,6 +9566,11 @@ impl BlocklistAIController {
 
                     let retained = transcript.split_off(plan.split_point);
                     let retained_count = retained.len();
+                    let mut projected_history = progressive_summary_messages(summary.clone());
+                    projected_history.extend_from_slice(&retained);
+                    let context_usage = conversation.provider_context_usage()
+                        .or(plan.context_usage.as_ref())
+                        .map(|usage| usage.with_transcript(&projected_history));
                     let new_context_tokens = plan
                         .persistent_context_tokens
                         .saturating_add(summary_prefix_tokens)
@@ -9391,6 +9582,10 @@ impl BlocklistAIController {
                     conversation.set_progressive_summary(Some(summary), 0);
                     conversation.set_current_context_tokens(new_context_tokens);
                     conversation.set_context_window_usage(new_usage.clamp(0.0, 1.0));
+                    conversation.set_provider_context_usage(context_usage);
+                    ctx.emit(BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated {
+                        conversation_id,
+                    });
                     conversation.write_updated_conversation_state(ctx);
                     log::info!(
                         "[progressive-summary] Applied background summary after active run completion {:?}: ~{} tokens ({:.1}% of {} context), {} tail messages preserved",

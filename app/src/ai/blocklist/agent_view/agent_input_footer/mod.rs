@@ -52,6 +52,7 @@ pub(crate) use self::environment_selector::{
 use crate::ai::blocklist::agent_view::is_in_cloud_context;
 use crate::ai::blocklist::history_model::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use crate::ai::blocklist::prompt::prompt_alert::{PromptAlertEvent, PromptAlertView};
+use crate::ai::blocklist::usage::conversation_usage_view::provider_context_usage_tooltip;
 use crate::ai::blocklist::usage::icon_for_context_window_usage;
 use crate::ai::blocklist::BlocklistAIInputModel;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
@@ -802,6 +803,18 @@ impl AgentInputFooter {
                 }
 
                 match event {
+                    BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated {
+                        conversation_id,
+                    } => {
+                        if BlocklistAIHistoryModel::as_ref(ctx)
+                            .active_conversation(me.terminal_view_id)
+                            .is_some_and(|conversation| conversation.id() == *conversation_id)
+                        {
+                            me.update_context_window_button(ctx);
+                            me.update_llm_usage_buttons(ctx);
+                            ctx.notify();
+                        }
+                    }
                     BlocklistAIHistoryEvent::StartedNewConversation { .. }
                     | BlocklistAIHistoryEvent::SetActiveConversation { .. }
                     | BlocklistAIHistoryEvent::ClearedActiveConversation { .. }
@@ -1985,7 +1998,11 @@ impl AgentInputFooter {
         if let Some(conversation) =
             BlocklistAIHistoryModel::as_ref(ctx).active_conversation(self.terminal_view_id)
         {
-            let usage = conversation.context_window_usage().clamp(0.0, 1.0);
+            let provider_context = conversation.provider_context_usage();
+            let usage = provider_context
+                .map(|usage| usage.compaction_usage())
+                .unwrap_or_else(|| conversation.context_window_usage())
+                .clamp(0.0, 1.0);
             let icon = icon_for_context_window_usage(usage);
             let remaining_pct = ((1.0 - usage) * 100.0).round() as i32;
 
@@ -1995,7 +2012,11 @@ impl AgentInputFooter {
             });
             let is_cache_expired = FeatureFlag::PromptCacheExpiryWarning.is_enabled()
                 && expiry.is_some_and(|expiry| expiry <= Local::now());
-            let context_remaining_tooltip = format!("{remaining_pct}% context remaining");
+            let context_remaining_tooltip = if provider_context.is_some() {
+                format!("~{remaining_pct}% compaction history budget remaining")
+            } else {
+                format!("{remaining_pct}% context remaining")
+            };
             let tooltip = if is_cache_expired {
                 format!("{context_remaining_tooltip} · prompt cache expired")
             } else {
@@ -2022,10 +2043,20 @@ impl AgentInputFooter {
                     conversation.latest_model_call_cache_read_tokens(),
                     conversation.latest_model_call_cache_write_tokens(),
                     conversation.latest_model_call_cache_miss_tokens(),
+                    conversation.provider_context_usage().cloned(),
+                    conversation.latest_model_call_reported_context_tokens(),
                 )
             });
 
-        let Some((current_context, reported_usage, cache_read, cache_write, cache_miss)) = metrics
+        let Some((
+            current_context,
+            reported_usage,
+            cache_read,
+            cache_write,
+            cache_miss,
+            provider_context,
+            last_reported_input,
+        )) = metrics
         else {
             self.llm_context_usage_button.update(ctx, |button, ctx| {
                 button.set_label("Ctx —", ctx);
@@ -2051,29 +2082,48 @@ impl AgentInputFooter {
             .active_profile(Some(self.terminal_view_id), ctx)
             .data()
             .context_window_display_value_for_model(active_model, ctx);
-        let model_max_context = active_model
-            .context_window
-            .default_max
-            .max(active_model.context_window.max);
-        let max_context = profile_context
-            .or((model_max_context > 0).then_some(model_max_context))
-            .unwrap_or(200_000);
-        let context_usage = if max_context > 0 && current_context > 0 {
+        let model_context = [
+            active_model.context_window.default_max,
+            active_model.context_window.max,
+        ]
+        .into_iter()
+        .find(|limit| *limit > 0);
+        let max_context = profile_context.or(model_context).unwrap_or(200_000);
+        let context_usage = if let Some(usage) = &provider_context {
+            usage.compaction_usage().clamp(0.0, 1.0)
+        } else if max_context > 0 && current_context > 0 {
             (current_context as f32 / max_context as f32).clamp(0.0, 1.0)
         } else {
             reported_usage.clamp(0.0, 1.0)
         };
-        let context_pct = context_usage * 100.0;
-        let context_label = format!(
-            "Ctx {context_pct:.1}% · {}/{}",
-            format_llm_token_count(current_context),
-            format_llm_token_count(max_context),
-        );
-        let context_tooltip = format!(
-            "Current LLM context: {} of {} tokens ({context_pct:.1}%). This is not cumulative.",
-            format_llm_token_count(current_context),
-            format_llm_token_count(max_context),
-        );
+        let context_pct = provider_context
+            .as_ref()
+            .map(|usage| usage.compaction_usage())
+            .unwrap_or(context_usage)
+            * 100.0;
+        let (context_label, context_tooltip) = if let Some(usage) = &provider_context {
+            (
+                format!(
+                    "Ctx budget ~{context_pct:.1}% · ~{}/{}",
+                    format_llm_token_count(usage.compaction.history_tokens),
+                    format_llm_token_count(usage.compaction.history_capacity_tokens),
+                ),
+                provider_context_usage_tooltip(usage, last_reported_input),
+            )
+        } else {
+            (
+                format!(
+                    "Ctx {context_pct:.1}% · {}/{}",
+                    format_llm_token_count(current_context),
+                    format_llm_token_count(max_context),
+                ),
+                format!(
+                    "Current LLM context: {} of {} tokens ({context_pct:.1}%). This is not cumulative.",
+                    format_llm_token_count(current_context),
+                    format_llm_token_count(max_context),
+                ),
+            )
+        };
         let context_icon = icon_for_context_window_usage(context_usage);
         self.llm_context_usage_button.update(ctx, |button, ctx| {
             button.set_label(context_label, ctx);

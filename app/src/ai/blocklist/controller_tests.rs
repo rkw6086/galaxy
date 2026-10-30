@@ -56,6 +56,7 @@ fn provider_lifecycle_logs_expose_llm_completion_and_sanitize_errors() {
     retry_error.recoverable = true;
     let projections = [
         ProviderRunProjection::ModelTurnRequested {
+            context_usage: None,
             work_id: work_id.clone(),
             profile: "base".into(),
             runtime_id: "rig:openai".to_owned(),
@@ -4301,6 +4302,8 @@ fn progressive_summary_test_plan(
         candidates: Vec::new(),
         summarize_messages: summarized_prefix.clone(),
         summarized_prefix,
+        context_usage: None,
+        started_at: std::time::Instant::now(),
     }
 }
 

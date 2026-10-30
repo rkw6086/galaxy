@@ -1901,6 +1901,152 @@ async fn final_model_request_bounds_new_tool_results_to_the_active_context() {
 }
 
 #[tokio::test]
+async fn context_usage_snapshot_matches_the_bounded_model_request() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let original_content = "x".repeat(20_000);
+    let mut turn_request = request();
+    turn_request.max_output_tokens = Some(500);
+    turn_request.messages = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::ToolResult {
+            tool_use_id: "large-result".to_string(),
+            content: original_content.clone(),
+            is_error: false,
+        },
+    }];
+    let mut coordinator = ProviderRunCoordinator::from_request(
+        "projected-context-snapshot",
+        ProviderRunProfile::new(runtime.clone(), turn_request).with_max_context_tokens(Some(8_000)),
+        Vec::new(),
+        ProviderRunLimits::default(),
+    )
+    .unwrap();
+    let snapshot = coordinator.context_usage_snapshot().unwrap();
+
+    // The complete result would exceed the early-compaction threshold, but the
+    // bounded request fits comfortably. Occupancy must describe that request.
+    assert!(snapshot.compaction_usage() < 0.70);
+    assert_eq!(snapshot.active.reserved_output_tokens, 500);
+    let MessageContent::ToolResult { content, .. } = &coordinator.run().transcript()[0].content
+    else {
+        panic!("expected original tool result");
+    };
+    assert_eq!(content, &original_content);
+
+    let (_sender, control) = turn_control();
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+    let requests = runtime.requests();
+    assert_eq!(
+        u64::from(snapshot.active.total_reserved_tokens()),
+        estimate_turn_request_tokens(&requests[0])
+    );
+    assert_eq!(
+        snapshot.active.estimated_input_tokens,
+        snapshot
+            .active
+            .total_reserved_tokens()
+            .saturating_sub(snapshot.active.reserved_output_tokens)
+    );
+}
+
+#[test]
+fn context_usage_snapshot_projects_history_for_the_limiting_profile() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let mut turn_request = request();
+    turn_request.messages = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::ToolResult {
+            tool_use_id: "large-result".to_string(),
+            content: "x".repeat(20_000),
+            is_error: false,
+        },
+    }];
+    let mut coordinator = ProviderRunCoordinator::from_request(
+        "limiting-profile-context-snapshot",
+        ProviderRunProfile::new(runtime.clone(), turn_request)
+            .with_max_context_tokens(Some(100_000)),
+        Vec::new(),
+        ProviderRunLimits::default(),
+    )
+    .unwrap();
+    coordinator
+        .insert_profile(
+            CLI_MONITOR_PROVIDER_PROFILE,
+            ProviderRunProfile::new(runtime, request()).with_max_context_tokens(Some(8_000)),
+        )
+        .unwrap();
+
+    let snapshot = coordinator.context_usage_snapshot().unwrap();
+
+    assert_eq!(snapshot.active.context_limit, 100_000);
+    assert_eq!(snapshot.compaction.profile, CLI_MONITOR_PROVIDER_PROFILE);
+    assert_eq!(snapshot.compaction.context_limit, 8_000);
+    assert!(snapshot.active.history_tokens > snapshot.compaction.history_tokens);
+    assert!(snapshot.compaction_usage() < 0.70);
+    assert_eq!(
+        snapshot.compaction.history_capacity_tokens,
+        8_000 - snapshot.compaction.fixed_input_tokens
+    );
+}
+
+#[test]
+fn compaction_pressure_uses_projected_history_as_well_as_profile_capacity() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let mut turn_request = request();
+    turn_request.max_output_tokens = Some(70_000);
+    turn_request.messages = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::ToolResult {
+            tool_use_id: "large-result".to_string(),
+            content: "x".repeat(100_000),
+            is_error: false,
+        },
+    }];
+    let mut coordinator = ProviderRunCoordinator::from_request(
+        "profile-pressure-order",
+        ProviderRunProfile::new(runtime.clone(), turn_request)
+            .with_max_context_tokens(Some(100_000)),
+        Vec::new(),
+        ProviderRunLimits::default(),
+    )
+    .unwrap();
+    coordinator
+        .insert_profile(
+            CLI_MONITOR_PROVIDER_PROFILE,
+            ProviderRunProfile::new(runtime, request()).with_max_context_tokens(Some(8_000)),
+        )
+        .unwrap();
+
+    let snapshot = coordinator.context_usage_snapshot().unwrap();
+    let monitor = coordinator
+        .context_profile_usage(CLI_MONITOR_PROVIDER_PROFILE)
+        .unwrap();
+
+    // The smaller monitor clips the result much more aggressively, so its
+    // smaller capacity must not hide compaction pressure in the active model.
+    assert!(snapshot.active.history_capacity_tokens > monitor.history_capacity_tokens);
+    assert_eq!(snapshot.compaction.profile, BASE_PROVIDER_PROFILE);
+    assert!(snapshot.compaction_usage() >= 0.70);
+    assert!(monitor.history_tokens as f32 / (monitor.history_capacity_tokens as f32) < 0.70);
+    assert_eq!(
+        coordinator.progressive_summary_context_budget().unwrap().0,
+        8_000
+    );
+
+    let restored: ProviderContextUsage =
+        serde_json::from_str(&serde_json::to_string(&snapshot).unwrap()).unwrap();
+    let compacted = restored.with_transcript(&[ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text("Task checkpoint".to_string()),
+    }]);
+    assert_eq!(compacted.compaction.profile, CLI_MONITOR_PROVIDER_PROFILE);
+}
+
+#[tokio::test]
 async fn preflight_leaves_headroom_before_the_advertised_context_limit() {
     let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
     let mut coordinator = coordinator(runtime.clone());

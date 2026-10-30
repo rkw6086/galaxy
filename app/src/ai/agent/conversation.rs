@@ -60,6 +60,7 @@ use crate::ai::blocklist::{
     SerializedBlockListItem,
 };
 use crate::ai::llms::LLMPreferences;
+use crate::ai::runtime::ProviderContextUsage;
 use crate::ai::skills::SkillDescriptor;
 use crate::code_review::CodeReviewTelemetryEvent;
 use crate::notebooks::NotebookId;
@@ -341,6 +342,9 @@ pub struct AIConversation {
     progressive_summary: Option<String>,
     messages_summarized_up_to: usize,
     current_context_tokens: u32,
+    /// The bounded request projection used by direct-provider context budgeting.
+    /// Recomputed at committed model/tool boundaries rather than restored as live usage.
+    provider_context_usage: Option<ProviderContextUsage>,
     latest_model_call_usage: ProviderUsage,
     has_pending_progressive_summary: bool,
 }
@@ -419,6 +423,7 @@ impl AIConversation {
             progressive_summary: None,
             messages_summarized_up_to: 0,
             current_context_tokens: 0,
+            provider_context_usage: None,
             latest_model_call_usage: ProviderUsage::default(),
             has_pending_progressive_summary: false,
         }
@@ -732,6 +737,7 @@ impl AIConversation {
             // The previous response stream no longer exists; its drain count cannot apply.
             messages_summarized_up_to: 0,
             current_context_tokens: 0,
+            provider_context_usage: None,
             latest_model_call_usage: ProviderUsage::default(),
             has_pending_progressive_summary: false,
         })
@@ -786,6 +792,9 @@ impl AIConversation {
         if !can_change_backend && self.agent_backend != agent_backend {
             return false;
         }
+        if self.agent_backend != agent_backend {
+            self.provider_context_usage = None;
+        }
         self.agent_backend = agent_backend;
         true
     }
@@ -811,6 +820,24 @@ impl AIConversation {
 
     pub fn set_current_context_tokens(&mut self, val: u32) {
         self.current_context_tokens = val;
+    }
+
+    pub(crate) fn provider_context_usage(&self) -> Option<&ProviderContextUsage> {
+        self.provider_context_usage.as_ref()
+    }
+
+    pub(crate) fn set_provider_context_usage(&mut self, usage: Option<ProviderContextUsage>) {
+        self.provider_context_usage = usage;
+    }
+
+    /// Provider-reported input for the last model call, separate from the next-request estimate.
+    pub(crate) fn latest_model_call_reported_context_tokens(&self) -> Option<u32> {
+        let tokens = self
+            .latest_model_call_usage
+            .input_tokens
+            .saturating_add(self.latest_model_call_usage.cached_input_tokens)
+            .saturating_add(self.latest_model_call_usage.cache_creation_input_tokens);
+        (tokens > 0).then(|| u32::try_from(tokens).unwrap_or(u32::MAX))
     }
 
     pub fn set_latest_model_call_usage(&mut self, usage: ProviderUsage) {
