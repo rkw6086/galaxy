@@ -1199,33 +1199,39 @@ impl RequestedCommandView {
             None => "Job history unavailable",
         };
         let mut row = Flex::row()
+            .with_main_axis_size(MainAxisSize::Max)
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_spacing(8.);
         row.add_child(crate::ai::background_jobs::view::status_icon(&status, app));
         row.add_child(
             Expanded::new(
                 1.,
-                Text::new_inline(
-                    command.to_owned(),
-                    appearance.monospace_font_family(),
-                    appearance.monospace_font_size() - 1.,
+                Text::new(
+                    label.to_owned(),
+                    appearance.ui_font_family(),
+                    appearance.monospace_font_size() - 2.,
                 )
-                .with_color(theme.font_color(theme.surface_2()).into())
-                .with_clip(galaxyui::text_layout::ClipConfig::ellipsis())
+                .with_color(theme.sub_text_color(theme.surface_2()).into())
                 .finish(),
             )
             .finish(),
         );
-        row.add_child(
-            Text::new_inline(
-                label.to_owned(),
-                appearance.ui_font_family(),
-                appearance.monospace_font_size() - 2.,
+        let content = Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .with_spacing(8.)
+            .with_child(row.finish())
+            .with_child(
+                Text::new(
+                    command.to_owned(),
+                    appearance.monospace_font_family(),
+                    appearance.monospace_font_size() - 1.,
+                )
+                .soft_wrap(true)
+                .with_color(theme.font_color(theme.surface_2()).into())
+                .finish(),
             )
-            .with_color(theme.sub_text_color(theme.surface_2()).into())
-            .finish(),
-        );
-        let content = Container::new(row.finish())
+            .finish();
+        let content = Container::new(content)
             .with_padding(Padding::uniform(12.))
             .finish();
         let content = if job.is_some() {
@@ -1241,7 +1247,7 @@ impl RequestedCommandView {
         } else {
             content
         };
-        render_tool_pane_shell(content, false, true, false, app)
+        render_tool_pane_shell(content, false, false, false, app)
     }
 
     fn render_header(

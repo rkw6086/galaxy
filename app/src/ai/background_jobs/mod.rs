@@ -1,5 +1,6 @@
 //! Agent-requested commands run independently of a conversation's current model turn.
 
+mod log_format;
 pub(crate) mod remote;
 mod runtime;
 pub mod view;

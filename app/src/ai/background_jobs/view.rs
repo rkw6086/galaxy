@@ -6,14 +6,15 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use galaxy_core::ui::icons::Icon;
-use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::{color::internal_colors, TerminalColors};
 use galaxy_core::HostId;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::elements::{
     Border, ChildView, Clipped, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
-    Container, CrossAxisAlignment, Flex, Hoverable, MainAxisAlignment, MouseStateHandle, Padding,
-    ParentElement, Point, ScrollbarWidth, Shrinkable, Text,
+    Container, CrossAxisAlignment, Expanded, Flex, Hoverable, MainAxisAlignment, MainAxisSize,
+    MouseStateHandle, Padding, ParentElement, Point, RowBackground, ScrollbarWidth, Shrinkable,
+    Table, TableColumnWidth, TableConfig, TableHeader, TableStateHandle, TableVerticalSizing, Text,
 };
 use galaxyui::event::DispatchedEvent;
 use galaxyui::fonts::{Properties, Weight};
@@ -30,8 +31,8 @@ use uuid::Uuid;
 use super::{BackgroundJob, BackgroundJobStatus, BackgroundJobsModel};
 use crate::appearance::Appearance;
 use crate::editor::{
-    EditorOptions, EditorView, Event as EditorEvent, InteractionState, SingleLineEditorOptions,
-    TextOptions,
+    EditorOptions, EditorView, Event as EditorEvent, InteractionState, PlainTextEditorViewAction,
+    SingleLineEditorOptions, TextColors, TextOptions,
 };
 use crate::modal::ModalAction;
 use crate::view_components::action_button::{
@@ -58,6 +59,7 @@ pub enum BackgroundJobsAction {
     LoadMore,
 }
 
+#[derive(Clone)]
 struct JobRowControls {
     mouse: MouseStateHandle,
     view_logs: ViewHandle<ActionButton>,
@@ -86,8 +88,11 @@ pub struct BackgroundJobsView {
     back_button: ViewHandle<ActionButton>,
     more_button: ViewHandle<ActionButton>,
     list_scroll: ClippedScrollStateHandle,
+    table_state: TableStateHandle,
     logs_scroll: ClippedScrollStateHandle,
+    command_scroll: ClippedScrollStateHandle,
     displayed_logs: String,
+    displayed_log_colors: Option<TerminalColors>,
     error: Option<String>,
 }
 
@@ -104,7 +109,7 @@ impl BackgroundJobsView {
             _ => {}
         });
         let logs_font = Appearance::as_ref(ctx).monospace_font_family();
-        let logs_size = Appearance::as_ref(ctx).ui_font_size();
+        let logs_size = Appearance::as_ref(ctx).monospace_font_size();
         let logs = ctx.add_typed_action_view(|ctx| {
             let mut editor = EditorView::new(
                 EditorOptions {
@@ -116,12 +121,18 @@ impl BackgroundJobsView {
                     autogrow: true,
                     soft_wrap: true,
                     supports_vim_mode: false,
+                    use_settings_line_height_ratio: true,
                     ..Default::default()
                 },
                 ctx,
             );
             editor.set_interaction_state(InteractionState::Selectable, ctx);
             editor
+        });
+        ctx.subscribe_to_view(&logs, |_, _, event, ctx| {
+            if matches!(event, EditorEvent::Escape) {
+                ctx.dispatch_typed_action(&ModalAction::Close);
+            }
         });
         let scope_buttons = [
             (JobScopeFilter::Project, "Current project"),
@@ -187,6 +198,12 @@ impl BackgroundJobsView {
                 me.synchronize(ctx);
             }
         });
+        ctx.subscribe_to_model(&Appearance::handle(ctx), |me, _, _, ctx| {
+            if me.visible && me.logs_open {
+                me.set_logs(me.displayed_logs.clone(), ctx);
+                ctx.notify();
+            }
+        });
 
         Self {
             working_directory: None,
@@ -209,8 +226,11 @@ impl BackgroundJobsView {
             back_button,
             more_button,
             list_scroll: Default::default(),
+            table_state: TableStateHandle::new(0, |_, _| Vec::new()),
             logs_scroll: Default::default(),
+            command_scroll: Default::default(),
             displayed_logs: String::new(),
+            displayed_log_colors: None,
             error: None,
         }
     }
@@ -246,10 +266,13 @@ impl BackgroundJobsView {
         };
         self.status = None;
         self.selected = selected;
-        self.logs_open = false;
+        self.logs_open =
+            selected.is_some_and(|id| BackgroundJobsModel::as_ref(ctx).job(id).is_some());
         self.visible = true;
         self.display_limit = 100;
         self.error = None;
+        self.logs_scroll = Default::default();
+        self.command_scroll = Default::default();
         self.search.update(ctx, |editor, ctx| {
             editor.clear_buffer_and_reset_undo_stack(ctx)
         });
@@ -269,7 +292,11 @@ impl BackgroundJobsView {
         }
         self.synchronize(ctx);
         self.schedule_log_availability_refresh(ctx);
-        ctx.focus(&self.search);
+        if self.logs_open {
+            ctx.focus(&self.logs);
+        } else {
+            ctx.focus(&self.search);
+        }
     }
 
     pub fn on_close(&mut self) {
@@ -420,11 +447,36 @@ impl BackgroundJobsView {
     }
 
     fn set_logs(&mut self, text: String, ctx: &mut ViewContext<Self>) {
-        if text != self.displayed_logs {
+        let theme = Appearance::as_ref(ctx).theme();
+        let colors = theme.terminal_colors().clone();
+        let foreground = theme.foreground();
+        self.logs.update(ctx, |editor, ctx| {
+            editor.set_text_colors(
+                TextColors {
+                    default_color: foreground,
+                    disabled_color: foreground,
+                    hint_color: foreground,
+                },
+                ctx,
+            );
+        });
+        if text != self.displayed_logs || self.displayed_log_colors.as_ref() != Some(&colors) {
+            let (plain, styles) = super::log_format::format_job_logs(&text, &colors);
             self.logs.update(ctx, |editor, ctx| {
-                editor.set_buffer_text_ignoring_undo(&text, ctx)
+                // Programmatic replacement must work while the viewer remains read-only.
+                let interaction = editor.interaction_state(ctx);
+                editor.set_interaction_state(InteractionState::Editable, ctx);
+                editor.clear_buffer_and_reset_undo_stack(ctx);
+                editor.insert_with_styles(
+                    &plain,
+                    &styles,
+                    PlainTextEditorViewAction::ReplaceBuffer,
+                    ctx,
+                );
+                editor.set_interaction_state(interaction, ctx);
             });
             self.displayed_logs = text;
+            self.displayed_log_colors = Some(colors);
         }
     }
 
@@ -440,44 +492,65 @@ impl BackgroundJobsView {
     fn render_list(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
-        let mut list = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
-        let jobs = self.filtered_jobs(app);
+        let jobs = self
+            .filtered_jobs(app)
+            .into_iter()
+            .take(self.display_limit)
+            .collect::<Vec<_>>();
         if jobs.is_empty() {
-            list.add_child(
-                Container::new(
-                    Text::new_inline(
-                        "No background jobs match these filters.",
-                        appearance.ui_font_family(),
-                        appearance.ui_font_size(),
-                    )
-                    .with_color(theme.sub_text_color(theme.background()).into())
-                    .finish(),
+            return Container::new(
+                Text::new(
+                    "No background jobs match these filters.",
+                    appearance.ui_font_family(),
+                    appearance.ui_font_size(),
                 )
-                .with_padding(Padding::uniform(16.))
+                .with_color(theme.sub_text_color(theme.background()).into())
                 .finish(),
-            );
+            )
+            .with_padding(Padding::uniform(24.))
+            .finish();
         }
-        for id in jobs.into_iter().take(self.display_limit) {
-            let Some(job) = BackgroundJobsModel::as_ref(app).job(id) else {
-                continue;
-            };
-            let selected = self.selected == Some(job.id);
-            let mut row = Flex::row()
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(
-                    Container::new(status_icon(&job.status, app))
-                        .with_margin_right(8.)
-                        .finish(),
-                );
-            let command = job
-                .command
-                .lines()
-                .next()
-                .unwrap_or(&job.command)
-                .to_owned();
-            let mut text = Flex::column()
-                .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .with_child(
+        let headers = [
+            ("Command", TableColumnWidth::Flex(1.5)),
+            ("Directory", TableColumnWidth::Flex(1.)),
+            ("Started", TableColumnWidth::Fixed(126.)),
+            ("Status", TableColumnWidth::Fixed(156.)),
+            ("Actions", TableColumnWidth::Fixed(216.)),
+        ]
+        .into_iter()
+        .map(|(label, width)| {
+            TableHeader::new(
+                Text::new(
+                    label,
+                    appearance.ui_font_family(),
+                    appearance.ui_font_size() - 1.,
+                )
+                .with_style(Properties::default().weight(Weight::Semibold))
+                .with_color(theme.nonactive_ui_text_color().into())
+                .finish(),
+            )
+            .with_width(width)
+        })
+        .collect();
+        let rows = self.rows.clone();
+        let table = Table::new(self.table_state.clone(), 0., 0.)
+            .with_headers(headers)
+            .with_row_count(jobs.len())
+            .with_row_render_fn(move |index, app| {
+                let appearance = Appearance::as_ref(app);
+                let theme = appearance.theme();
+                let id = jobs[index];
+                let Some(job) = BackgroundJobsModel::as_ref(app).job(id) else {
+                    return Vec::new();
+                };
+                let controls = &rows[&id];
+                let command = job
+                    .command
+                    .lines()
+                    .next()
+                    .unwrap_or(&job.command)
+                    .to_owned();
+                let command_cell = Hoverable::new(controls.mouse.clone(), move |_| {
                     Text::new_inline(
                         command,
                         appearance.monospace_font_family(),
@@ -485,95 +558,233 @@ impl BackgroundJobsView {
                     )
                     .with_color(theme.active_ui_text_color().into())
                     .with_clip(ClipConfig::ellipsis())
-                    .finish(),
-                );
-            let location = match &job.host_id {
-                Some(host) => format!("{host}: {}", job.working_directory.display()),
-                None => job.working_directory.display().to_string(),
-            };
-            text.add_child(
-                Text::new_inline(
-                    location,
+                    .finish()
+                })
+                .on_click(move |ctx, _, _| {
+                    ctx.dispatch_typed_action(BackgroundJobsAction::ViewLogs(id))
+                })
+                .with_cursor(Cursor::PointingHand)
+                .finish();
+                let directory = match &job.host_id {
+                    Some(host) => format!("{host}: {}", job.working_directory.display()),
+                    None => job.working_directory.display().to_string(),
+                };
+                let directory = Text::new_inline(
+                    directory,
                     appearance.ui_font_family(),
-                    appearance.ui_font_size() - 2.,
+                    appearance.ui_font_size() - 1.,
                 )
-                .with_color(theme.sub_text_color(theme.background()).into())
+                .with_color(theme.sub_text_color(theme.surface_1()).into())
                 .with_clip(ClipConfig::ellipsis())
-                .finish(),
-            );
-            row.add_child(Shrinkable::new(1., text.finish()).finish());
-            row.add_child(
-                ConstrainedBox::new(
-                    Text::new_inline(
-                        job.started_at
-                            .with_timezone(&chrono::Local)
-                            .format("%b %d, %H:%M")
-                            .to_string(),
-                        appearance.ui_font_family(),
-                        appearance.ui_font_size() - 2.,
-                    )
-                    .with_color(theme.sub_text_color(theme.background()).into())
-                    .finish(),
+                .finish();
+                let started = Text::new(
+                    job.started_at
+                        .with_timezone(&chrono::Local)
+                        .format("%b %d, %H:%M")
+                        .to_string(),
+                    appearance.ui_font_family(),
+                    appearance.ui_font_size() - 1.,
                 )
-                .with_width(120.)
-                .finish(),
-            );
-            if let Some(controls) = self.rows.get(&id) {
-                row.add_child(
-                    ConstrainedBox::new(
-                        Text::new_inline(
-                            status_label(&job),
-                            appearance.ui_font_family(),
-                            appearance.ui_font_size() - 1.,
+                .with_color(theme.sub_text_color(theme.surface_1()).into())
+                .finish();
+                let status = Flex::row()
+                    .with_spacing(6.)
+                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                    .with_child(status_icon(&job.status, app))
+                    .with_child(
+                        Shrinkable::new(
+                            1.,
+                            Text::new(
+                                status_label(job),
+                                appearance.ui_font_family(),
+                                appearance.ui_font_size() - 1.,
+                            )
+                            .with_color(theme.active_ui_text_color().into())
+                            .finish(),
                         )
-                        .with_color(theme.sub_text_color(theme.background()).into())
-                        .with_clip(ClipConfig::ellipsis())
                         .finish(),
                     )
-                    .with_width(135.)
-                    .finish(),
-                );
-                let mut actions = Flex::row().with_spacing(4.);
+                    .finish();
+                let mut actions = Flex::row()
+                    .with_spacing(4.)
+                    .with_cross_axis_alignment(CrossAxisAlignment::Center);
                 if controls.logs_available && BackgroundJobsModel::as_ref(app).logs_available(id) {
                     actions.add_child(ChildView::new(&controls.view_logs).finish());
                 }
                 if job.status == BackgroundJobStatus::Running {
                     actions.add_child(ChildView::new(&controls.terminate).finish());
                 }
-                row.add_child(
-                    ConstrainedBox::new(actions.finish())
-                        .with_width(180.)
-                        .finish(),
-                );
-                let background = if selected {
-                    theme.surface_overlay_2()
-                } else {
-                    theme.surface_2()
-                };
-                list.add_child(
-                    Hoverable::new(controls.mouse.clone(), move |_| {
-                        Container::new(row.finish())
-                            .with_padding(Padding::uniform(12.))
-                            .with_background(background)
-                            .finish()
-                    })
-                    .on_click(move |ctx, _, _| {
-                        ctx.dispatch_typed_action(BackgroundJobsAction::Select(id))
-                    })
-                    .with_cursor(Cursor::PointingHand)
-                    .finish(),
-                );
-            }
-        }
+                vec![command_cell, directory, started, status, actions.finish()]
+            })
+            .with_config(TableConfig {
+                border_width: 1.,
+                border_color: theme.outline().into(),
+                outer_border: true,
+                column_dividers: false,
+                row_dividers: true,
+                cell_padding: 12.,
+                header_background: theme.surface_2().into(),
+                row_background: RowBackground::uniform(theme.surface_1().into()),
+                fixed_header: false,
+                vertical_sizing: TableVerticalSizing::ExpandToContent,
+                measure_body_cells_for_intrinsic_widths: false,
+            });
         ClippedScrollable::vertical(
             self.list_scroll.clone(),
-            list.finish(),
+            table.finish(),
             ScrollbarWidth::Auto,
             theme.nonactive_ui_detail().into(),
             theme.active_ui_detail().into(),
             galaxyui::elements::Fill::None,
         )
         .finish()
+    }
+
+    fn render_detail(&self, app: &AppContext) -> Box<dyn Element> {
+        let appearance = Appearance::as_ref(app);
+        let theme = appearance.theme();
+        let mut detail = Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .with_main_axis_size(MainAxisSize::Max)
+            .with_spacing(12.);
+        let selected = self
+            .selected
+            .and_then(|id| BackgroundJobsModel::as_ref(app).job(id));
+        let mut header = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_spacing(8.)
+            .with_child(ChildView::new(&self.back_button).finish());
+        if let Some(job) = selected {
+            header.add_child(
+                Expanded::new(
+                    1.,
+                    Flex::row()
+                        .with_spacing(6.)
+                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                        .with_child(status_icon(&job.status, app))
+                        .with_child(
+                            Text::new(
+                                status_label(job),
+                                appearance.ui_font_family(),
+                                appearance.ui_font_size(),
+                            )
+                            .with_style(Properties::default().weight(Weight::Semibold))
+                            .with_color(theme.active_ui_text_color().into())
+                            .finish(),
+                        )
+                        .finish(),
+                )
+                .finish(),
+            );
+            if BackgroundJobsModel::as_ref(app).logs_available(job.id) {
+                header.add_child(ChildView::new(&self.reload_button).finish());
+            }
+            if job.status == BackgroundJobStatus::Running {
+                header.add_child(ChildView::new(&self.cancel_button).finish());
+            }
+        }
+        detail.add_child(header.finish());
+        let Some(job) = selected else {
+            detail.add_child(
+                Text::new(
+                    "Select a job to view its command, status, and logs.",
+                    appearance.ui_font_family(),
+                    appearance.ui_font_size(),
+                )
+                .finish(),
+            );
+            return detail.finish();
+        };
+        let label = |text: String| {
+            Text::new(
+                text,
+                appearance.ui_font_family(),
+                appearance.ui_font_size() - 1.,
+            )
+            .with_color(theme.sub_text_color(theme.surface_2()).into())
+            .finish()
+        };
+        detail.add_child(label(format!(
+            "{}  ·  Started {}",
+            job.working_directory.display(),
+            job.started_at
+                .with_timezone(&chrono::Local)
+                .format("%b %d, %H:%M:%S")
+        )));
+        let command = Text::new(
+            job.command.clone(),
+            appearance.monospace_font_family(),
+            appearance.ui_font_size(),
+        )
+        .soft_wrap(true)
+        .with_color(theme.active_ui_text_color().into())
+        .finish();
+        let command = ClippedScrollable::vertical(
+            self.command_scroll.clone(),
+            command,
+            ScrollbarWidth::Auto,
+            theme.nonactive_ui_detail().into(),
+            theme.active_ui_detail().into(),
+            galaxyui::elements::Fill::None,
+        )
+        .finish();
+        detail.add_child(
+            Container::new(ConstrainedBox::new(command).with_max_height(120.).finish())
+                .with_padding(Padding::uniform(12.))
+                .with_background(theme.surface_2())
+                .with_border(Border::all(1.).with_border_color(theme.outline().into()))
+                .finish(),
+        );
+        if let Some(error) = self.error.as_ref().or(job.error.as_ref()) {
+            detail.add_child(
+                Text::new(
+                    error.clone(),
+                    appearance.ui_font_family(),
+                    appearance.ui_font_size(),
+                )
+                .with_color(theme.ui_error_color().into())
+                .finish(),
+            );
+        }
+        detail.add_child(
+            Flex::row()
+                .with_main_axis_size(MainAxisSize::Max)
+                .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+                .with_child(
+                    Text::new(
+                        "Output",
+                        appearance.ui_font_family(),
+                        appearance.ui_font_size(),
+                    )
+                    .with_style(Properties::default().weight(Weight::Semibold))
+                    .with_color(theme.active_ui_text_color().into())
+                    .finish(),
+                )
+                .with_child(label("Select text to copy".to_owned()))
+                .finish(),
+        );
+        let logs = ClippedScrollable::vertical(
+            self.logs_scroll.clone(),
+            Container::new(ChildView::new(&self.logs).finish())
+                .with_padding(Padding::uniform(12.))
+                .finish(),
+            ScrollbarWidth::Auto,
+            theme.nonactive_ui_detail().into(),
+            theme.active_ui_detail().into(),
+            galaxyui::elements::Fill::None,
+        )
+        .finish();
+        detail.add_child(
+            Expanded::new(
+                1.,
+                Container::new(logs)
+                    .with_background(theme.background())
+                    .with_border(Border::all(1.).with_border_color(theme.outline().into()))
+                    .finish(),
+            )
+            .finish(),
+        );
+        detail.finish()
     }
 }
 
@@ -744,25 +955,22 @@ impl View for BackgroundJobsView {
     }
 
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
+        if self.logs_open {
+            return self.render_detail(app);
+        }
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
-        let mut filters = Flex::row()
+        let mut scopes = Flex::row()
             .with_spacing(4.)
             .with_cross_axis_alignment(CrossAxisAlignment::Center);
         for (_, button) in &self.scope_buttons {
-            filters.add_child(ChildView::new(button).finish());
+            scopes.add_child(ChildView::new(button).finish());
         }
-        filters.add_child(
-            Shrinkable::new(
-                1.,
-                Container::new(Clipped::new(ChildView::new(&self.search).finish()).finish())
-                    .with_horizontal_padding(8.)
-                    .with_vertical_padding(6.)
-                    .with_border(Border::all(1.).with_border_color(theme.outline().into()))
-                    .finish(),
-            )
-            .finish(),
-        );
+        let search = Container::new(Clipped::new(ChildView::new(&self.search).finish()).finish())
+            .with_horizontal_padding(10.)
+            .with_vertical_padding(8.)
+            .with_border(Border::all(1.).with_border_color(theme.outline().into()))
+            .finish();
         let mut statuses = Flex::row().with_spacing(4.);
         for (_, button) in &self.status_buttons {
             statuses.add_child(ChildView::new(button).finish());
@@ -774,27 +982,33 @@ impl View for BackgroundJobsView {
         }
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "All saved projects and directories".to_owned());
+        let count = self.filtered_jobs(app).len();
         let mut column = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .with_child(filters.finish())
+            .with_main_axis_size(MainAxisSize::Max)
+            .with_spacing(10.)
+            .with_child(
+                Flex::row()
+                    .with_spacing(16.)
+                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                    .with_child(scopes.finish())
+                    .with_child(Expanded::new(1., search).finish())
+                    .finish(),
+            )
             .with_child(statuses.finish())
             .with_child(
-                Container::new(
-                    Text::new_inline(
-                        scope_text,
-                        appearance.ui_font_family(),
-                        appearance.ui_font_size() - 2.,
-                    )
-                    .with_color(theme.sub_text_color(theme.background()).into())
-                    .with_clip(ClipConfig::ellipsis())
-                    .finish(),
+                Text::new_inline(
+                    scope_text,
+                    appearance.ui_font_family(),
+                    appearance.ui_font_size() - 1.,
                 )
-                .with_padding(Padding::uniform(8.))
+                .with_color(theme.sub_text_color(theme.background()).into())
+                .with_clip(ClipConfig::ellipsis())
                 .finish(),
             );
         if let Some(error) = &self.error {
             column.add_child(
-                Text::new_inline(
+                Text::new(
                     error.clone(),
                     appearance.ui_font_family(),
                     appearance.ui_font_size(),
@@ -803,172 +1017,23 @@ impl View for BackgroundJobsView {
                 .finish(),
             );
         }
-
-        if !self.logs_open {
-            let label = |text| {
+        column.add_child(Expanded::new(1., self.render_list(app)).finish());
+        let mut footer = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .with_child(
                 Text::new_inline(
-                    text,
+                    format!("{} of {count} jobs", self.display_limit.min(count)),
                     appearance.ui_font_family(),
-                    appearance.ui_font_size() - 2.,
+                    appearance.ui_font_size() - 1.,
                 )
                 .with_color(theme.sub_text_color(theme.background()).into())
-                .finish()
-            };
-            column.add_child(
-                Container::new(
-                    Flex::row()
-                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                        .with_child(ConstrainedBox::new(label("")).with_width(24.).finish())
-                        .with_child(Shrinkable::new(1., label("Command / project")).finish())
-                        .with_child(
-                            ConstrainedBox::new(label("Started"))
-                                .with_width(120.)
-                                .finish(),
-                        )
-                        .with_child(
-                            ConstrainedBox::new(label("Status"))
-                                .with_width(135.)
-                                .finish(),
-                        )
-                        .with_child(
-                            ConstrainedBox::new(label("Actions"))
-                                .with_width(180.)
-                                .finish(),
-                        )
-                        .finish(),
-                )
-                .with_horizontal_padding(12.)
-                .with_vertical_padding(6.)
                 .finish(),
             );
-            column.add_child(
-                ConstrainedBox::new(self.render_list(app))
-                    .with_height(470.)
-                    .finish(),
-            );
-            let count = self.filtered_jobs(app).len();
-            if count > self.display_limit {
-                column.add_child(
-                    Flex::row()
-                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                        .with_child(ChildView::new(&self.more_button).finish())
-                        .with_child(
-                            Text::new_inline(
-                                format!("Showing {} of {count} jobs", self.display_limit),
-                                appearance.ui_font_family(),
-                                appearance.ui_font_size() - 2.,
-                            )
-                            .with_color(theme.sub_text_color(theme.background()).into())
-                            .finish(),
-                        )
-                        .finish(),
-                );
-            }
-            return column.finish();
+        if count > self.display_limit {
+            footer.add_child(ChildView::new(&self.more_button).finish());
         }
-        let selected = self
-            .selected
-            .and_then(|id| BackgroundJobsModel::as_ref(app).job(id));
-        let mut detail = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
-        detail.add_child(ChildView::new(&self.back_button).finish());
-        if let Some(job) = selected {
-            let status = status_label(job);
-            detail.add_child(
-                Flex::row()
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_spacing(8.)
-                    .with_child(status_icon(&job.status, app))
-                    .with_child(
-                        Text::new_inline(
-                            status,
-                            appearance.ui_font_family(),
-                            appearance.ui_font_size(),
-                        )
-                        .with_style(Properties::default().weight(Weight::Semibold))
-                        .with_color(theme.active_ui_text_color().into())
-                        .finish(),
-                    )
-                    .finish(),
-            );
-            detail.add_child(
-                Container::new(
-                    Text::new_inline(
-                        job.command.clone(),
-                        appearance.monospace_font_family(),
-                        appearance.ui_font_size(),
-                    )
-                    .with_color(theme.active_ui_text_color().into())
-                    .finish(),
-                )
-                .with_vertical_padding(8.)
-                .finish(),
-            );
-            detail.add_child(
-                Text::new_inline(
-                    job.working_directory.display().to_string(),
-                    appearance.ui_font_family(),
-                    appearance.ui_font_size() - 2.,
-                )
-                .with_color(theme.sub_text_color(theme.background()).into())
-                .with_clip(ClipConfig::ellipsis())
-                .finish(),
-            );
-            let mut buttons = Flex::row()
-                .with_main_axis_alignment(MainAxisAlignment::End)
-                .with_spacing(8.);
-            if BackgroundJobsModel::as_ref(app).logs_available(job.id) {
-                buttons.add_child(ChildView::new(&self.reload_button).finish());
-            }
-            if job.status == BackgroundJobStatus::Running {
-                buttons.add_child(ChildView::new(&self.cancel_button).finish());
-            }
-            detail.add_child(
-                Container::new(buttons.finish())
-                    .with_vertical_padding(8.)
-                    .finish(),
-            );
-            if let Some(error) = &job.error {
-                detail.add_child(
-                    Text::new_inline(
-                        error.clone(),
-                        appearance.ui_font_family(),
-                        appearance.ui_font_size(),
-                    )
-                    .with_color(theme.ui_error_color().into())
-                    .finish(),
-                );
-            }
-            detail.add_child(
-                ConstrainedBox::new(
-                    ClippedScrollable::vertical(
-                        self.logs_scroll.clone(),
-                        ChildView::new(&self.logs).finish(),
-                        ScrollbarWidth::Auto,
-                        theme.nonactive_ui_detail().into(),
-                        theme.active_ui_detail().into(),
-                        galaxyui::elements::Fill::None,
-                    )
-                    .finish(),
-                )
-                .with_height(340.)
-                .finish(),
-            );
-        } else {
-            detail.add_child(
-                Text::new_inline(
-                    "Select a job to view its command, status, and logs.",
-                    appearance.ui_font_family(),
-                    appearance.ui_font_size(),
-                )
-                .with_color(theme.sub_text_color(theme.background()).into())
-                .finish(),
-            );
-        }
-        column.add_child(
-            Container::new(detail.finish())
-                .with_padding(Padding::uniform(12.))
-                .finish(),
-        );
+        column.add_child(footer.finish());
         column.finish()
     }
 }
@@ -992,17 +1057,24 @@ impl TypedActionView for BackgroundJobsView {
             }
             BackgroundJobsAction::Select(id) => {
                 self.selected = Some(*id);
+                self.logs_open = true;
+                self.logs_scroll = Default::default();
+                self.command_scroll = Default::default();
                 self.synchronize(ctx);
+                ctx.focus(&self.logs);
             }
             BackgroundJobsAction::ViewLogs(id) => {
                 self.selected = Some(*id);
                 self.logs_open = true;
-                self.load_selected_logs(ctx);
-                ctx.notify();
+                self.logs_scroll = Default::default();
+                self.command_scroll = Default::default();
+                self.synchronize(ctx);
+                ctx.focus(&self.logs);
             }
             BackgroundJobsAction::Back => {
                 self.logs_open = false;
                 self.synchronize(ctx);
+                ctx.focus(&self.search);
             }
             BackgroundJobsAction::Cancel(id) => {
                 self.error = BackgroundJobsModel::handle(ctx)
