@@ -8,7 +8,7 @@
 set -u
 
 # The minimum glibc the prebuilt Linux CLI requires. The Linux CLI is
-# built on Ubuntu 20.04 (see `.github/workflows/create_release.yml`),
+# built on Ubuntu 20.04 by the retired upstream release pipeline,
 # which ships glibc 2.31. Bump this when the runner image is bumped.
 required_glibc="2.31"
 echo "required_glibc=${required_glibc}"
