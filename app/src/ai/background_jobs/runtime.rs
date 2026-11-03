@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::io;
+use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::sync::Arc;
 #[cfg(unix)]
@@ -304,7 +306,128 @@ impl JobOutcome {
     }
 }
 
-pub(super) fn command_for_launch(launch: &BackgroundJobLaunch) -> Result<Command, String> {
+const BACKGROUND_ENV_PREFIX: &str = "_GALAXY_BACKGROUND_JOB_";
+const POWERSHELL_SETUP_KEY: &str = "_GALAXY_BACKGROUND_JOB_SETUP_KEY";
+const NONINTERACTIVE_ENVIRONMENT: &[(&str, &str)] = &[
+    ("CI", "1"),
+    ("TERM", "dumb"),
+    ("NO_COLOR", "1"),
+    ("PAGER", "cat"),
+    ("GIT_PAGER", "cat"),
+    ("GH_PAGER", "cat"),
+    ("SYSTEMD_PAGER", "cat"),
+    ("AWS_PAGER", ""),
+    ("GIT_TERMINAL_PROMPT", "0"),
+    ("GCM_INTERACTIVE", "Never"),
+    ("SSH_ASKPASS_REQUIRE", "never"),
+];
+
+// Only profile initialization is interactive. The approved command is passed as
+// one untouched argv item to a fresh noninteractive shell, never interpolated
+// into these setup scripts. exec keeps the existing owned process-group leader.
+// Private environment shuttles preserve explicit overrides through rc files
+// without exposing their values in argv, files, or captured environment output.
+const BASH_PROFILE_SETUP: &str = r#"
+builtin set +xv
+builtin set +m
+__galaxy_job_cwd=$1
+__galaxy_job_prefix=$2
+__galaxy_job_count=$3
+builtin shift 3
+while [ "$__galaxy_job_count" -gt 0 ]; do
+    __galaxy_job_key=$1
+    __galaxy_job_slot="$__galaxy_job_prefix$__galaxy_job_key"
+    builtin declare -p "$__galaxy_job_slot" >/dev/null 2>&1 || exit 126
+    builtin export "$__galaxy_job_key=${!__galaxy_job_slot}" || exit 126
+    builtin unset "$__galaxy_job_slot"
+    builtin shift
+    __galaxy_job_count=$((__galaxy_job_count - 1))
+done
+# BASH_ENV/ENV would initialize another profile in the noninteractive child.
+builtin unset SSH_ASKPASS SUDO_ASKPASS BASH_ENV ENV
+builtin cd -- "$__galaxy_job_cwd" || exit 126
+builtin exec -- "$@"
+"#;
+
+const ZSH_PROFILE_SETUP: &str = r#"
+builtin unsetopt XTRACE VERBOSE MONITOR
+__galaxy_job_cwd=$1
+__galaxy_job_prefix=$2
+__galaxy_job_count=$3
+builtin shift 3
+while [ "$__galaxy_job_count" -gt 0 ]; do
+    __galaxy_job_key=$1
+    __galaxy_job_slot="$__galaxy_job_prefix$__galaxy_job_key"
+    builtin typeset -p "$__galaxy_job_slot" >/dev/null 2>&1 || exit 126
+    builtin export "$__galaxy_job_key=${(P)__galaxy_job_slot}" || exit 126
+    builtin unset "$__galaxy_job_slot"
+    builtin shift
+    __galaxy_job_count=$((__galaxy_job_count - 1))
+done
+builtin unset SSH_ASKPASS SUDO_ASKPASS BASH_ENV ENV
+builtin cd -- "$__galaxy_job_cwd" || exit 126
+builtin exec -- "$@"
+"#;
+
+const FISH_PROFILE_SETUP: &str = r#"
+builtin set -e fish_trace
+builtin set -l __galaxy_job_cwd "$argv[1]"
+builtin set -l __galaxy_job_prefix "$argv[2]"
+builtin set -l __galaxy_job_count "$argv[3]"
+builtin set -e argv[1..3]
+while builtin test "$__galaxy_job_count" -gt 0
+    builtin set -l __galaxy_job_key "$argv[1]"
+    builtin set -l __galaxy_job_slot "$__galaxy_job_prefix$__galaxy_job_key"
+    builtin set -q "$__galaxy_job_slot"; or exit 126
+    builtin set -gx "$__galaxy_job_key" "$$__galaxy_job_slot"; or exit 126
+    builtin set -e "$__galaxy_job_slot"
+    builtin set -e argv[1]
+    builtin set __galaxy_job_count (builtin math "$__galaxy_job_count - 1")
+end
+for __galaxy_job_key in SSH_ASKPASS SUDO_ASKPASS BASH_ENV ENV
+    builtin set -e "$__galaxy_job_key"
+end
+builtin cd -- "$__galaxy_job_cwd"; or exit 126
+exec $argv
+"#;
+
+// PowerShell loads profiles in the noninteractive bootstrap, then starts a
+// profile-free command host. A real host boundary preserves the original
+// command's exit semantics, including nonterminating errors and explicit exit.
+const POWERSHELL_PROFILE_SETUP: &str = r#"
+Microsoft.PowerShell.Core\Set-PSDebug -Off
+try {
+    $__galaxyJobKey = [Environment]::GetEnvironmentVariable('_GALAXY_BACKGROUND_JOB_SETUP_KEY', 'Process')
+    if ([String]::IsNullOrEmpty($__galaxyJobKey)) { throw 'Missing background job setup' }
+    $__galaxyJobPayload = [Environment]::GetEnvironmentVariable($__galaxyJobKey, 'Process')
+    [Environment]::SetEnvironmentVariable($__galaxyJobKey, $null, 'Process')
+    [Environment]::SetEnvironmentVariable('_GALAXY_BACKGROUND_JOB_SETUP_KEY', $null, 'Process')
+    $__galaxyJob = ConvertFrom-Json -InputObject $__galaxyJobPayload -ErrorAction Stop
+    $__galaxyJobPayload = $null
+    foreach ($__galaxyJobEntry in $__galaxyJob.environment.PSObject.Properties) {
+        [Environment]::SetEnvironmentVariable($__galaxyJobEntry.Name, [String]$__galaxyJobEntry.Value, 'Process')
+    }
+    [Environment]::SetEnvironmentVariable('SSH_ASKPASS', $null, 'Process')
+    [Environment]::SetEnvironmentVariable('SUDO_ASKPASS', $null, 'Process')
+    Set-Location -LiteralPath $__galaxyJob.cwd -ErrorAction Stop
+    $__galaxyJobProgram = [String]$__galaxyJob.program
+    $__galaxyJobCommand = [String]$__galaxyJob.encoded_command
+    $__galaxyJob = $null
+} catch {
+    [Console]::Error.WriteLine('Galaxy could not initialize the background command shell.')
+    exit 126
+}
+$PSNativeCommandUseErrorActionPreference = $false
+$LASTEXITCODE = $null
+& $__galaxyJobProgram -NoLogo -NoProfile -NonInteractive -EncodedCommand $__galaxyJobCommand
+if ($null -eq $LASTEXITCODE) { exit 126 }
+exit $LASTEXITCODE
+"#;
+
+pub(super) fn command_for_launch(
+    launch: &BackgroundJobLaunch,
+    approved_directory: &Path,
+) -> Result<Command, String> {
     let (program, shell_type) = match &launch.shell {
         Some(ShellLaunchData::Executable { executable_path, shell_type })
         | Some(ShellLaunchData::MSYS2 { executable_path, shell_type }) => (executable_path.clone(), Some(*shell_type)),
@@ -312,7 +435,7 @@ pub(super) fn command_for_launch(launch: &BackgroundJobLaunch) -> Result<Command
         Some(ShellLaunchData::DockerSandbox { .. }) => return Err("Background jobs cannot run container commands on the host. Run this command yourself inside the sandbox.".to_owned()),
         None => {
             #[cfg(unix)]
-            { (std::path::PathBuf::from("/bin/sh"), None) }
+            { fallback_unix_shell(std::env::var_os("SHELL")) }
             #[cfg(windows)]
             { (std::path::PathBuf::from(std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into())), None) }
             #[cfg(not(any(unix, windows)))]
@@ -325,22 +448,42 @@ pub(super) fn command_for_launch(launch: &BackgroundJobLaunch) -> Result<Command
     let mut command = Command::new_with_process_group(&program);
     #[cfg(windows)]
     command.creation_flags(windows::Win32::System::Threading::CREATE_SUSPENDED.0);
+    let environment = background_environment(launch.environment.as_ref(), cfg!(windows))?;
+    // Precmd currently provides partial metadata (for example KUBECONFIG), not
+    // a complete export snapshot. Preserve the host's HOME, PATH and other vars.
+    if let Some(overrides) = &launch.environment {
+        command.envs(overrides);
+    }
+    // CI/TERM guards can deliberately skip rc initialization. Apply the full
+    // job environment after profiles, while suppressing auth prompts throughout.
+    command
+        .env("SSH_ASKPASS_REQUIRE", "never")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "Never");
     match shell_type {
-        Some(ShellType::Bash) => {
-            command.args(["--noprofile", "--norc", "-c"]);
-        }
-        Some(ShellType::Zsh) => {
-            command.args(["-f", "-c"]);
-        }
-        Some(ShellType::Fish) => {
-            command.args(["--no-config", "-c"]);
+        Some(kind @ (ShellType::Bash | ShellType::Zsh | ShellType::Fish)) => {
+            configure_profile_bootstrap(
+                &mut command,
+                launch,
+                approved_directory,
+                &program,
+                kind,
+                &environment,
+            )?;
         }
         Some(ShellType::PowerShell) => {
-            command.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"]);
+            configure_powershell_bootstrap(
+                &mut command,
+                launch,
+                approved_directory,
+                &program,
+                &environment,
+            )?;
         }
         None => {
+            command.envs(&environment);
             #[cfg(unix)]
-            command.arg("-c");
+            command.arg("-c").arg(&launch.command);
             #[cfg(windows)]
             {
                 use command::windows::CommandExt;
@@ -348,28 +491,6 @@ pub(super) fn command_for_launch(launch: &BackgroundJobLaunch) -> Result<Command
             }
         }
     }
-    if shell_type.is_some() || cfg!(unix) {
-        command.arg(&launch.command);
-    }
-    let mut environment = HashMap::from([
-        ("CI", "1"),
-        ("TERM", "dumb"),
-        ("NO_COLOR", "1"),
-        ("PAGER", "cat"),
-        ("GIT_PAGER", "cat"),
-        ("GH_PAGER", "cat"),
-        ("SYSTEMD_PAGER", "cat"),
-        ("AWS_PAGER", ""),
-        ("GIT_TERMINAL_PROMPT", "0"),
-        ("GCM_INTERACTIVE", "Never"),
-        ("SSH_ASKPASS_REQUIRE", "never"),
-    ]);
-    if let Some(snapshot) = &launch.environment {
-        // The shell integration supplies its complete exported environment. Inheriting
-        // the app's environment here would restore variables explicitly unset in that shell.
-        command.env_clear().envs(snapshot);
-    }
-    command.envs(environment.drain());
     command.env_remove("SSH_ASKPASS").env_remove("SUDO_ASKPASS");
     command.stdin(command::Stdio::null());
     // On Unix ProcessGuard kills the group before dropping/reaping Child. A separate
@@ -378,3 +499,146 @@ pub(super) fn command_for_launch(launch: &BackgroundJobLaunch) -> Result<Command
     command.kill_on_drop(true);
     Ok(command)
 }
+
+#[cfg(unix)]
+fn fallback_unix_shell(host_shell: Option<OsString>) -> (PathBuf, Option<ShellType>) {
+    if let Some(shell) = host_shell.filter(|shell| Path::new(shell).is_absolute()) {
+        if let Some(kind) = shell.to_str().and_then(ShellType::from_name) {
+            return (PathBuf::from(shell), Some(kind));
+        }
+    }
+    (PathBuf::from("/bin/sh"), None)
+}
+
+fn background_environment(
+    overrides: Option<&HashMap<String, String>>,
+    case_insensitive: bool,
+) -> Result<HashMap<String, String>, String> {
+    let mut environment = overrides.cloned().unwrap_or_default();
+    if environment
+        .iter()
+        .any(|(name, value)| !valid_override_name(name) || value.contains('\0'))
+    {
+        return Err("The background command has an invalid environment override".to_owned());
+    }
+    for (name, value) in NONINTERACTIVE_ENVIRONMENT {
+        if case_insensitive {
+            environment.retain(|key, _| !key.eq_ignore_ascii_case(name));
+        }
+        environment.insert((*name).to_owned(), (*value).to_owned());
+    }
+    Ok(environment)
+}
+
+fn valid_override_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    let valid_start = bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_');
+    valid_start
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        && !name.to_ascii_uppercase().starts_with(BACKGROUND_ENV_PREFIX)
+        && !name.to_ascii_lowercase().starts_with("__galaxy_job_")
+        && name != "argv"
+        && name != "fish_trace"
+}
+
+fn configure_profile_bootstrap(
+    command: &mut Command,
+    launch: &BackgroundJobLaunch,
+    approved_directory: &Path,
+    program: &Path,
+    shell_type: ShellType,
+    environment: &HashMap<String, String>,
+) -> Result<(), String> {
+    let prefix = format!("{BACKGROUND_ENV_PREFIX}{}_", uuid::Uuid::new_v4().simple());
+    let mut keys = environment.keys().collect::<Vec<_>>();
+    keys.sort();
+    let (setup, inner_flags): (&str, &[&str]) = match shell_type {
+        ShellType::Bash => (BASH_PROFILE_SETUP, &["--noprofile", "--norc", "-c"]),
+        ShellType::Zsh => (ZSH_PROFILE_SETUP, &["-f", "-c"]),
+        ShellType::Fish => (FISH_PROFILE_SETUP, &["--no-config", "-c"]),
+        ShellType::PowerShell => return Err("Invalid shell bootstrap selection".to_owned()),
+    };
+    command.args(["-i", "-l"]);
+    if shell_type != ShellType::Fish {
+        // No terminal is attached: profile initialization must not create
+        // separate interactive job-control groups before the owned exec.
+        command.arg("+m");
+    }
+    command.args(["-c", setup]);
+    // Bash/zsh reserve this argument as $0; fish puts every following argument in $argv.
+    if shell_type != ShellType::Fish {
+        command.arg("galaxy-background-job");
+    }
+    let msys = matches!(&launch.shell, Some(ShellLaunchData::MSYS2 { .. }));
+    command.arg(shell_path_argument(approved_directory, msys)?);
+    command.arg(&prefix).arg(keys.len().to_string());
+    for key in keys {
+        command.arg(key);
+        command.env(format!("{prefix}{key}"), &environment[key]);
+    }
+    command.arg(shell_path_argument(program, msys)?);
+    command.args(inner_flags).arg(&launch.command);
+    Ok(())
+}
+
+fn shell_path_argument(path: &Path, msys: bool) -> Result<OsString, String> {
+    if !msys {
+        return Ok(path.as_os_str().to_owned());
+    }
+    let value = path
+        .to_str()
+        .ok_or("The MSYS2 background command path is not valid Unicode")?;
+    let value = if let Some(unc) = value.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else {
+        value.strip_prefix(r"\\?\").unwrap_or(value).to_owned()
+    };
+    Ok(galaxy_util::path::convert_windows_path_to_msys2(&value).into())
+}
+
+fn configure_powershell_bootstrap(
+    command: &mut Command,
+    launch: &BackgroundJobLaunch,
+    approved_directory: &Path,
+    program: &Path,
+    environment: &HashMap<String, String>,
+) -> Result<(), String> {
+    let cwd = approved_directory
+        .to_str()
+        .ok_or("The PowerShell command directory is not valid Unicode")?;
+    let program = program
+        .to_str()
+        .ok_or("The PowerShell executable path is not valid Unicode")?;
+    let payload = serde_json::to_string(&serde_json::json!({
+        "program": program,
+        "encoded_command": encode_powershell_command(&launch.command),
+        "cwd": cwd,
+        "environment": environment,
+    }))
+    .map_err(|_| "Could not prepare the background command environment".to_owned())?;
+    let key = format!(
+        "{BACKGROUND_ENV_PREFIX}{}_SETUP",
+        uuid::Uuid::new_v4().simple()
+    );
+    command.env(POWERSHELL_SETUP_KEY, &key).env(&key, payload);
+    let encoded = encode_powershell_command(POWERSHELL_PROFILE_SETUP);
+    command.args(["-NoLogo", "-NonInteractive", "-EncodedCommand", &encoded]);
+    Ok(())
+}
+
+fn encode_powershell_command(script: &str) -> String {
+    use base64::Engine as _;
+
+    base64::engine::general_purpose::STANDARD.encode(
+        script
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>(),
+    )
+}
+
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod tests;

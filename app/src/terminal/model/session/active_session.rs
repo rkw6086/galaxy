@@ -93,9 +93,9 @@ impl ActiveSession {
         self.current_working_directory.as_ref()
     }
 
-    /// Snapshot the shell integration's environment for an independent command process.
+    /// Partial environment metadata reported by shell integration (for example KUBECONFIG).
+    /// This is not a complete export snapshot and must not clear a child process's environment.
     /// This does not execute in or change the user's interactive shell.
-    /// `None` means integration has not supplied a snapshot; an empty snapshot is intentional.
     pub fn environment_variables(
         &self,
         app: &AppContext,

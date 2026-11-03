@@ -107,6 +107,8 @@ pub struct BackgroundJobLaunch {
     pub command: String,
     pub working_directory: PathBuf,
     pub shell: Option<ShellLaunchData>,
+    /// Partial session metadata overrides, not a complete exported environment.
+    /// The execution host's environment and shell profile supply other values.
     pub environment: Option<HashMap<String, String>>,
     pub host_id: Option<HostId>,
 }
@@ -291,7 +293,7 @@ impl BackgroundJobsModel {
         if !cwd.is_dir() {
             return Err("The command working directory is not a directory".to_owned());
         }
-        let mut command = runtime::command_for_launch(&launch)?;
+        let mut command = runtime::command_for_launch(&launch, &cwd)?;
         command.current_dir(&cwd);
         ensure_private_directory(&self.log_directory)
             .map_err(|error| format!("Cannot create temporary job log directory: {error}"))?;
