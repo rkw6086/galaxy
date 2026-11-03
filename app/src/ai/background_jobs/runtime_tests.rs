@@ -185,6 +185,145 @@ line2"
 
 #[cfg(unix)]
 #[tokio::test]
+async fn zsh_worker_retains_profile_functions_aliases_and_state_without_interactivity() {
+    let Some(zsh) = std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|path| path.join("zsh"))
+            .find(|path| path.is_file())
+    }) else {
+        // Optional host tool: fixture coverage never sources real user profiles.
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let cwd = std::fs::canonicalize(root.path()).unwrap();
+    let shell = cwd.join("fixture-zsh");
+    let home = cwd.join("home");
+    let rc_directory = cwd.join("rc");
+    let bin = home.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir(&rc_directory).unwrap();
+    // Exercise the selected zsh worker and constant setup script while
+    // disabling automatic user/login profiles in this isolated fixture.
+    write_executable(
+        &shell,
+        r#"#!/bin/sh
+printf '%s\n' "$@" >> "$GALAXY_TEST_ARGV"
+printf '%s' "$$" > "$GALAXY_TEST_PID"
+if [ "$1" != '-l' ] || [ "$2" != '-c' ]; then exit 95; fi
+shift
+exec "$GALAXY_TEST_ZSH" -f "$@"
+"#,
+    );
+    write_executable(
+        &bin.join("galaxy-fixture-tool"),
+        r#"#!/bin/sh
+if [ "${GALAXY_TEST_UNEXPORTED+x}" = x ]; then exit 94; fi
+printf 'tool:%s:%s\n' "$1" "$2"
+"#,
+    );
+    std::fs::write(
+        bin.join("worktree.zsh"),
+        r#"wt() {
+    "$HOME/bin/galaxy-fixture-tool" "$GALAXY_TEST_UNEXPORTED" "$@"
+}
+alias galaxy-fixture-alias='wt alias'
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        rc_directory.join(".zshrc"),
+        r#"if [[ -o interactive || $# -ne 0 ]]; then return 93; fi
+printf '%s\n' loaded >> "$GALAXY_TEST_PROFILE_COUNT"
+source "$HOME/bin/worktree.zsh"
+GALAXY_TEST_UNEXPORTED='worker-state'
+GALAXY_TEST_PROFILE_PID=$$
+export PATH="$HOME/bin:$PATH"
+export GALAXY_TEST_OVERRIDE=profile
+export CI=profile
+export TERM=profile
+export SSH_ASKPASS=profile
+export SUDO_ASKPASS=profile
+export BASH_ENV=profile
+export ENV=profile
+builtin set -- 'rc changed argv' 'discard these arguments'
+builtin cd /
+"#,
+    )
+    .unwrap();
+    let script = r#"printf '%s\n' "$PWD" "$0" "$GALAXY_TEST_PROFILE_PID" "$GALAXY_TEST_OVERRIDE" "$CI" "$TERM" "${SSH_ASKPASS-unset}" "${SUDO_ASKPASS-unset}" "${BASH_ENV-unset}" "${ENV-unset}" "$#"
+if [[ -o interactive || -t 0 || -t 1 || -t 2 ]]; then exit 99; fi
+if IFS= read -r ignored; then exit 98; fi
+wt direct
+galaxy-fixture-alias
+galaxy-fixture-tool lookup via-path
+printf '%s\n' "a'b \"quoted\"" "line1
+line2"
+# trailing comment
+"#;
+    let secret = "synthetic-zsh-session-value-not-for-argv";
+    let argv_log = cwd.join("argv");
+    let pid_file = cwd.join("pid");
+    let profile_count = cwd.join("profile-count");
+    for (index, (text, expected_code, expected_tail)) in [
+        (script, 0, None),
+        (
+            "wt exit-check\nexit 17\n# trailing comment",
+            17,
+            Some("tool:worker-state:exit-check\n"),
+        ),
+        (
+            "wt failure-check\nfalse\n# trailing comment",
+            1,
+            Some("tool:worker-state:failure-check\n"),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut launch = fixture_launch(shell.clone(), ShellType::Zsh, text, &cwd);
+        launch.environment = Some(HashMap::from([(
+            "GALAXY_TEST_OVERRIDE".into(),
+            secret.into(),
+        )]));
+        let mut command = command_for_launch(&launch, &cwd).unwrap();
+        command
+            .current_dir(&cwd)
+            .env("HOME", &home)
+            .env("ZDOTDIR", &rc_directory)
+            .env("GALAXY_TEST_ZSH", &zsh)
+            .env("GALAXY_TEST_ARGV", &argv_log)
+            .env("GALAXY_TEST_PID", &pid_file)
+            .env("GALAXY_TEST_PROFILE_COUNT", &profile_count)
+            .env_remove("GALAXY_TEST_UNEXPORTED")
+            .env_remove("GALAXY_TEST_PROFILE_PID");
+        let output = command.output().await.unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(expected_code),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected = if let Some(tail) = expected_tail {
+            tail.to_owned()
+        } else {
+            let original_pid = std::fs::read_to_string(&pid_file).unwrap();
+            format!(
+                "{}\n{}\n{original_pid}\n{secret}\n1\ndumb\nunset\nunset\nunset\nunset\n0\ntool:worker-state:direct\ntool:worker-state:alias\ntool:lookup:via-path\na'b \"quoted\"\nline1\nline2\n",
+                cwd.display(),
+                shell.display()
+            )
+        };
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+        assert_eq!(
+            std::fs::read_to_string(&profile_count).unwrap(),
+            "loaded\n".repeat(index + 1)
+        );
+    }
+    assert!(!std::fs::read_to_string(argv_log).unwrap().contains(secret));
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn powershell_setup_preserves_explicit_exit_native_failure_and_script_text() {
     let Some(pwsh) = std::env::var_os("PATH").and_then(|paths| {
         std::env::split_paths(&paths)

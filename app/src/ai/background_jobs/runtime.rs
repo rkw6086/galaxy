@@ -322,9 +322,9 @@ const NONINTERACTIVE_ENVIRONMENT: &[(&str, &str)] = &[
     ("SSH_ASKPASS_REQUIRE", "never"),
 ];
 
-// Only profile initialization is interactive. The approved command is passed as
-// one untouched argv item to a fresh noninteractive shell, never interpolated
-// into these setup scripts. exec keeps the existing owned process-group leader.
+// Commands are passed as untouched data to constant setup scripts and execute
+// noninteractively in the owned process tree. Bash/fish use a profile bootstrap;
+// zsh keeps rc-defined shell state in its noninteractive command worker.
 // Private environment shuttles preserve explicit overrides through rc files
 // without exposing their values in argv, files, or captured environment output.
 const BASH_PROFILE_SETUP: &str = r#"
@@ -355,18 +355,31 @@ __galaxy_job_cwd=$1
 __galaxy_job_prefix=$2
 __galaxy_job_count=$3
 builtin shift 3
+__galaxy_job_keys=()
 while [ "$__galaxy_job_count" -gt 0 ]; do
-    __galaxy_job_key=$1
+    __galaxy_job_keys+=("$1")
+    builtin shift
+    __galaxy_job_count=$((__galaxy_job_count - 1))
+done
+__galaxy_job_command=$1
+builtin set --
+# Keep rc-defined functions, aliases and unexported state in the command worker.
+# Login files are loaded by zsh; noninteractive shells need an explicit zshrc.
+__galaxy_job_rc="${ZDOTDIR:-$HOME}/.zshrc"
+if [[ -r "$__galaxy_job_rc" ]]; then
+    builtin source "$__galaxy_job_rc"
+fi
+builtin unsetopt XTRACE VERBOSE MONITOR
+builtin set --
+for __galaxy_job_key in "${__galaxy_job_keys[@]}"; do
     __galaxy_job_slot="$__galaxy_job_prefix$__galaxy_job_key"
     builtin typeset -p "$__galaxy_job_slot" >/dev/null 2>&1 || exit 126
     builtin export "$__galaxy_job_key=${(P)__galaxy_job_slot}" || exit 126
     builtin unset "$__galaxy_job_slot"
-    builtin shift
-    __galaxy_job_count=$((__galaxy_job_count - 1))
 done
 builtin unset SSH_ASKPASS SUDO_ASKPASS BASH_ENV ENV
 builtin cd -- "$__galaxy_job_cwd" || exit 126
-builtin exec -- "$@"
+builtin eval -- "$__galaxy_job_command"
 "#;
 
 const FISH_PROFILE_SETUP: &str = r#"
@@ -551,35 +564,45 @@ fn configure_profile_bootstrap(
     shell_type: ShellType,
     environment: &HashMap<String, String>,
 ) -> Result<(), String> {
+    let msys = matches!(&launch.shell, Some(ShellLaunchData::MSYS2 { .. }));
     let prefix = format!("{BACKGROUND_ENV_PREFIX}{}_", uuid::Uuid::new_v4().simple());
     let mut keys = environment.keys().collect::<Vec<_>>();
     keys.sort();
     let (setup, inner_flags): (&str, &[&str]) = match shell_type {
         ShellType::Bash => (BASH_PROFILE_SETUP, &["--noprofile", "--norc", "-c"]),
-        ShellType::Zsh => (ZSH_PROFILE_SETUP, &["-f", "-c"]),
+        ShellType::Zsh => (ZSH_PROFILE_SETUP, &[]),
         ShellType::Fish => (FISH_PROFILE_SETUP, &["--no-config", "-c"]),
         ShellType::PowerShell => return Err("Invalid shell bootstrap selection".to_owned()),
     };
-    command.args(["-i", "-l"]);
-    if shell_type != ShellType::Fish {
-        // No terminal is attached: profile initialization must not create
-        // separate interactive job-control groups before the owned exec.
-        command.arg("+m");
+    if shell_type == ShellType::Zsh {
+        // Source zshrc and execute in one noninteractive process. A second zsh
+        // would discard rc-defined functions such as user command wrappers.
+        command.args(["-l", "-c", setup]);
+        command.arg(shell_path_argument(program, msys)?);
+    } else {
+        command.args(["-i", "-l"]);
+        if shell_type == ShellType::Bash {
+            // No terminal is attached: profile initialization must not create
+            // separate interactive job-control groups before the owned exec.
+            command.arg("+m");
+        }
+        command.args(["-c", setup]);
+        // Bash reserves this as $0; fish uses every following argument as $argv.
+        if shell_type == ShellType::Bash {
+            command.arg("galaxy-background-job");
+        }
     }
-    command.args(["-c", setup]);
-    // Bash/zsh reserve this argument as $0; fish puts every following argument in $argv.
-    if shell_type != ShellType::Fish {
-        command.arg("galaxy-background-job");
-    }
-    let msys = matches!(&launch.shell, Some(ShellLaunchData::MSYS2 { .. }));
     command.arg(shell_path_argument(approved_directory, msys)?);
     command.arg(&prefix).arg(keys.len().to_string());
     for key in keys {
         command.arg(key);
         command.env(format!("{prefix}{key}"), &environment[key]);
     }
-    command.arg(shell_path_argument(program, msys)?);
-    command.args(inner_flags).arg(&launch.command);
+    if shell_type != ShellType::Zsh {
+        command.arg(shell_path_argument(program, msys)?);
+        command.args(inner_flags);
+    }
+    command.arg(&launch.command);
     Ok(())
 }
 
