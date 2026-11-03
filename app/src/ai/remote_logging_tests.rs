@@ -64,3 +64,79 @@ fn streamed_json_matches_serialized_payload_without_materializing_the_archive() 
     });
     assert_eq!(actual, tail_limited_payload_context(&expected, 100));
 }
+
+#[test]
+fn prefix_payload_preserves_utf8_and_reports_unknown_truncated_size() {
+    let payload = "é日本🙂 ending";
+    for limit in [0, 1, 3, 4, payload.chars().count(), payload.len()] {
+        for chunk_size in [1, 2, 7, payload.len()] {
+            let actual = super::prefix_bounded_payload_context(limit, |writer| {
+                for chunk in payload.as_bytes().chunks(chunk_size) {
+                    writer.write_all(chunk).map_err(serde_json::Error::io)?;
+                }
+                Ok(())
+            });
+            let expected = payload.chars().take(limit).collect::<String>();
+            let truncated = limit < payload.chars().count();
+            assert_eq!(actual["payload"], expected);
+            assert_eq!(actual["payload_included_chars"], expected.chars().count());
+            assert_eq!(actual["truncated"], truncated);
+            assert_eq!(actual["serialization_stopped_early"], truncated);
+            assert_eq!(
+                actual["payload_total_chars"],
+                if truncated {
+                    serde_json::Value::Null
+                } else {
+                    json!(payload.chars().count())
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn prefix_payload_stops_pretty_debug_serialization_at_the_budget() {
+    use std::cell::Cell;
+
+    struct LargeDebug<'a>(&'a Cell<usize>);
+    impl std::fmt::Debug for LargeDebug<'_> {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            for _ in 0..1_000_000 {
+                self.0.set(self.0.get() + 1);
+                formatter.write_str("large archive entry ")?;
+            }
+            Ok(())
+        }
+    }
+    struct DebugPayload<'a>(LargeDebug<'a>);
+    impl serde::Serialize for DebugPayload<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_str(&format_args!("{:#?}", self.0))
+        }
+    }
+
+    let visited = Cell::new(0);
+    let actual = super::prefix_bounded_payload_context(64, |writer| {
+        serde_json::to_writer(writer, &DebugPayload(LargeDebug(&visited)))
+    });
+
+    assert!(visited.get() < 10);
+    assert_eq!(actual["payload_included_chars"], 64);
+    assert_eq!(actual["truncated"], true);
+    assert_eq!(actual["payload_total_chars"], serde_json::Value::Null);
+    assert_eq!(actual["truncation_strategy"], "prefix");
+}
+
+#[test]
+fn prefix_payload_keeps_real_serialization_errors_visible() {
+    let actual = super::prefix_bounded_payload_context(100, |_writer| {
+        Err(serde_json::Error::io(std::io::Error::other(
+            "test serializer failed",
+        )))
+    });
+    assert!(actual["serialization_error"]
+        .as_str()
+        .unwrap()
+        .contains("test serializer failed"));
+    assert!(actual.get("payload").is_none());
+}

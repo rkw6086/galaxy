@@ -844,6 +844,11 @@ fn provider_safe_mcp_tool_name(server_id: Option<&str>, tool_name: &str) -> Stri
     format!("{prefix}{component}{separator}{hash}")
 }
 
+fn deduplicate_context_entries<T: Clone + Eq + std::hash::Hash>(entries: &mut Vec<T>) {
+    let mut seen = HashSet::with_capacity(entries.len());
+    entries.retain(|entry| seen.insert(entry.clone()));
+}
+
 fn build_system_prompt(
     inputs: &[AIAgentInput],
     tools: &[ToolDefinition],
@@ -988,6 +993,13 @@ fn build_system_prompt(
             AIAgentContext::Image(_) => {}
         }
     }
+    // Grouped inputs, such as background-job completions, can share the same context.
+    // Emit each exact context entry once, retaining its first position and all distinct
+    // content. Conversational inputs and tool results remain separate and unchanged.
+    deduplicate_context_entries(&mut environment);
+    deduplicate_context_entries(&mut project_rules);
+    deduplicate_context_entries(&mut attached_context);
+    deduplicate_context_entries(&mut available_skills);
     if !environment.is_empty() {
         prompt.push_str("## Environment\n");
         for item in environment {

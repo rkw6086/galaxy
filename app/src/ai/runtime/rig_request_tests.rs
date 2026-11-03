@@ -81,6 +81,177 @@ fn native_context_reaches_rig_without_a_proto_context_conversion() {
     assert!(prompt.contains("Indexed codebase: galaxy (/repo)"));
 }
 
+fn shared_prompt_context(
+    directory: &str,
+    rule: &str,
+    attachment: &str,
+    skill_description: &str,
+) -> Vec<AIAgentContext> {
+    vec![
+        AIAgentContext::Directory {
+            pwd: Some(directory.to_string()),
+            home_dir: Some("/home/user".to_string()),
+            are_file_symbols_indexed: false,
+        },
+        AIAgentContext::ProjectRules {
+            root_path: "/repo".to_string(),
+            active_rules: vec![FileContext::new(
+                "/repo/AGENTS.md".to_string(),
+                AnyFileContent::StringContent(rule.to_string()),
+                None,
+                None,
+            )],
+            additional_rule_paths: Vec::new(),
+        },
+        AIAgentContext::File(FileContext::new(
+            "/repo/context.txt".to_string(),
+            AnyFileContent::StringContent(attachment.to_string()),
+            None,
+            None,
+        )),
+        AIAgentContext::Skills {
+            skills: vec![SkillDescriptor {
+                reference: SkillReference::Path(LocalOrRemotePath::Local(PathBuf::from(
+                    "/repo/.agents/skills/context-probe/SKILL.md",
+                ))),
+                name: "context-probe".to_string(),
+                description: skill_description.to_string(),
+                scope: SkillScope::Project,
+                provider: SkillProvider::Agents,
+                icon_override: None,
+            }],
+        },
+    ]
+}
+
+#[test]
+fn grouped_completions_share_context_without_dropping_inputs_or_tool_results() {
+    let context = shared_prompt_context(
+        "/repo",
+        "shared-rule-probe",
+        "shared-attachment-probe",
+        "shared-skill-description-probe",
+    );
+    let mut params = RequestParams::new_for_test();
+    params.input = (0..4)
+        .map(|index| AIAgentInput::CommandCompletionAssessment {
+            prompt: format!("Completion evidence for job {index}"),
+            context: Arc::from(context.clone()),
+            completed_command: crate::ai::agent::RunningCommand {
+                command: format!("command-{index}"),
+                block_id: format!("background-job:{index}").into(),
+                grid_contents: String::new(),
+                cursor: String::new(),
+                requested_command_id: None,
+                is_alt_screen_active: false,
+            },
+        })
+        .collect();
+    // Repeated user restrictions remain distinct conversational inputs.
+    params.input.extend([
+        user_query_with_context("Do not deploy", context.clone()),
+        user_query_with_context("Do not deploy", context),
+    ]);
+    params.message_history = vec![galaxy_agent_core::ConversationMessage {
+        role: MessageRole::Assistant,
+        content: MessageContent::ToolUse {
+            tool_use_id: "retained-call".to_string(),
+            name: "read_files".to_string(),
+            input: serde_json::json!({ "files": ["/repo/file.rs"] }),
+        },
+    }];
+    params.tool_results = vec![ToolResult {
+        call_id: "retained-call".to_string(),
+        content: "retained-tool-result-probe".to_string(),
+        status: ToolResultStatus::Success,
+        images: Vec::new(),
+    }];
+
+    let prepared = prepare_rig_turn(
+        &config(),
+        params,
+        vec![ToolType::ReadFiles, ToolType::ReadSkill],
+        Vec::new(),
+    );
+    let prompt = prepared.request.system_prompt.expect("system prompt");
+    for entry in [
+        "Working directory: /repo",
+        "Home directory: /home/user",
+        "shared-rule-probe",
+        "shared-attachment-probe",
+        "shared-skill-description-probe",
+    ] {
+        assert_eq!(
+            prompt.matches(entry).count(),
+            1,
+            "repeated context: {entry}"
+        );
+    }
+    for index in 0..4 {
+        assert!(prepared.request.messages.iter().any(|message| {
+            matches!(&message.content, MessageContent::Text(text)
+                if text == &format!("Completion evidence for job {index}"))
+        }));
+    }
+    assert_eq!(
+        prepared
+            .request
+            .messages
+            .iter()
+            .filter(|message| {
+                matches!(&message.content, MessageContent::Text(text) if text == "Do not deploy")
+            })
+            .count(),
+        2,
+    );
+    assert!(prepared.request.messages.iter().any(|message| {
+        matches!(&message.content, MessageContent::ToolResult { tool_use_id, content, .. }
+            if tool_use_id == "retained-call" && content == "retained-tool-result-probe")
+    }));
+}
+
+#[test]
+fn distinct_context_content_keeps_its_first_order_even_with_shared_paths() {
+    let first = shared_prompt_context(
+        "/repo/first",
+        "first-rule-probe",
+        "first-attachment-probe",
+        "first-skill-description-probe",
+    );
+    let second = shared_prompt_context(
+        "/repo/second",
+        "second-rule-probe",
+        "second-attachment-probe",
+        "second-skill-description-probe",
+    );
+    let mut params = RequestParams::new_for_test();
+    params.input = vec![
+        user_query_with_context("First instruction", first.clone()),
+        user_query_with_context("Second instruction", second),
+        user_query_with_context("Third instruction", first),
+    ];
+
+    let prepared = prepare_rig_turn(&config(), params, vec![ToolType::ReadSkill], Vec::new());
+    let prompt = prepared.request.system_prompt.expect("system prompt");
+    for (first, second) in [
+        (
+            "Working directory: /repo/first",
+            "Working directory: /repo/second",
+        ),
+        ("first-rule-probe", "second-rule-probe"),
+        ("first-attachment-probe", "second-attachment-probe"),
+        (
+            "first-skill-description-probe",
+            "second-skill-description-probe",
+        ),
+    ] {
+        assert_eq!(prompt.matches(first).count(), 1);
+        assert_eq!(prompt.matches(second).count(), 1);
+        assert!(prompt.find(first).unwrap() < prompt.find(second).unwrap());
+    }
+    assert_eq!(prepared.request.messages.len(), 3);
+}
+
 #[test]
 fn volatile_request_time_follows_the_cacheable_system_prompt_prefix() {
     let mut params = RequestParams::new_for_test();

@@ -1059,7 +1059,7 @@ impl ResponseStream {
 
 #[cfg(not(target_family = "wasm"))]
 fn raw_model_request_payload(params: &api::RequestParams, max_chars: usize) -> serde_json::Value {
-    use serde::ser::{SerializeMap, Serializer};
+    use serde::ser::{SerializeMap, SerializeSeq, Serializer};
 
     // collect_str writes debug output directly through serde_json's escaping
     // writer, without format! allocating another copy of potentially large input.
@@ -1070,7 +1070,18 @@ fn raw_model_request_payload(params: &api::RequestParams, max_chars: usize) -> s
         }
     }
 
-    remote_logging::bounded_payload_context(max_chars, |writer| {
+    struct NewestFirst<'a, T>(&'a [T]);
+    impl<T: serde::Serialize> serde::Serialize for NewestFirst<'_, T> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let mut sequence = serializer.serialize_seq(Some(self.0.len()))?;
+            for message in self.0.iter().rev() {
+                sequence.serialize_element(message)?;
+            }
+            sequence.end()
+        }
+    }
+
+    remote_logging::prefix_bounded_payload_context(max_chars, |writer| {
         let mut serializer = serde_json::Serializer::pretty(writer);
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("model_id", &params.model.as_str())?;
@@ -1079,10 +1090,14 @@ fn raw_model_request_payload(params: &api::RequestParams, max_chars: usize) -> s
         map.serialize_entry("computer_use_model_id", &params.computer_use_model.as_str())?;
         map.serialize_entry("input", &DebugPayload(&params.input))?;
         map.serialize_entry("tool_results", &DebugPayload(&params.tool_results))?;
-        map.serialize_entry("tasks", &DebugPayload(&params.tasks))?;
-        map.serialize_entry("message_history", &params.message_history)?;
         map.serialize_entry("progressive_summary", &params.progressive_summary)?;
-        map.serialize_entry("tool_result_archive", &params.tool_result_archive)?;
+        // Preserve the newest request context before old task/debug archives can
+        // consume the diagnostic budget. This ordering affects diagnostics only.
+        map.serialize_entry("message_history_order", "newest_first")?;
+        map.serialize_entry(
+            "message_history",
+            &NewestFirst(params.message_history.as_slice()),
+        )?;
         map.serialize_entry("global_rules", &params.global_rules)?;
         map.serialize_entry("mcp_context", &DebugPayload(&params.mcp_context))?;
         map.serialize_entry("autonomy_level", &DebugPayload(&params.autonomy_level))?;
@@ -1115,7 +1130,9 @@ fn raw_model_request_payload(params: &api::RequestParams, max_chars: usize) -> s
             "omitted_sensitive_fields",
             &["api_keys", "custom_model_providers", "custom_model_routers"],
         )?;
-        map.end()
+        map.serialize_entry("tasks", &DebugPayload(&params.tasks))?;
+        map.serialize_entry("tool_result_archive", &params.tool_result_archive)?;
+        SerializeMap::end(map)
     })
 }
 

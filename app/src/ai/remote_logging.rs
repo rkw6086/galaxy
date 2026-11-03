@@ -311,6 +311,89 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
     truncated
 }
 
+/// Stop serialization once the diagnostic prefix is full. Unlike the tail
+/// collector below, this does not walk the remaining history or tool archive.
+/// A truncated prefix is diagnostic text, not a complete serialized request.
+pub(crate) fn prefix_bounded_payload_context(
+    max_chars: usize,
+    serialize: impl FnOnce(&mut dyn std::io::Write) -> serde_json::Result<()>,
+) -> Value {
+    struct PrefixWriter {
+        bytes: Vec<u8>,
+        max_chars: usize,
+        max_bytes: usize,
+        chars: usize,
+        truncated: bool,
+    }
+
+    impl std::io::Write for PrefixWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if self.truncated {
+                return Err(std::io::Error::other("diagnostic prefix limit reached"));
+            }
+            let mut included = 0;
+            for byte in bytes {
+                let starts_character = byte & 0xc0 != 0x80;
+                if (starts_character && self.chars == self.max_chars)
+                    || self.bytes.len().saturating_add(included) == self.max_bytes
+                {
+                    self.bytes.extend_from_slice(&bytes[..included]);
+                    self.truncated = true;
+                    return if included == 0 {
+                        Err(std::io::Error::other("diagnostic prefix limit reached"))
+                    } else {
+                        // Respect Write's short-write contract. serde's write_all
+                        // immediately retries the remainder and receives the error.
+                        Ok(included)
+                    };
+                }
+                if starts_character {
+                    self.chars += 1;
+                }
+                included += 1;
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut writer = PrefixWriter {
+        bytes: Vec::new(),
+        max_chars,
+        max_bytes: max_chars.saturating_mul(4),
+        chars: 0,
+        truncated: false,
+    };
+    let result = serialize(&mut writer);
+    if let Err(error) = result {
+        if !writer.truncated {
+            return json!({ "serialization_error": sanitize_error(error) });
+        }
+    }
+    // Writers may split a UTF-8 character across calls. Keep only a complete
+    // prefix if serialization stopped before the last character was finished.
+    let valid_length = match std::str::from_utf8(&writer.bytes) {
+        Ok(_) => writer.bytes.len(),
+        Err(error) => error.valid_up_to(),
+    };
+    writer.bytes.truncate(valid_length);
+    let payload = String::from_utf8(writer.bytes).expect("validated diagnostic UTF-8 prefix");
+    let included_chars = payload.chars().count();
+    json!({
+        "payload": payload,
+        "payload_total_chars": if writer.truncated { None } else { Some(included_chars) },
+        "payload_included_chars": included_chars,
+        "payload_max_chars": max_chars,
+        "truncated": writer.truncated,
+        "truncation_strategy": if writer.truncated { Some("prefix") } else { None },
+        "serialization_stopped_early": writer.truncated,
+    })
+}
+
 /// Serialize directly into a bounded UTF-8 tail instead of materializing the full
 /// request and its archive as a JSON Value and then another large String.
 pub(crate) fn bounded_payload_context(
