@@ -43,7 +43,7 @@ pub(crate) enum RemoteLogLevel {
 }
 
 impl RemoteLogLevel {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Info => "info",
             Self::Warn => "warn",
@@ -99,6 +99,10 @@ pub(crate) fn log_model_event<M>(ctx: &mut ModelContext<M>, record: RemoteLogRec
 where
     M: Entity,
 {
+    super::activity::record_log(&record);
+    if is_raw_payload(&record) && !remote_payloads_enabled(AISettings::as_ref(ctx)) {
+        return;
+    }
     let Some(config) = RemoteLogConfig::from_settings(AISettings::as_ref(ctx)) else {
         return;
     };
@@ -126,6 +130,10 @@ where
 /// Views must log without updating AISettings: its singleton cannot be read
 /// while it is temporarily borrowed by a model update.
 pub(crate) fn log_view_event<V: View>(ctx: &mut ViewContext<V>, record: RemoteLogRecord) {
+    super::activity::record_log(&record);
+    if is_raw_payload(&record) && !remote_payloads_enabled(AISettings::as_ref(ctx)) {
+        return;
+    }
     let Some(config) = RemoteLogConfig::from_settings(AISettings::as_ref(ctx)) else {
         return;
     };
@@ -219,15 +227,32 @@ where
     M: Entity,
 {
     let settings = AISettings::as_ref(ctx);
-    if !*settings.remote_logging_enabled.value()
-        || !*settings.remote_logging_log_model_payloads.value()
-        || settings.remote_logging_api_key.value().trim().is_empty()
-    {
+    let remote_enabled = remote_payloads_enabled(settings);
+    let local_enabled = super::activity::is_recording();
+    if !remote_enabled && !local_enabled {
         return None;
     }
 
-    let max_chars = (*settings.remote_logging_model_payload_max_chars.value()).max(1);
+    let remote_max = (*settings.remote_logging_model_payload_max_chars.value()).max(1);
+    let max_chars = if remote_enabled {
+        remote_max
+    } else {
+        super::activity::MAX_PAYLOAD_CHARS
+    };
     Some(build_payload(max_chars))
+}
+
+fn remote_payloads_enabled(settings: &AISettings) -> bool {
+    *settings.remote_logging_enabled.value()
+        && *settings.remote_logging_log_model_payloads.value()
+        && !settings.remote_logging_api_key.value().trim().is_empty()
+}
+
+fn is_raw_payload(record: &RemoteLogRecord) -> bool {
+    matches!(
+        record.context.get("event").and_then(Value::as_str),
+        Some("raw_model_request" | "raw_model_response")
+    )
 }
 
 fn enrich_context(mut context: Value) -> Value {

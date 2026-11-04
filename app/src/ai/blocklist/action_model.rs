@@ -821,6 +821,18 @@ fn log_tool_event(
     );
 }
 
+/// Stream the app's projected tool arguments into the inspector's bounded
+/// writer instead of allocating an unbounded Debug string first.
+#[cfg(not(target_family = "wasm"))]
+struct ActivityToolArguments<'a>(&'a AIAgentActionType);
+
+#[cfg(not(target_family = "wasm"))]
+impl serde::Serialize for ActivityToolArguments<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(&format_args!("{:#?}", self.0))
+    }
+}
+
 pub struct BlocklistAIActionModel {
     executor: ModelHandle<BlocklistAIActionExecutor>,
     active_session: ModelHandle<ActiveSession>,
@@ -2029,6 +2041,22 @@ impl BlocklistAIActionModel {
                 action.id,
                 std::mem::discriminant(&action.action)
             );
+            #[cfg(not(target_family = "wasm"))]
+            if crate::ai::activity::is_recording() {
+                crate::ai::activity::record_serializable(
+                    "tool_call",
+                    format!("Tool requested: {}", action_tool_name(action)),
+                    serde_json::json!({
+                        "conversation_id": conversation_id.to_string(),
+                        "action_id": action.id.to_string(),
+                        "task_id": action.task_id.to_string(),
+                        "tool_name": action_tool_name(action),
+                        "payload_kind": "projected_tool_arguments",
+                        "requires_result": action.requires_result,
+                    }),
+                    &ActivityToolArguments(&action.action),
+                );
+            }
         }
         #[cfg(not(target_family = "wasm"))]
         log_tool_event(
@@ -2615,6 +2643,41 @@ impl BlocklistAIActionModel {
             .remove(&(conversation_id, action_result.id.clone()))
         {
             tool_result.content = reason;
+        }
+        #[cfg(not(target_family = "wasm"))]
+        if crate::ai::activity::is_recording() {
+            #[derive(serde::Serialize)]
+            struct ResultPayload<'a> {
+                content: &'a str,
+                status: &'a ToolResultStatus,
+                image_count: usize,
+                image_bytes_omitted: usize,
+            }
+            crate::ai::activity::record_serializable(
+                "tool_result",
+                format!(
+                    "Tool result: {}",
+                    action_result_type_name(&action_result.result)
+                ),
+                serde_json::json!({
+                    "conversation_id": conversation_id.to_string(),
+                    "action_id": action_result.id.to_string(),
+                    "task_id": action_result.task_id.to_string(),
+                    "result_type": action_result_type_name(&action_result.result),
+                    "permission_denied": permission_denied,
+                    "payload_kind": "provider_neutral_tool_result",
+                }),
+                &ResultPayload {
+                    content: &tool_result.content,
+                    status: &tool_result.status,
+                    image_count: tool_result.images.len(),
+                    image_bytes_omitted: tool_result
+                        .images
+                        .iter()
+                        .map(|image| image.data.len())
+                        .sum(),
+                },
+            );
         }
         if execution_ref.is_none() {
             self.finished_tool_results

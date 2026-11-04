@@ -155,6 +155,8 @@ use super::util::{
 };
 use super::{util, ActiveSession, TabBarDropTargetData, TabBarLocation, WorkspaceRegistry};
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::activity::view::AIActivityView;
 use crate::ai::agent::api::ServerConversationToken;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent::conversation::AIAgentHarness;
@@ -1060,6 +1062,8 @@ pub struct Workspace {
     new_worktree_modal: ModalViewState<Modal<NewWorktreeModal>>,
     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
     background_jobs_modal: ModalViewState<Modal<BackgroundJobsView>>,
+    #[cfg(not(target_family = "wasm"))]
+    ai_activity_modal: ModalViewState<Modal<AIActivityView>>,
     close_session_confirmation_dialog: ViewHandle<CloseSessionConfirmationDialog>,
     rewind_confirmation_dialog: ViewHandle<RewindConfirmationDialog>,
     delete_conversation_confirmation_dialog: ViewHandle<DeleteConversationConfirmationDialog>,
@@ -2181,6 +2185,43 @@ impl Workspace {
         ModalViewState::new(modal)
     }
 
+    #[cfg(not(target_family = "wasm"))]
+    fn build_ai_activity_modal(
+        ctx: &mut ViewContext<Self>,
+    ) -> ModalViewState<Modal<AIActivityView>> {
+        let body = ctx.add_typed_action_view(AIActivityView::new);
+        let modal = ctx.add_typed_action_view(|ctx| {
+            Modal::new(Some("AI Activity".to_owned()), body, ctx)
+                .with_modal_style(UiComponentStyles {
+                    width: Some(1120.),
+                    height: Some(760.),
+                    ..Default::default()
+                })
+                .with_header_style(UiComponentStyles {
+                    height: Some(58.),
+                    ..Default::default()
+                })
+                .with_body_style(UiComponentStyles {
+                    padding: Some(Coords::uniform(12.)),
+                    height: Some(680.),
+                    ..Default::default()
+                })
+                .with_max_height_percentage(0.9)
+                .with_dismiss_on_click()
+        });
+        ctx.subscribe_to_view(&modal, |me, _, event, ctx| {
+            if matches!(event, ModalEvent::Close) {
+                me.ai_activity_modal.close();
+                me.ai_activity_modal.view.update(ctx, |modal, ctx| {
+                    modal.body().update(ctx, |view, ctx| view.on_close(ctx));
+                });
+                me.focus_active_tab(ctx);
+                ctx.notify();
+            }
+        });
+        ModalViewState::new(modal)
+    }
+
     fn build_remove_tab_config_confirmation_dialog(
         ctx: &mut ViewContext<Self>,
     ) -> ViewHandle<RemoveTabConfigConfirmationDialog> {
@@ -3026,6 +3067,8 @@ impl Workspace {
         let new_worktree_modal = Self::build_new_worktree_modal(ctx);
         #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
         let background_jobs_modal = Self::build_background_jobs_modal(ctx);
+        #[cfg(not(target_family = "wasm"))]
+        let ai_activity_modal = Self::build_ai_activity_modal(ctx);
 
         let session_config_modal = Self::build_session_config_modal(ctx);
 
@@ -3427,6 +3470,8 @@ impl Workspace {
             new_worktree_modal,
             #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
             background_jobs_modal,
+            #[cfg(not(target_family = "wasm"))]
+            ai_activity_modal,
             close_session_confirmation_dialog,
             rewind_confirmation_dialog,
             delete_conversation_confirmation_dialog,
@@ -24012,6 +24057,16 @@ impl TypedActionView for Workspace {
             OpenNetworkLogPane => {
                 self.open_network_log_pane(ctx);
             }
+            OpenAIActivity => {
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    self.ai_activity_modal.view.update(ctx, |modal, ctx| {
+                        modal.body().update(ctx, |view, ctx| view.on_open(ctx));
+                    });
+                    self.ai_activity_modal.open();
+                    ctx.notify();
+                }
+            }
             FixSettingsWithOz { error_description } => {
                 use crate::ai::skills::SkillManager;
                 let modify_settings_skill = SkillManager::as_ref(ctx)
@@ -26868,6 +26923,10 @@ impl View for Workspace {
         #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
         if self.background_jobs_modal.is_open() {
             stack.add_child(self.background_jobs_modal.render());
+        }
+        #[cfg(not(target_family = "wasm"))]
+        if self.ai_activity_modal.is_open() {
+            stack.add_child(self.ai_activity_modal.render());
         }
 
         if self.workflow_modal.as_ref(app).is_open() {

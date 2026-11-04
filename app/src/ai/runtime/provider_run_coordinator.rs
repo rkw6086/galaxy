@@ -12,12 +12,15 @@ use galaxy_agent_core::{
     ModelFailureDisposition, PendingToolBatch, ProviderModelCall, ProviderRequestProfile,
     ProviderRun, ProviderRunFailureKind, ProviderRunId, ProviderRunLimits, ProviderRunOutcome,
     ProviderRunPhase, ProviderRunProtocolError, ProviderRunState, ProviderRunStep, RunEpoch,
-    RuntimeKind, StopReason, TaskListSnapshot, ToolEvent, TurnCommand, TurnControl, TurnRequest, Usage,
+    RuntimeKind, StopReason, TaskListSnapshot, ToolEvent, TurnCommand, TurnControl, TurnRequest,
+    Usage,
 };
 use instant::Instant;
 use warpui::r#async::Timer;
 
 use super::task_progress::{add_task_list_context, initial_task_list, task_list_from_plan_batch};
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::activity;
 use crate::ai::agent::conversation::AIConversationId;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::model_output_logging;
@@ -285,6 +288,8 @@ pub(crate) struct ProviderRunCoordinator {
     model_event_idle_timeout: Duration,
     context_compaction_requested: bool,
     max_context_tokens: Option<u32>,
+    #[cfg(not(target_family = "wasm"))]
+    activity_session_id: Option<String>,
 }
 
 impl ProviderRunCoordinator {
@@ -327,6 +332,8 @@ impl ProviderRunCoordinator {
             model_event_idle_timeout: PROVIDER_MODEL_EVENT_IDLE_TIMEOUT,
             context_compaction_requested: false,
             max_context_tokens: None,
+            #[cfg(not(target_family = "wasm"))]
+            activity_session_id: None,
         })
     }
 
@@ -334,6 +341,30 @@ impl ProviderRunCoordinator {
     fn set_model_timeouts(&mut self, start: Duration, event_idle: Duration) {
         self.model_start_timeout = start;
         self.model_event_idle_timeout = event_idle;
+    }
+
+    /// Local inspection identity only; never changes provider requests or checkpoints.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn set_activity_session_id(&mut self, conversation_id: AIConversationId) {
+        self.activity_session_id = Some(conversation_id.to_string());
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn activity_context(
+        &self,
+        call: &ProviderModelCall,
+        profile: &ProviderRunProfile,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "conversation_id": self.activity_session_id,
+            "provider_run_id": call.work_id.run_id.as_str(),
+            "provider_epoch": call.work_id.epoch.get(),
+            "profile": call.profile.as_str(),
+            "runtime_id": profile.runtime.descriptor().id,
+            "model_id": profile.request.model.as_str(),
+            "retry_attempt": call.retry_attempt,
+            "snapshot_kind": "provider_neutral",
+        })
     }
 
     pub(crate) fn run(&self) -> &ProviderRun {
@@ -730,6 +761,15 @@ impl ProviderRunCoordinator {
             profile.max_context_tokens.or(self.max_context_tokens),
             self.run.task_list(),
         );
+        #[cfg(not(target_family = "wasm"))]
+        if activity::is_recording() {
+            activity::record_serializable(
+                "model_request",
+                "Model request",
+                self.activity_context(&call, &profile),
+                &request,
+            );
+        }
         let started_at = Instant::now();
         let (attempt_sender, attempt_control) = turn_control();
         let start_future = profile.runtime.start_turn(request, attempt_control).fuse();
@@ -779,6 +819,8 @@ impl ProviderRunCoordinator {
         };
         futures::pin_mut!(stream);
         let mut buffer = ModelTurnBuffer::default();
+        #[cfg(not(target_family = "wasm"))]
+        let mut usage_reported = false;
 
         loop {
             let next_event = stream.next().fuse();
@@ -1014,6 +1056,10 @@ impl ProviderRunCoordinator {
                         return Ok(());
                     }
                     buffer.usage.clone_from(&usage);
+                    #[cfg(not(target_family = "wasm"))]
+                    {
+                        usage_reported = true;
+                    }
                     if !self
                         .project_or_fail_acknowledged(
                             ProviderRunProjection::ModelEvent {
@@ -1055,6 +1101,19 @@ impl ProviderRunCoordinator {
                         .await?
                     {
                         return Ok(());
+                    }
+                    #[cfg(not(target_family = "wasm"))]
+                    if activity::is_recording() {
+                        let mut context = self.activity_context(&call, &profile);
+                        context["elapsed_ms"] = serde_json::json!(elapsed_millis(started_at));
+                        context["stop_reason"] = serde_json::json!(&reason);
+                        context["usage_reported"] = serde_json::json!(usage_reported);
+                        activity::record_serializable(
+                            "model_response",
+                            "Model response",
+                            context,
+                            &buffer,
+                        );
                     }
                     if reason == StopReason::Cancelled {
                         self.run.cancel("provider model call was cancelled")?;
@@ -1159,6 +1218,15 @@ impl ProviderRunCoordinator {
             "retry_attempt": call.retry_attempt,
             "payload": &error,
         }));
+        #[cfg(not(target_family = "wasm"))]
+        if activity::is_recording() {
+            let mut context = self.activity_context(call, profile);
+            context["elapsed_ms"] = serde_json::json!(elapsed_millis(started_at));
+            context["error_kind"] = serde_json::json!(&error.kind);
+            context["error"] =
+                serde_json::json!(crate::ai::remote_logging::sanitize_error(&error.message));
+            activity::record("model_error", "Model request failed", context);
+        }
         let error_message = error.message.clone();
         if error.kind == AgentErrorKind::ContextWindowExceeded {
             self.run.prepare_context_compaction(&call.work_id)?;
@@ -1243,7 +1311,7 @@ impl ProviderRunCoordinator {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize)]
 struct ModelTurnBuffer {
     started: bool,
     text: String,

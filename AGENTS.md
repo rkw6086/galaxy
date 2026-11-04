@@ -50,6 +50,13 @@ Environment variables:
   - Per-event Bedrock diagnostic logs written to `bedrock-diagnostics.log` in the active Warp log directory
 - Set `GALAXY_TOOL_DIAGNOSTICS=1` to enable verbose local tool queue/execution debug logs and cancellation backtraces. These diagnostics are disabled during routine operation.
 
+### Local AI Activity Inspector
+
+- Open `/ai-activity` or **Show AI Activity** in the Command Palette to start an app-wide, in-memory recording of model requests/results, compaction, tools, permission assessments, crosscheck reviews, and background-job lifecycle events.
+- Each event carries its owning conversation/session where available. Filter by activity or click a session label; click the activity to inspect wrapped, selectable details. Recording continues after closing the inspector until paused, and Clear removes retained events without affecting running work.
+- Capture is off until first opened, independent of remote-logging settings, and bounded to 2,000 events / 16 MiB of retained entries and 262,144 characters per capture. Truncation and eviction are explicit. Transport headers/provider credentials are excluded; user-supplied model/tool content may appear in the local capture.
+- Requests are Galaxy's provider-neutral snapshots, not exact upstream HTTP payloads. ACP exposes only the traffic Galaxy exchanges with the external agent; the external agent's internal model requests and compaction are not visible. Provider token usage is marked as reported only when supplied by the runtime.
+
 ### Remote Logging: Pulling Galaxy Logs
 
 When investigating Galaxy behavior, retrieve recent remote logs from

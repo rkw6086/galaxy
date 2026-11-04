@@ -692,7 +692,18 @@ impl BlocklistAIActionModel {
         request.max_output_tokens = Some(u64::from(REVIEW_MAX_OUTPUT_TOKENS));
         let started = Instant::now();
         ctx.spawn(
-            assess(provider_config, request, cancel, control),
+            assess(
+                provider_config,
+                request,
+                cancel,
+                control,
+                #[cfg(not(target_family = "wasm"))]
+                serde_json::json!({
+                    "conversation_id": conversation_id.to_string(),
+                    "action_id": action.id.to_string(),
+                    "request_id": token.to_string(),
+                }),
+            ),
             move |me, result, ctx| me.finish_action_review(key, token, started, result, ctx),
         );
         None
@@ -1010,18 +1021,41 @@ async fn assess(
     request: TurnRequest,
     sender: TurnCommandSender,
     control: TurnControl,
+    #[cfg(not(target_family = "wasm"))] activity_identity: serde_json::Value,
 ) -> anyhow::Result<Assessment> {
     anyhow::ensure!(
         serde_json::to_vec(&request)?.len() <= MAX_REVIEW_INPUT_BYTES,
         "action is too large for a reliable bounded assessment"
     );
+    #[cfg(not(target_family = "wasm"))]
+    let started = Instant::now();
+    #[cfg(not(target_family = "wasm"))]
+    let activity_model_id = request.model.as_str().to_string();
+    #[cfg(not(target_family = "wasm"))]
+    let activity_context = || {
+        let mut context = activity_identity.clone();
+        context["model_id"] = serde_json::json!(activity_model_id);
+        context["elapsed_ms"] = serde_json::json!(started.elapsed().as_millis());
+        context
+    };
     let review = async {
         let model_id = request.model.as_str().to_string();
         let runtime = provider_runtime_for_request(provider_config, &request).await?;
+        #[cfg(not(target_family = "wasm"))]
+        if crate::ai::activity::is_recording() {
+            crate::ai::activity::record_serializable(
+                "risk_review_request",
+                "Permission assessment request",
+                activity_context(),
+                &request,
+            );
+        }
         let mut stream = runtime.start_turn(request, control).await?;
         let mut text = String::new();
         let mut reasoning_bytes = 0usize;
         let mut output_tokens = None;
+        #[cfg(not(target_family = "wasm"))]
+        let mut response_usage = None;
         while let Some(event) = stream.next().await {
             match event? {
                 AgentEvent::TextDelta { text: delta } => {
@@ -1031,12 +1065,25 @@ async fn assess(
                     );
                     text.push_str(&delta);
                 }
-                AgentEvent::TurnStopped {
-                    reason: StopReason::Completed,
-                } => return Assessment::parse(&text).map_err(|error| anyhow::anyhow!(
-                    "{error} (model={model_id}, decision_bytes={}, reasoning_bytes={reasoning_bytes}, output_tokens={output_tokens:?})", text.len()
-                )),
                 AgentEvent::TurnStopped { reason } => {
+                    #[cfg(not(target_family = "wasm"))]
+                    if crate::ai::activity::is_recording() {
+                        crate::ai::activity::record_serializable(
+                            "risk_review_response",
+                            "Permission assessment response",
+                            activity_context(),
+                            &serde_json::json!({
+                                "text": text,
+                                "usage": response_usage,
+                                "stop_reason": reason,
+                            }),
+                        );
+                    }
+                    if reason == StopReason::Completed {
+                        return Assessment::parse(&text).map_err(|error| anyhow::anyhow!(
+                            "{error} (model={model_id}, decision_bytes={}, reasoning_bytes={reasoning_bytes}, output_tokens={output_tokens:?})", text.len()
+                        ));
+                    }
                     anyhow::bail!("permission reviewer stopped with {reason:?} (model={model_id}, decision_bytes={}, reasoning_bytes={reasoning_bytes}, output_tokens={output_tokens:?})", text.len())
                 }
                 AgentEvent::Tool { .. } => {
@@ -1050,6 +1097,10 @@ async fn assess(
                 }
                 AgentEvent::UsageUpdated { usage } => {
                     output_tokens = Some(usage.output_tokens);
+                    #[cfg(not(target_family = "wasm"))]
+                    {
+                        response_usage = Some(usage);
+                    }
                 }
                 AgentEvent::TurnStarted { .. }
                 | AgentEvent::KeepAlive
@@ -1066,6 +1117,18 @@ async fn assess(
     let timeout = FutureExt::fuse(Timer::after(REVIEW_TIMEOUT));
     futures::pin_mut!(review, timeout);
     let result = futures::select_biased! { result = review => result, _ = timeout => Err(anyhow::anyhow!("assessment timed out")) };
+    #[cfg(not(target_family = "wasm"))]
+    if crate::ai::activity::is_recording() {
+        if let Err(error) = &result {
+            let mut context = activity_context();
+            context["error"] = serde_json::json!(crate::ai::remote_logging::sanitize_error(error));
+            crate::ai::activity::record(
+                "risk_review_error",
+                "Permission assessment failed",
+                context,
+            );
+        }
+    }
     let _ = sender.try_send(TurnCommand::Cancel);
     result
 }

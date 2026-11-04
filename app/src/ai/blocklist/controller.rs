@@ -37,6 +37,7 @@ use persistence::model::ProviderConversationContext;
 use session_sharing_protocol::common::ParticipantId;
 use settings::Setting;
 pub use slash_command::*;
+use uuid::Uuid;
 use warp_multi_agent_api::{message, Task, ToolType};
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
@@ -53,6 +54,8 @@ use super::orchestration_events::{OrchestrationEventService, OrchestrationEventS
 use super::orchestration_topology::descendant_conversation_ids_in_spawn_order;
 use super::queued_query::{QueuedQueryId, QueuedQueryModel};
 use super::{BlocklistAIInputModel, ResponseStreamId};
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::activity;
 use crate::ai::agent::api::{self, ServerConversationToken};
 use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 use crate::ai::agent::task::TaskId;
@@ -414,6 +417,49 @@ fn progressive_summary_messages(summary: String) -> Vec<ConversationMessage> {
 }
 
 async fn collect_progressive_summary(
+    provider_config: ProviderConfig,
+    request: TurnRequest,
+    mut activity_context: serde_json::Value,
+) -> anyhow::Result<(String, Usage)> {
+    let started_at = Instant::now();
+    activity_context["model_id"] = serde_json::json!(request.model.as_str());
+    activity_context["request_id"] = serde_json::json!(Uuid::new_v4().to_string());
+    activity_context["snapshot_kind"] = serde_json::json!("provider_neutral");
+    #[cfg(not(target_family = "wasm"))]
+    if activity::is_recording() {
+        activity::record_serializable(
+            "compaction_request",
+            "Compaction model request",
+            activity_context.clone(),
+            &request,
+        );
+    }
+    let result = collect_progressive_summary_inner(provider_config, request).await;
+    #[cfg(not(target_family = "wasm"))]
+    if activity::is_recording() {
+        activity_context["elapsed_ms"] = serde_json::json!(started_at.elapsed().as_millis() as u64);
+        match &result {
+            Ok((summary, usage)) => activity::record_serializable(
+                "compaction_response",
+                "Compaction model response",
+                activity_context,
+                &(summary, usage),
+            ),
+            Err(error) => {
+                activity_context["error"] =
+                    serde_json::json!(remote_logging::sanitize_error(error));
+                activity::record(
+                    "compaction_error",
+                    "Compaction request failed",
+                    activity_context,
+                );
+            }
+        }
+    }
+    result
+}
+
+async fn collect_progressive_summary_inner(
     provider_config: ProviderConfig,
     request: TurnRequest,
 ) -> anyhow::Result<(String, Usage)> {
@@ -5482,6 +5528,17 @@ impl BlocklistAIController {
                 ));
             };
 
+            #[cfg(not(target_family = "wasm"))]
+            if activity::is_recording() {
+                let title = conversation
+                    .title()
+                    .unwrap_or_else(|| "Untitled session".to_string());
+                let label = conversation
+                    .agent_name()
+                    .map_or_else(|| title.clone(), |name| format!("{name}: {title}"));
+                activity::register_session(conversation.id().to_string(), label);
+            }
+
             let active_tasks = conversation.compute_active_tasks();
 
             (
@@ -7483,6 +7540,7 @@ impl BlocklistAIController {
                 }),
             },
         );
+        let summary_activity_identity = identity.clone();
         ctx.spawn(
             async move {
                 let mut errors = Vec::new();
@@ -7493,7 +7551,17 @@ impl BlocklistAIController {
                     );
                     request.system_prompt = Some(PROGRESSIVE_SUMMARY_PROMPT.to_string());
                     request.max_output_tokens = Some(u64::from(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS));
-                    match collect_progressive_summary(candidate.provider_config, request).await {
+                    match collect_progressive_summary(
+                        candidate.provider_config,
+                        request,
+                        serde_json::json!({
+                            "conversation_id": conversation_id,
+                            "provider_run_id": summary_activity_identity.run_id.as_str(),
+                            "stream_id": summary_activity_identity.stream_id.as_str(),
+                        }),
+                    )
+                    .await
+                    {
                         Ok((summary, usage)) => {
                             return (plan, Ok((summary, usage, candidate.request_model_id)));
                         }
@@ -7764,6 +7832,31 @@ impl BlocklistAIController {
         if let Some((usage, summarizer_model_id)) = recorded_usage {
             self.record_progressive_summary_usage(conversation_id, usage, summarizer_model_id, ctx);
         }
+        #[cfg(not(target_family = "wasm"))]
+        if activity::is_recording() {
+            activity::record(
+                if summary_applied {
+                    "compaction_applied"
+                } else {
+                    "compaction_discarded"
+                },
+                if summary_applied {
+                    "Compaction applied at model boundary"
+                } else {
+                    "Compaction was not applied"
+                },
+                serde_json::json!({
+                    "conversation_id": conversation_id,
+                    "applied": summary_applied,
+                    "error": failure.as_deref().map(remote_logging::sanitize_error),
+                    "summarized_message_count": plan.split_point,
+                    "trigger_context_tokens": plan.trigger_context_tokens,
+                    "context_tokens_after": failure_context_tokens,
+                    "context_usage_before": plan.context_usage,
+                    "waiting_for_context": waiting_for_context,
+                }),
+            );
+        }
         if waiting_for_context && !summary_applied {
             self.fail_active_provider_run(
                 conversation_id,
@@ -7931,6 +8024,20 @@ impl BlocklistAIController {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
+        #[cfg(not(target_family = "wasm"))]
+        if activity::is_recording() {
+            if let Some(conversation) =
+                BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
+            {
+                let title = conversation
+                    .title()
+                    .unwrap_or_else(|| "Untitled session".to_string());
+                let label = conversation
+                    .agent_name()
+                    .map_or_else(|| title.clone(), |name| format!("{name}: {title}"));
+                activity::register_session(conversation_id.to_string(), label);
+            }
+        }
         // A follow-up owns a new generation. Its history must never be blocked
         // by, or replaced with, a detached summary from the previous generation.
         // Cancellation also discards summaries before they can fail recovery.
@@ -7952,6 +8059,18 @@ impl BlocklistAIController {
                 .remove(&conversation_id)
                 .is_some()
         {
+            #[cfg(not(target_family = "wasm"))]
+            if activity::is_recording() {
+                activity::record(
+                    "compaction_discarded",
+                    "Compaction generation ended",
+                    serde_json::json!({
+                        "conversation_id": conversation_id,
+                        "stale_generation": stale_summary,
+                        "cancelled": cancelling,
+                    }),
+                );
+            }
             BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _| {
                 if let Some(conversation) = history.conversation_mut(&conversation_id) {
                     conversation.set_has_pending_progressive_summary(false);
@@ -7987,6 +8106,8 @@ impl BlocklistAIController {
         let Some(mut run) = slot.run.take() else {
             return;
         };
+        #[cfg(not(target_family = "wasm"))]
+        run.coordinator.set_activity_session_id(conversation_id);
         let checkpoint_template = match ActiveProviderRunCheckpoint::from_active_run(&run) {
             Ok(checkpoint) => checkpoint,
             Err(error) => {
@@ -9529,6 +9650,17 @@ impl BlocklistAIController {
         if BlocklistAIHistoryModel::as_ref(ctx).conversation_status(&conversation_id)
             != Some(&ConversationStatus::Success)
         {
+            #[cfg(not(target_family = "wasm"))]
+            if activity::is_recording() {
+                activity::record(
+                    "compaction_discarded",
+                    "Compaction discarded for unfinished session",
+                    serde_json::json!({
+                        "conversation_id": conversation_id,
+                        "reason": "conversation did not complete successfully",
+                    }),
+                );
+            }
             return;
         }
 
@@ -9554,6 +9686,13 @@ impl BlocklistAIController {
                             "[progressive-summary] Discarding stale idle summary for conversation {:?}; the snapshotted prefix no longer matches",
                             conversation_id,
                         );
+                        #[cfg(not(target_family = "wasm"))]
+                        if activity::is_recording() {
+                            activity::record("compaction_discarded", "Compaction prefix no longer matches", serde_json::json!({
+                                "conversation_id": conversation_id,
+                                "reason": "snapshotted prefix no longer matches conversation history",
+                            }));
+                        }
                         return;
                     }
                     if !summary_reduces_context {
@@ -9561,6 +9700,13 @@ impl BlocklistAIController {
                             "[progressive-summary] Idle summary did not reduce context for conversation {:?}",
                             conversation_id,
                         );
+                        #[cfg(not(target_family = "wasm"))]
+                        if activity::is_recording() {
+                            activity::record("compaction_discarded", "Compaction did not reduce context", serde_json::json!({
+                                "conversation_id": conversation_id,
+                                "reason": "summary did not reduce context",
+                            }));
+                        }
                         return;
                     }
 
@@ -9587,6 +9733,16 @@ impl BlocklistAIController {
                         conversation_id,
                     });
                     conversation.write_updated_conversation_state(ctx);
+                    #[cfg(not(target_family = "wasm"))]
+                    if activity::is_recording() {
+                        activity::record("compaction_applied", "Compaction applied after session completed", serde_json::json!({
+                            "conversation_id": conversation_id,
+                            "context_tokens_after": new_context_tokens,
+                            "context_limit": plan.active_context_limit,
+                            "retained_message_count": retained_count,
+                            "summarized_message_count": plan.split_point,
+                        }));
+                    }
                     log::info!(
                         "[progressive-summary] Applied background summary after active run completion {:?}: ~{} tokens ({:.1}% of {} context), {} tail messages preserved",
                         conversation_id,
@@ -11361,6 +11517,21 @@ impl BlocklistAIController {
             candidate_names,
         );
 
+        #[cfg(not(target_family = "wasm"))]
+        if activity::is_recording() {
+            activity::record(
+                "compaction_started",
+                "Background compaction started",
+                serde_json::json!({
+                    "conversation_id": conversation_id,
+                    "summarized_message_count": messages_count,
+                    "retained_message_count": retained_messages_count,
+                    "context_limit": active_context_limit,
+                    "persistent_context_tokens": persistent_context_tokens,
+                    "trigger_usage": PROGRESSIVE_SUMMARY_TRIGGER_USAGE,
+                }),
+            );
+        }
         let summarize_messages = vec![ConversationMessage {
             role: MessageRole::User,
             content: MessageContent::Text(summarize_content),
@@ -11376,7 +11547,11 @@ impl BlocklistAIController {
                     );
                     request.system_prompt = Some(summarize_prompt.to_string());
                     request.max_output_tokens = Some(u64::from(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS));
-                    match collect_progressive_summary(candidate.provider_config, request).await {
+                    match collect_progressive_summary(
+                        candidate.provider_config,
+                        request,
+                        serde_json::json!({ "conversation_id": conversation_id }),
+                    ).await {
                         Ok((summary, usage)) => {
                             return Ok((summary, usage, candidate.request_model_id));
                         }
@@ -11449,6 +11624,16 @@ impl BlocklistAIController {
                             conversation.set_context_window_usage(new_usage.clamp(0.0, 1.0));
                             conversation.set_current_context_tokens(new_context_tokens);
 
+                            #[cfg(not(target_family = "wasm"))]
+                            if activity::is_recording() {
+                                activity::record("compaction_applied", "Compaction applied to session history", serde_json::json!({
+                                    "conversation_id": conversation_id,
+                                    "context_tokens_after": new_context_tokens,
+                                    "context_limit": active_context_limit,
+                                    "summarized_message_count": drain_count,
+                                    "retained_message_count": conversation.bedrock_message_history().len(),
+                                }));
+                            }
                             log::info!(
                                 "[progressive-summary] Post-summary: ~{} tokens ({:.1}% of {} context), {} messages retained",
                                 new_context_tokens,

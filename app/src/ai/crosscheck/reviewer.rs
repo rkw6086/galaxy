@@ -118,7 +118,17 @@ impl CrosscheckReviewer {
         // Spawn the reviewer request asynchronously
         let conversation_id_for_task = conversation_id;
         ctx.spawn(
-            Self::invoke_reviewer(agent_output, model_id, provider_config),
+            Self::invoke_reviewer(
+                agent_output,
+                model_id,
+                provider_config,
+                #[cfg(not(target_family = "wasm"))]
+                serde_json::json!({
+                    "conversation_id": conversation_id,
+                    "iteration": current_iteration,
+                    "max_iterations": max,
+                }),
+            ),
             move |me, reviewer_response, ctx| {
                 me.handle_reviewer_response(
                     conversation_id_for_task,
@@ -206,6 +216,70 @@ impl CrosscheckReviewer {
         agent_output: String,
         model_id: String,
         provider_config: ProviderConfig,
+        #[cfg(not(target_family = "wasm"))] mut activity_context: serde_json::Value,
+    ) -> Result<String, String> {
+        #[cfg(not(target_family = "wasm"))]
+        let started_at = instant::Instant::now();
+        #[cfg(not(target_family = "wasm"))]
+        if crate::ai::activity::is_recording() {
+            let effective_model = match &provider_config {
+                ProviderConfig::OpenAI(config) => config.model.as_deref().unwrap_or(&model_id),
+                ProviderConfig::Bedrock(_) | ProviderConfig::None => &model_id,
+            };
+            activity_context["model_id"] = serde_json::json!(effective_model);
+            activity_context["request_id"] = serde_json::json!(uuid::Uuid::new_v4().to_string());
+            activity_context["snapshot_kind"] = serde_json::json!("reviewer_input");
+            #[derive(serde::Serialize)]
+            struct ReviewerInput<'a> {
+                system_prompt: &'a str,
+                user_prompt_prefix: &'a str,
+                agent_output: &'a str,
+                max_output_tokens: u32,
+            }
+            crate::ai::activity::record_serializable(
+                "crosscheck_model_request",
+                "Crosscheck reviewer request",
+                activity_context.clone(),
+                &ReviewerInput {
+                    system_prompt: prompt::CROSSCHECK_REVIEWER_SYSTEM_PROMPT,
+                    user_prompt_prefix: "Please review the following agent output:\n\n---\n\n",
+                    agent_output: &agent_output,
+                    max_output_tokens: REVIEWER_MAX_OUTPUT_TOKENS,
+                },
+            );
+        }
+        let response = Self::invoke_reviewer_inner(agent_output, model_id, provider_config).await;
+        #[cfg(not(target_family = "wasm"))]
+        if crate::ai::activity::is_recording() {
+            activity_context["elapsed_ms"] =
+                serde_json::json!(started_at.elapsed().as_millis() as u64);
+            // These compatibility helpers return text only, with no usage report.
+            activity_context["usage_reported"] = serde_json::json!(false);
+            match &response {
+                Ok(text) => crate::ai::activity::record_serializable(
+                    "crosscheck_model_response",
+                    "Crosscheck reviewer response",
+                    activity_context,
+                    text,
+                ),
+                Err(error) => {
+                    activity_context["error"] =
+                        serde_json::json!(crate::ai::remote_logging::sanitize_error(error));
+                    crate::ai::activity::record(
+                        "crosscheck_model_error",
+                        "Crosscheck reviewer failed",
+                        activity_context,
+                    );
+                }
+            }
+        }
+        response
+    }
+
+    async fn invoke_reviewer_inner(
+        agent_output: String,
+        model_id: String,
+        provider_config: ProviderConfig,
     ) -> Result<String, String> {
         match provider_config {
             ProviderConfig::OpenAI(config)
@@ -217,7 +291,8 @@ impl CrosscheckReviewer {
                         reasoning_effort: config.reasoning_effort,
                         max_output_tokens: Some(u64::from(REVIEWER_MAX_OUTPUT_TOKENS)),
                     },
-                ).with_credential_resolver(crate::ai::chatgpt_auth::credential_resolver());
+                )
+                .with_credential_resolver(crate::ai::chatgpt_auth::credential_resolver());
                 runtime
                     .complete_text(
                         prompt::CROSSCHECK_REVIEWER_SYSTEM_PROMPT.to_string(),

@@ -4,6 +4,8 @@
 //! The side panel Warp AI implementation lives in `super::ai_assistant`.
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod acp;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod activity;
 pub(crate) mod active_agent_views_model;
 pub(crate) mod agent;
 pub(crate) mod agent_conversations_model;

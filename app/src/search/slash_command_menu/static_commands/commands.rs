@@ -104,6 +104,15 @@ pub const BACKGROUND_JOBS: StaticCommand = StaticCommand {
     argument: None,
 };
 
+pub const AI_ACTIVITY: StaticCommand = StaticCommand {
+    name: "/ai-activity",
+    description: "Inspect model requests, responses, compaction, and tools across sessions",
+    icon_path: "bundled/svg/dataflow.svg",
+    availability: Availability::empty(),
+    auto_enter_ai_mode: false,
+    argument: None,
+};
+
 pub static ADD_PROMPT: LazyLock<StaticCommand> = LazyLock::new(|| StaticCommand {
     name: "/add-prompt",
     description: "Add new Agent prompt",
@@ -713,6 +722,7 @@ fn all_commands() -> Vec<StaticCommand> {
 
     if !cfg!(target_family = "wasm") {
         commands.extend([EDIT.clone(), EXPORT_TO_FILE.clone()]);
+        commands.push(AI_ACTIVITY);
     }
     if cfg!(all(feature = "local_fs", not(target_family = "wasm"))) {
         commands.push(BACKGROUND_JOBS);

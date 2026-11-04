@@ -209,7 +209,8 @@ impl SlashCommandDataSource {
     /// Slash commands that are available in CLI agent rich input mode.
     /// Add command names here to make them accessible when composing prompts
     /// for a running CLI agent (Claude Code, Codex, etc.).
-    const CLI_AGENT_INPUT_ALLOWED_COMMANDS: &[&str] = &["/prompts", "/skills", "/background-jobs"];
+    const CLI_AGENT_INPUT_ALLOWED_COMMANDS: &[&str] =
+        &["/prompts", "/skills", "/background-jobs", "/ai-activity"];
 
     fn is_cloud_mode(&self, ctx: &AppContext) -> bool {
         self.is_cloud_mode_v2

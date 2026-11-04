@@ -875,6 +875,8 @@ pub enum WorkspaceAction {
     /// Opens (or focuses) the in-app network log pane as a right-split of the
     /// active pane group. Gated on `ContextFlag::NetworkLogConsole`.
     OpenNetworkLogPane,
+    /// Opens the app-wide inspector for model, compaction, and tool activity.
+    OpenAIActivity,
 }
 
 impl From<&WorkspaceAction> for LoginGatedFeature {
@@ -1195,7 +1197,8 @@ impl WorkspaceAction {
             | ShowHandoffEnvironmentCreationModal
             | ShowCloudModeV2EnvironmentCreationModal
             | OpenCreateAuthSecretModal { .. }
-            | OpenNetworkLogPane => false,
+            | OpenNetworkLogPane
+            | OpenAIActivity => false,
             #[cfg(debug_assertions)]
             ShowHoaOnboardingFlow => false,
             #[cfg(target_family = "wasm")]

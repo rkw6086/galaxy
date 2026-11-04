@@ -782,6 +782,9 @@ impl Input {
             _background_jobs if command.name == commands::BACKGROUND_JOBS.name => {
                 ctx.dispatch_typed_action(&TerminalAction::OpenBackgroundJobs { job_id: None });
             }
+            _ai_activity if command.name == commands::AI_ACTIVITY.name => {
+                ctx.dispatch_typed_action(&WorkspaceAction::OpenAIActivity);
+            }
             _ if command.name == commands::HOST.name => {
                 if !self.is_cloud_mode_input_v2_composing(ctx) {
                     return false;

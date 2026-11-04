@@ -1861,6 +1861,13 @@ pub fn init(app: &mut AppContext) {
     )
     .with_enabled(|| ContextFlag::NetworkLogConsole.is_enabled())]);
 
+    #[cfg(not(target_family = "wasm"))]
+    app.register_editable_bindings([EditableBinding::new(
+        "workspace:open_ai_activity",
+        "Show AI Activity",
+        WorkspaceAction::OpenAIActivity,
+    )]);
+
     app.register_editable_bindings([EditableBinding::new(
         "input:clear_screen",
         "Clear screen",

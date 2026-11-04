@@ -430,11 +430,19 @@ impl ResponseStream {
         &self,
         request_id: Uuid,
         payload_kind: &str,
-        raw_payload: impl AsRef<str>,
+        raw_payload: &impl std::fmt::Debug,
         ctx: &mut ModelContext<Self>,
     ) {
         let Some(raw_payload) = remote_logging::raw_model_payload_context(ctx, |max_chars| {
-            remote_logging::tail_limited_payload_context(raw_payload.as_ref(), max_chars)
+            struct DebugPayload<'a, T>(&'a T);
+            impl<T: std::fmt::Debug> serde::Serialize for DebugPayload<'_, T> {
+                fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                    serializer.collect_str(&format_args!("{:#?}", self.0))
+                }
+            }
+            remote_logging::prefix_bounded_payload_context(max_chars, |writer| {
+                serde_json::to_writer_pretty(writer, &DebugPayload(raw_payload))
+            })
         }) else {
             return;
         };
@@ -956,7 +964,7 @@ impl ResponseStream {
                 self.log_raw_model_response(
                     request_id,
                     event_type_name,
-                    format!("{response_event:#?}"),
+                    response_event,
                     ctx,
                 );
                 if let Some(event_type) = &response_event.r#type {
