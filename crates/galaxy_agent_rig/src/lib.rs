@@ -3,6 +3,7 @@
 mod anthropic_auth;
 mod bedrock;
 mod chatgpt;
+mod http_client;
 mod native;
 mod openai_compatible;
 mod request;

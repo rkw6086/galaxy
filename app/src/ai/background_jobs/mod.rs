@@ -469,6 +469,13 @@ impl BackgroundJobsModel {
         id: BackgroundJobId,
         ctx: &mut ModelContext<Self>,
     ) -> Result<(), String> {
+        let job = self.jobs.get(&id).ok_or("Background job not found")?;
+        // Completion can win the race with an already-authorized cancellation.
+        // Its recorded outcome is final; acknowledge the request without
+        // signalling a process or publishing another completion.
+        if job.status.is_terminal() {
+            return Ok(());
+        }
         if self.unreconciled_remote_jobs.contains(&id)
             && !self.remote_cancellations.contains_key(&id)
         {

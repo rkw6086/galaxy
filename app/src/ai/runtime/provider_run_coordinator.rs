@@ -18,6 +18,8 @@ use galaxy_agent_core::{
 use instant::Instant;
 use warpui::r#async::Timer;
 
+#[cfg(not(target_family = "wasm"))]
+use super::model_failure_diagnostics::ModelFailureDiagnostics;
 use super::task_progress::{add_task_list_context, initial_task_list, task_list_from_plan_batch};
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::activity;
@@ -290,6 +292,8 @@ pub(crate) struct ProviderRunCoordinator {
     max_context_tokens: Option<u32>,
     #[cfg(not(target_family = "wasm"))]
     activity_session_id: Option<String>,
+    #[cfg(not(target_family = "wasm"))]
+    model_failure_diagnostics: ModelFailureDiagnostics,
 }
 
 impl ProviderRunCoordinator {
@@ -334,6 +338,8 @@ impl ProviderRunCoordinator {
             max_context_tokens: None,
             #[cfg(not(target_family = "wasm"))]
             activity_session_id: None,
+            #[cfg(not(target_family = "wasm"))]
+            model_failure_diagnostics: ModelFailureDiagnostics::default(),
         })
     }
 
@@ -347,6 +353,11 @@ impl ProviderRunCoordinator {
     #[cfg(not(target_family = "wasm"))]
     pub(crate) fn set_activity_session_id(&mut self, conversation_id: AIConversationId) {
         self.activity_session_id = Some(conversation_id.to_string());
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn model_failure_diagnostics(&self) -> serde_json::Value {
+        self.model_failure_diagnostics.snapshot()
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -1206,6 +1217,12 @@ impl ProviderRunCoordinator {
     where
         F: FnMut(ProviderRunProjection) -> BoxFuture<'static, Result<(), String>>,
     {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let mut identity = self.activity_context(call, profile);
+            identity["elapsed_ms"] = serde_json::json!(elapsed_millis(started_at));
+            self.model_failure_diagnostics.record(identity, &error);
+        }
         #[cfg(not(target_family = "wasm"))]
         model_output_logging::log(serde_json::json!({
             "event": "model_error",

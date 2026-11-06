@@ -484,9 +484,9 @@ fn map_completion_error(error: CompletionError) -> AgentError {
         }
     };
     let mut mapped = AgentError::new(kind, error.to_string());
-    if is_authentication_failure {
+    if kind == AgentErrorKind::Authentication {
         mapped.user_message = Some(
-            "AWS credentials for Bedrock are missing or expired. Refresh your AWS login and try again."
+            "Provider authentication failed. Check the credentials and access permissions for this connection, then try again."
                 .to_string(),
         );
     }

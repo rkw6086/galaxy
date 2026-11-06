@@ -173,57 +173,7 @@ impl ReadFilesExecutor {
                         .await
                         .map_err(|e| anyhow::anyhow!("Remote read failed: {e}"))?;
 
-                    if !response.failed_files.is_empty() && response.file_contexts.is_empty() {
-                        let failed = response
-                            .failed_files
-                            .iter()
-                            .map(|f| {
-                                let reason = f
-                                    .error
-                                    .as_ref()
-                                    .map(|e| e.message.as_str())
-                                    .unwrap_or("unknown error");
-                                format!("{}: {reason}", f.path)
-                            })
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        return Ok(ReadFilesResult::Error(format!(
-                            "Failed to read files: {failed}"
-                        )));
-                    }
-
-                    let file_contexts = response
-                        .file_contexts
-                        .into_iter()
-                        .filter_map(|fc| {
-                            let content = match fc.content? {
-                                remote_server::proto::file_context_proto::Content::TextContent(
-                                    text,
-                                ) => crate::ai::agent::AnyFileContent::StringContent(text),
-                                remote_server::proto::file_context_proto::Content::BinaryContent(
-                                    bytes,
-                                ) => crate::ai::agent::AnyFileContent::BinaryContent(bytes),
-                            };
-                            let line_range = match (fc.line_range_start, fc.line_range_end) {
-                                (Some(start), Some(end)) => Some(start as usize..end as usize),
-                                _ => None,
-                            };
-                            let last_modified = fc.last_modified_epoch_millis.map(|ms| {
-                                std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms)
-                            });
-                            Some(crate::ai::agent::FileContext {
-                                file_name: fc.file_name,
-                                content,
-                                line_range,
-                                last_modified,
-                                line_count: fc.line_count as usize,
-                            })
-                        })
-                        .collect();
-
-                    Ok(ReadFilesResult::Success {
-                        files: file_contexts,
-                    })
+                    Ok(remote_read_files_result(response))
                 }),
                 on_complete: Box::new(|res: Result<ReadFilesResult, anyhow::Error>, _ctx| {
                     let action_result =
@@ -254,16 +204,7 @@ impl ReadFilesExecutor {
                     result.file_contexts.extend(file_result.file_contexts);
                     result.missing_files.extend(file_result.missing_files);
                 }
-                if result.missing_files.is_empty() {
-                    Ok(ReadFilesResult::Success {
-                        files: result.file_contexts,
-                    })
-                } else {
-                    let missing_files = result.missing_files.join(", ");
-                    Ok(ReadFilesResult::Error(format!(
-                        "These files do not exist: {missing_files}"
-                    )))
-                }
+                Ok(local_read_files_result(result))
             }),
             on_complete: Box::new(|res: Result<ReadFilesResult, anyhow::Error>, _ctx| {
                 let action_result = res.unwrap_or_else(|e| ReadFilesResult::Error(e.to_string()));
@@ -284,3 +225,125 @@ impl ReadFilesExecutor {
 impl Entity for ReadFilesExecutor {
     type Event = ();
 }
+
+/// The shared action/protobuf contract has no partial-success representation.
+/// Do not claim a remote batch succeeded while silently losing failed paths.
+fn remote_read_files_result(
+    response: remote_server::proto::ReadFileContextResponse,
+) -> ReadFilesResult {
+    if !response.failed_files.is_empty()
+        || response
+            .file_contexts
+            .iter()
+            .any(|file| file.content.is_none())
+    {
+        let failed = response.failed_files.iter().map(|failure| {
+            (
+                failure.path.as_str(),
+                failure.error.as_ref().map(|error| error.message.as_str()),
+            )
+        });
+        let missing_content = response
+            .file_contexts
+            .iter()
+            .filter(|file| file.content.is_none())
+            .map(|file| {
+                let name = if file.file_name.is_empty() {
+                    "<unnamed remote file>"
+                } else {
+                    file.file_name.as_str()
+                };
+                (name, Some("remote host returned no file content"))
+            });
+        return read_files_failure(failed.chain(missing_content));
+    }
+    let file_contexts = response
+        .file_contexts
+        .into_iter()
+        .filter_map(|fc| {
+            let content = match fc.content? {
+                remote_server::proto::file_context_proto::Content::TextContent(text) => {
+                    crate::ai::agent::AnyFileContent::StringContent(text)
+                }
+                remote_server::proto::file_context_proto::Content::BinaryContent(bytes) => {
+                    crate::ai::agent::AnyFileContent::BinaryContent(bytes)
+                }
+            };
+            let line_range = match (fc.line_range_start, fc.line_range_end) {
+                (Some(start), Some(end)) => Some(start as usize..end as usize),
+                _ => None,
+            };
+            let last_modified = fc
+                .last_modified_epoch_millis
+                .map(|ms| std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms));
+            Some(crate::ai::agent::FileContext {
+                file_name: fc.file_name,
+                content,
+                line_range,
+                last_modified,
+                line_count: fc.line_count as usize,
+            })
+        })
+        .collect();
+    ReadFilesResult::Success {
+        files: file_contexts,
+    }
+}
+
+fn local_read_files_result(result: super::ReadFileContextResult) -> ReadFilesResult {
+    if result.missing_files.is_empty() {
+        ReadFilesResult::Success {
+            files: result.file_contexts,
+        }
+    } else {
+        read_files_failure(
+            result
+                .missing_files
+                .iter()
+                .map(|path| (path.as_str(), None)),
+        )
+    }
+}
+
+const MAX_REPORTED_READ_FAILURES: usize = 8;
+const MAX_READ_FAILURE_FIELD_CHARS: usize = 256;
+
+fn read_files_failure<'a>(
+    failures: impl IntoIterator<Item = (&'a str, Option<&'a str>)>,
+) -> ReadFilesResult {
+    let mut message = "Could not read all requested files. No file contents were returned for this batch.\nFailed paths:".to_owned();
+    let mut total = 0;
+    for (path, reason) in failures {
+        total += 1;
+        if total > MAX_REPORTED_READ_FAILURES {
+            continue;
+        }
+        message.push_str("\n- ");
+        append_failure_field(&mut message, path);
+        message.push_str(": ");
+        append_failure_field(
+            &mut message,
+            reason.unwrap_or("missing, unreadable, or exceeds the read limit"),
+        );
+    }
+    if total > MAX_REPORTED_READ_FAILURES {
+        message.push_str(&format!(
+            "\n{} additional failed paths omitted.",
+            total - MAX_REPORTED_READ_FAILURES
+        ));
+    }
+    message.push_str("\nUse file discovery to confirm exact paths before retrying. For large files, request a smaller line range or fewer files. A file may exist but be unreadable or exceed the read limit.");
+    ReadFilesResult::Error(message)
+}
+
+fn append_failure_field(message: &mut String, field: &str) {
+    let mut characters = field.chars();
+    message.extend(characters.by_ref().take(MAX_READ_FAILURE_FIELD_CHARS));
+    if characters.next().is_some() {
+        message.push('…');
+    }
+}
+
+#[cfg(test)]
+#[path = "read_files_tests.rs"]
+mod tests;

@@ -7,6 +7,7 @@ use rig_core::client::CompletionClient;
 use rig_core::completion::{CompletionModel, CompletionRequest};
 use rig_core::providers::openai;
 
+use crate::http_client::DiagnosticHttpClient;
 use crate::request::build_completion_request as build_provider_completion_request;
 use crate::stream::start_model_turn as start_provider_model_turn;
 
@@ -63,6 +64,7 @@ impl AgentRuntime for OpenAICompatibleRuntime {
             // compatibility with unauthenticated local OpenAI-compatible servers.
             .api_key(self.config.api_key.as_deref().unwrap_or_default())
             .base_url(&self.config.base_url)
+            .http_client(DiagnosticHttpClient::new())
             .build()
             .map_err(|error| AgentError::new(AgentErrorKind::Configuration, error.to_string()))?;
         let model = client.completion_model(&self.config.model);

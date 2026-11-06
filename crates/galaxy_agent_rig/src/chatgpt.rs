@@ -11,6 +11,7 @@ use galaxy_agent_core::{
 use rig_core::client::CompletionClient;
 use rig_core::providers::chatgpt::{self, ChatGPTAuth};
 
+use crate::http_client::DiagnosticHttpClient;
 use crate::request::build_completion_request;
 use crate::stream::start_model_turn;
 
@@ -155,6 +156,7 @@ impl AgentRuntime for ChatGPTSubscriptionRuntime {
             .api_key(auth)
             .allow_device_flow(false)
             .originator("galaxy")
+            .http_client(DiagnosticHttpClient::new())
             .build()
             .map_err(|error| AgentError::new(AgentErrorKind::Configuration, error.to_string()))?;
         let model = client.completion_model(&self.config.model);

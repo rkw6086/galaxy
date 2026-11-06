@@ -16,6 +16,7 @@ use crate::ai::agent::{
     RunAgentsRequest, SearchCodebaseRequest, ShellCommandDelay,
 };
 use crate::ai::document::ai_document_model::AIDocumentId;
+use crate::ai::grep_query::prepare_grep_queries;
 
 const MAX_BATCH_READ_ITEMS: usize = 6;
 const MAX_BATCH_SEARCH_ITEMS: usize = 3;
@@ -83,7 +84,10 @@ pub(crate) fn action_from_tool_call(
                 title: Some(required_string(input, "summary")?),
             },
             "grep" => AIAgentActionType::Grep {
-                queries: limited_required_strings(input, "queries", MAX_BATCH_SEARCH_ITEMS)?,
+                queries: prepare_grep_queries(
+                    limited_required_strings(input, "queries", MAX_BATCH_SEARCH_ITEMS)?,
+                    optional_boolean(input, "fixed_strings")?.unwrap_or(false),
+                ),
                 path: optional_string(input, "path")?.unwrap_or_default(),
             },
             "file_glob" => AIAgentActionType::FileGlob {

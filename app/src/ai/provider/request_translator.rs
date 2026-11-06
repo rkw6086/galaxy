@@ -1868,11 +1868,12 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "grep".to_string(),
-            description: "Search for regex patterns in files. Use for exact symbols, strings, imports, and call sites in source code or other text files. Scope to known files or directories when possible; use search_codebase for semantic discovery. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches. Pass ALL patterns you need in one call.".to_string(),
+            description: "Search for patterns in files. Regex is the default; set fixed_strings=true for literal source text containing brackets, parentheses, or other regex metacharacters. Use for exact symbols, strings, imports, and call sites in source code or other text files. Scope to known files or directories when possible; use search_codebase for semantic discovery. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches. Pass ALL patterns you need in one call.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "queries": { "type": "array", "items": { "type": "string" }, "description": "Regex patterns to search for" },
+                    "queries": { "type": "array", "items": { "type": "string" }, "description": "Patterns (literal when fixed_strings=true) to search for" },
+                    "fixed_strings": { "type": "boolean", "default": false, "description": "Treat every query as literal text instead of regex" },
                     "path": { "type": "string", "description": "Directory to scope the search to" }
                 },
                 "required": ["queries"]

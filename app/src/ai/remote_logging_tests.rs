@@ -25,6 +25,109 @@ fn errors_are_compacted_truncated_and_lightly_redacted() {
 }
 
 #[test]
+fn error_redaction_removes_url_credentials_query_tokens_and_header_values() {
+    let input = "request failed for https://alice:private-password@example.com/v1/chat?api_key=query-value&code=oauth-code#fragment\nAuthorization: Bearer bearer-value\nx-api-key: header-value\n{\"refresh_token\":\"refresh-value\",\"api_key\":\"json-value\"}\nTLS certificate unknown issuer";
+    let actual = sanitize_error(input);
+    for secret in [
+        "alice",
+        "private-password",
+        "query-value",
+        "oauth-code",
+        "fragment",
+        "bearer-value",
+        "header-value",
+        "refresh-value",
+        "json-value",
+    ] {
+        assert!(
+            !actual.contains(secret),
+            "credential escaped redaction: {secret}"
+        );
+    }
+    assert!(actual.contains("https://example.com/v1/chat"));
+    assert!(actual.contains("TLS certificate unknown issuer"));
+}
+
+#[test]
+fn error_redaction_handles_nested_json_and_preserves_nonsecret_token_counts() {
+    let actual = sanitize_error(
+        r#"{\"access_token\":\"private-access\",\"password\":\"private-password\",\"input_tokens\":42} network timed out"#,
+    );
+    assert!(!actual.contains("private-access"));
+    assert!(!actual.contains("private-password"));
+    assert!(actual.contains("input_tokens"));
+    assert!(actual.contains("42"));
+    assert!(actual.contains("network timed out"));
+}
+
+#[test]
+fn escaped_quotes_and_backslashes_do_not_expose_credential_suffixes() {
+    for input in [
+        r#"{"password":"private-\"quoted\"-suffix","input_tokens":42} connection reset"#,
+        r#"{\"password\":\"private-\\\"quoted\\\"-suffix\",\"input_tokens\":42} connection reset"#,
+        r#"api_key="private\\path\"quoted-suffix" connection reset"#,
+        r#"password="private unterminated credential suffix"#,
+    ] {
+        let actual = sanitize_error(input);
+        for secret in ["private", "quoted", "suffix", "path"] {
+            assert!(
+                !actual.contains(secret),
+                "credential fragment escaped redaction: {actual}"
+            );
+        }
+        if input.contains("connection reset") {
+            assert!(actual.contains("connection reset"));
+        }
+    }
+}
+
+#[test]
+fn basic_and_multifield_authorization_values_are_redacted() {
+    let basic = sanitize_error("Authorization: Basic dXNlcjpwYXNz\nTLS certificate rejected");
+    assert!(!basic.contains("dXNlcjpwYXNz"));
+    assert!(basic.contains("TLS certificate rejected"));
+    let digest = sanitize_error("Proxy-Authorization: Digest username=private-user, response=private-response\nconnection reset");
+    assert!(!digest.contains("private-user"));
+    assert!(!digest.contains("private-response"));
+    assert!(digest.contains("connection reset"));
+    let password = sanitize_error("password: private password with spaces\nnetwork timeout");
+    assert!(!password.contains("private password"));
+    assert!(password.contains("network timeout"));
+    for prefix in ["Basic ", "Bearer "] {
+        let password = sanitize_error(format!(
+            "password: {prefix}private password with spaces\nnetwork timeout"
+        ));
+        assert!(!password.contains("private password"));
+        assert!(!password.contains("with spaces"));
+        assert!(password.contains("network timeout"));
+    }
+    let spaced = sanitize_error("Authorization: Bearer\t  private-token\nx-api-key: private key with spaces\nnetwork timeout");
+    assert!(!spaced.contains("private-token"));
+    assert!(!spaced.contains("private key"));
+    assert!(spaced.contains("network timeout"));
+}
+
+#[test]
+fn error_formatting_stops_before_walking_an_unbounded_display() {
+    use std::cell::Cell;
+    struct LongError<'a>(&'a Cell<usize>);
+    impl std::fmt::Display for LongError<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            for _ in 0..1_000_000 {
+                self.0.set(self.0.get() + 1);
+                f.write_str("é日本🙂 network timed out ")?;
+            }
+            Ok(())
+        }
+    }
+    let written = Cell::new(0);
+    let output = sanitize_error(LongError(&written));
+    assert!(written.get() < 2_000);
+    assert!(output.chars().count() <= 501);
+    assert!(output.contains("network timed out"));
+}
+
+#[test]
 fn raw_payload_cap_keeps_tail() {
     assert_eq!(
         tail_limited_payload_context("0123456789", 4),

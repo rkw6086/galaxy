@@ -136,11 +136,12 @@ fn apply_file_diffs() -> ToolDefinition {
 fn grep() -> ToolDefinition {
     ToolDefinition {
         name: "grep".to_string(),
-        description: "Search for up to 3 focused regex patterns per call. Use for exact symbols, strings, imports, and call sites in source code or other text files. Scope to known files or directories when possible; use search_codebase for semantic discovery. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches.".to_string(),
+        description: "Search for up to 3 focused patterns per call. Regex is the default; set fixed_strings=true for literal source text containing brackets, parentheses, or other regex metacharacters. Use for exact symbols, strings, imports, and call sites in source code or other text files. Scope to known files or directories when possible; use search_codebase for semantic discovery. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "queries": { "type": "array", "maxItems": 3, "items": { "type": "string" }, "description": "Regex patterns to search for (maximum 3 per call)" },
+                "queries": { "type": "array", "maxItems": 3, "items": { "type": "string" }, "description": "Patterns (literal when fixed_strings=true) to search for (maximum 3 per call)" },
+                "fixed_strings": { "type": "boolean", "default": false, "description": "Treat every query as literal text instead of regex" },
                 "path": { "type": "string", "description": "Directory to scope the search to" }
             },
             "required": ["queries"]

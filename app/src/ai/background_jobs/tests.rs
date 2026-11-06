@@ -144,3 +144,88 @@ fn corrupt_history_is_reported_instead_of_replaced() {
         b"broken"
     );
 }
+
+fn cancellation_fixture(status: BackgroundJobStatus) -> BackgroundJob {
+    BackgroundJob {
+        id: uuid::Uuid::new_v4(),
+        conversation_id: crate::ai::agent::conversation::AIConversationId::new(),
+        action_id: "cancellation-test-action".to_owned().into(),
+        command: "already completed command".to_owned(),
+        working_directory: std::path::PathBuf::new(),
+        project_root: None,
+        host_id: None,
+        started_at: Utc::now(),
+        finished_at: Some(Utc::now()),
+        status,
+        exit_code: Some(17),
+        error: Some("original outcome".to_owned()),
+        completion_delivered: true,
+        log_path: std::path::PathBuf::new(),
+        output: "original output".to_owned(),
+        output_truncated: false,
+        log_bytes: 15,
+    }
+}
+
+#[test]
+fn cancelling_a_completed_job_preserves_its_outcome_without_signalling_or_redelivery() {
+    galaxyui::App::test((), |mut app| async move {
+        let jobs = app.add_model(super::BackgroundJobsModel::new);
+        for status in [
+            BackgroundJobStatus::Succeeded,
+            BackgroundJobStatus::Failed,
+            BackgroundJobStatus::Cancelled,
+        ] {
+            jobs.update(&mut app, |jobs, ctx| {
+                let job = cancellation_fixture(status);
+                let id = job.id;
+                let owner = job.conversation_id;
+                let finished_at = job.finished_at;
+                let (cancel, cancellations) = async_channel::bounded(1);
+                jobs.jobs.insert(id, job);
+                // Even a stale remote cancellation handle must not be used.
+                jobs.remote_cancellations.insert(id, cancel);
+                assert_eq!(jobs.cancel(id, ctx), Ok(()));
+                assert_eq!(jobs.cancel(id, ctx), Ok(()));
+                assert_eq!(
+                    cancellations.try_recv(),
+                    Err(async_channel::TryRecvError::Empty)
+                );
+                let job = jobs.job(id).unwrap();
+                assert_eq!(job.status, status);
+                assert_eq!(job.exit_code, Some(17));
+                assert_eq!(job.finished_at, finished_at);
+                assert_eq!(job.error.as_deref(), Some("original outcome"));
+                assert_eq!(job.output, "original output");
+                assert_eq!(job.completion_delivered, true);
+                assert_eq!(jobs.pending_completions(owner).len(), 0);
+                assert_eq!(jobs.unpublished_completions.contains(&id), false);
+            });
+        }
+    });
+}
+
+#[test]
+fn cancellation_still_rejects_unknown_and_unowned_running_processes() {
+    galaxyui::App::test((), |mut app| async move {
+        let jobs = app.add_model(super::BackgroundJobsModel::new);
+        jobs.update(&mut app, |jobs, ctx| {
+            let unknown = uuid::Uuid::new_v4();
+            let (cancel, cancellations) = async_channel::bounded(1);
+            jobs.remote_cancellations.insert(unknown, cancel);
+            assert_eq!(jobs.cancel(unknown, ctx), Err("Background job not found".to_owned()));
+            assert_eq!(cancellations.try_recv(), Err(async_channel::TryRecvError::Empty));
+
+            let mut job = cancellation_fixture(BackgroundJobStatus::Running);
+            job.finished_at = None;
+            let id = job.id;
+            jobs.jobs.insert(id, job);
+            // A known Running record alone never authorizes signalling a PID.
+            assert_eq!(jobs.cancel(id, ctx), Err("This background job is no longer running".to_owned()));
+
+            jobs.unreconciled_remote_jobs.insert(id);
+            assert_eq!(jobs.cancel(id, ctx), Err("Waiting to reconnect and confirm this job's state on its host before cancellation is available".to_owned()));
+            assert_eq!(jobs.job(id).unwrap().status, BackgroundJobStatus::Running);
+        });
+    });
+}

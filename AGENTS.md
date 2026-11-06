@@ -94,6 +94,12 @@ zsh -lc '
   conclusions about retries or repeated discovery.
 - Inspect `context.app.source_commit` and `source_modified` to identify the running
   build. Remote events may come from another machine or an older build.
+- Terminal `provider_run_finished` events include `model_failure_diagnostics`:
+  the last eight sanitized model failures observed in the current process, with
+  an observed count and explicit truncation. A recovered run can complete with
+  retries; inspect this evidence even if individual retry logs were lost during
+  a connection interruption. This diagnostic history is never model context or
+  a persisted checkpoint and does not cover failures before a process restart.
 - `raw_model_request` events can include prompts, history, and tool data in
   `context.raw_payload.payload`. Check `truncated` and the accompanying size fields
   before parsing or treating missing content as evidence. These are Galaxy request

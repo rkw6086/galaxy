@@ -17,6 +17,7 @@ use std::{
 use chrono::Utc;
 use galaxy_core::channel::ChannelState;
 use galaxyui::{Entity, ModelContext, SingletonEntity, View, ViewContext};
+use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
 use settings::Setting;
@@ -34,6 +35,15 @@ static REMOTE_LOG_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::
         .map_err(|error| format!("could not create HTTP client: {error}"))
 });
 const MAX_ERROR_CHARS: usize = 500;
+const MAX_ERROR_INPUT_CHARS: usize = 16 * 1024;
+static ERROR_URL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i)https?://[^\s\"'<>]+"#).expect("valid error URL pattern"));
+static ERROR_CREDENTIAL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)[\"'\\]*\b(?:authorization|proxy-authorization|x-api-key|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|password|secret)\b[\"'\\\s]*[:=]\s*"#)
+        .expect("valid error credential pattern")
+});
+static ERROR_BEARER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i)\bbearer\s+[^\s,\"';}\]]+"#).expect("valid bearer pattern"));
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RemoteLogLevel {
@@ -210,13 +220,111 @@ fn write_local_log(payload: &RemoteLogPayload) {
 }
 
 pub(crate) fn sanitize_error(error: impl std::fmt::Display) -> String {
-    let compact = error
-        .to_string()
+    // Stop formatting before scanning/redacting an arbitrarily large upstream
+    // error body. A truncated diagnostic must never traverse the entire body.
+    struct ErrorPrefix {
+        text: String,
+        remaining: usize,
+    }
+    impl std::fmt::Write for ErrorPrefix {
+        fn write_str(&mut self, value: &str) -> std::fmt::Result {
+            if let Some((boundary, _)) = value.char_indices().nth(self.remaining) {
+                self.text.push_str(&value[..boundary]);
+                self.remaining = 0;
+                Err(std::fmt::Error)
+            } else {
+                self.text.push_str(value);
+                self.remaining -= value.chars().count();
+                Ok(())
+            }
+        }
+    }
+    let mut prefix = ErrorPrefix {
+        text: String::new(),
+        remaining: MAX_ERROR_INPUT_CHARS,
+    };
+    let _ = std::fmt::write(&mut prefix, format_args!("{error}"));
+    let text = prefix.text;
+    let safe_urls = ERROR_URL.replace_all(&text, |captures: &regex::Captures<'_>| {
+        let matched = &captures[0];
+        let url_text = matched.trim_end_matches([')', ']', '}', ',', ';']);
+        let suffix = &matched[url_text.len()..];
+        match reqwest::Url::parse(url_text) {
+            Ok(mut url) => {
+                let _ = url.set_username("");
+                let _ = url.set_password(None);
+                url.set_query(None);
+                url.set_fragment(None);
+                format!("{url}{suffix}")
+            }
+            Err(_) => format!("[redacted URL]{suffix}"),
+        }
+    });
+    let safe_credentials = redact_error_credentials(&safe_urls);
+    let safe_bearers = ERROR_BEARER.replace_all(&safe_credentials, "Bearer [redacted]");
+    let compact = safe_bearers
         .split_whitespace()
         .map(redact_sensitive_token)
         .collect::<Vec<_>>()
         .join(" ");
     truncate_chars(&compact, MAX_ERROR_CHARS)
+}
+
+fn redact_error_credentials(text: &str) -> String {
+    let mut redacted = String::with_capacity(text.len());
+    let mut cursor = 0;
+    for assignment in ERROR_CREDENTIAL.find_iter(text) {
+        // A match inside an already-redacted credential is credential content,
+        // not a new assignment. Do not copy any of that content back out.
+        if assignment.start() < cursor {
+            continue;
+        }
+        redacted.push_str(&text[cursor..assignment.end()]);
+        redacted.push_str("[redacted]");
+        cursor = assignment.end() + error_credential_value_end(&text[assignment.end()..]);
+    }
+    redacted.push_str(&text[cursor..]);
+    redacted
+}
+
+fn error_credential_value_end(value: &str) -> usize {
+    let escapes = value.bytes().take_while(|byte| *byte == b'\\').count();
+    if let Some(quote @ (b'"' | b'\'')) = value.as_bytes().get(escapes).copied() {
+        // JSON strings can themselves contain escaped JSON. A delimiter at
+        // nesting depth N has 2^N-1 preceding slashes; an escaped quote inside
+        // its value has a different residue. Preserve the original escaping,
+        // so a quoted password cannot be broken open by global unescaping.
+        let span = escapes + 1;
+        if !span.is_power_of_two() {
+            return value.len();
+        }
+        let mut slashes = 0;
+        let start = escapes + 1;
+        for (index, character) in value[start..].char_indices() {
+            if character == '\\' {
+                slashes += 1;
+                continue;
+            }
+            if character as u32 == u32::from(quote) && slashes % (2 * span) == escapes {
+                return start + index + 1;
+            }
+            slashes = 0;
+        }
+        // An incomplete quoted value may be a truncated provider error body.
+        return value.len();
+    }
+    if value.starts_with('{') || value.starts_with('[') {
+        let mut values = serde_json::Deserializer::from_str(value).into_iter::<Value>();
+        return if values.next().is_some_and(|result| result.is_ok()) {
+            values.byte_offset()
+        } else {
+            value.len()
+        };
+    }
+    // An unquoted credential/header has no reliable value terminator. It may
+    // contain spaces, an authentication scheme, or multiple signed fields.
+    // Redact through the line boundary instead of guessing and exposing a suffix.
+    value.find(['\r', '\n']).unwrap_or(value.len())
 }
 
 pub(crate) fn raw_model_payload_context<M>(
@@ -287,7 +395,7 @@ async fn send_remote_log(config: RemoteLogConfig, payload: RemoteLogPayload) -> 
         .json(&payload)
         .send()
         .await
-        .map_err(|error| format!("request failed: {error}"))?;
+        .map_err(|error| format!("request failed: {}", sanitize_error(error)))?;
 
     if !response.status().is_success() {
         return Err(format!("server returned HTTP {}", response.status()));

@@ -16,6 +16,7 @@ use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 use super::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use super::diagnostic::BedrockDiagnosticLogger;
 use crate::ai::agent::api::LegacyEvent;
+use crate::ai::grep_query::prepare_grep_queries;
 use crate::server::server_api::AIApiError;
 
 fn json_to_prost_struct(value: &serde_json::Value) -> prost_types::Struct {
@@ -1018,6 +1019,13 @@ pub fn build_tool_call_message(
                         .collect()
                 })
                 .unwrap_or_default();
+            let queries = prepare_grep_queries(
+                queries,
+                input
+                    .get("fixed_strings")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+            );
             let path = input
                 .get("path")
                 .and_then(|v| v.as_str())

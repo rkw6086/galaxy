@@ -118,6 +118,22 @@ fn flattened_bedrock_credential_errors_are_authentication_failures() {
 }
 
 #[test]
+fn non_aws_authentication_errors_do_not_recommend_an_aws_login() {
+    for error in [
+        CompletionError::from_http_response(http::StatusCode::UNAUTHORIZED, "Invalid API key"),
+        CompletionError::ProviderError("AccessDenied: model access is not permitted".to_owned()),
+    ] {
+        let mapped = map_completion_error(error);
+        assert_eq!(mapped.kind, AgentErrorKind::Authentication);
+        assert_eq!(mapped.recoverable, false);
+        let message = mapped.user_message.unwrap();
+        assert_eq!(message.contains("Provider authentication failed"), true);
+        assert_eq!(message.contains("AWS"), false);
+        assert_eq!(message.contains("Bedrock"), false);
+    }
+}
+
+#[test]
 fn unrelated_provider_failures_do_not_become_authentication_failures() {
     for message in [
         "HTTP client error: connection reset",

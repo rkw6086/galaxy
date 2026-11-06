@@ -125,3 +125,45 @@ fn parse_grep_output_reports_when_results_reach_the_per_file_limit() {
     );
     assert!(truncated);
 }
+
+#[test]
+fn backend_regex_syntax_errors_explain_literal_and_regex_recovery() {
+    for output in [
+        "fatal: -e option, 'variantResolutions: []': brackets ([ ]) not balanced",
+        "fatal: -e option, 'indexAsset(context': parentheses not balanced",
+        "fatal: command line, 'variantResolutions: []': Unmatched [, [^, [:, [., or [=",
+        r"fatal: command line, 'indexAsset(context': Unmatched ( or \(",
+        "regex parse error: unclosed group",
+        "Select-String: Invalid pattern 'indexAsset(context': Not enough )'s.",
+    ] {
+        let error = GrepError::new_for_non_zero_exit_code().with_output(output.to_owned());
+        let message = error.error_for_conversation();
+        assert!(message.contains(output));
+        assert!(message.contains("fixed_strings: true"));
+        assert!(message.contains("correct or escape"));
+        assert_eq!(error.error_message(), NON_ZERO_EXIT_CODE_ERROR);
+    }
+}
+
+#[test]
+fn ripgrep_regex_errors_also_include_literal_mode_guidance() {
+    let error =
+        GrepError::new("Ripgrep search failed: regex parse error: unclosed group".to_owned());
+    assert!(error
+        .error_for_conversation()
+        .contains("fixed_strings: true"));
+}
+
+#[test]
+fn unrelated_grep_failures_keep_the_original_diagnostic() {
+    let output = "fatal: cannot access '/project': Permission denied";
+    let error = GrepError::new_for_non_zero_exit_code().with_output(output.to_owned());
+    assert_eq!(
+        error.error_for_conversation(),
+        format!("{NON_ZERO_EXIT_CODE_ERROR}, output:\n{output}")
+    );
+    assert_eq!(
+        GrepError::new("Grep operation timed out".to_owned()).error_for_conversation(),
+        "Grep operation timed out"
+    );
+}

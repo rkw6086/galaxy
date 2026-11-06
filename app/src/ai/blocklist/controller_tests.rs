@@ -156,6 +156,7 @@ fn provider_terminal_logs_distinguish_clean_completion_from_failure() {
         &ProviderRunOutcome::Completed(galaxy_agent_core::ProviderRunCompletion {
             stop_reason: StopReason::Completed,
         }),
+        serde_json::json!({"observed_count": 0, "recent": []}),
     );
     let failed = super::provider_run_terminal_remote_log_record(
         conversation_id,
@@ -164,8 +165,14 @@ fn provider_terminal_logs_distinguish_clean_completion_from_failure() {
         &ProviderRunOutcome::Failed(ProviderRunFailure {
             kind: ProviderRunFailureKind::RetryLimitExceeded,
             message: "sk-secret timeout".to_owned(),
-            source: None,
+            source: Some(galaxy_agent_core::AgentError {
+                kind: galaxy_agent_core::AgentErrorKind::Transport,
+                message: "connection failed".to_owned(),
+                user_message: None,
+                recoverable: true,
+            }),
         }),
+        serde_json::json!({"observed_count": 1, "recent": [{"error": "connection failed"}]}),
     );
 
     assert_eq!(completed.context["llm_finished"], true);
@@ -176,6 +183,9 @@ fn provider_terminal_logs_distinguish_clean_completion_from_failure() {
     assert_eq!(failed.context["llm_finished"], false);
     assert_eq!(failed.context["outcome"], "failed");
     assert_eq!(failed.context["failure_kind"], "RetryLimitExceeded");
+    assert_eq!(failed.context["error_kind"], "Transport");
+    assert_eq!(failed.context["error_recoverable"], true);
+    assert_eq!(failed.context["model_failure_diagnostics"]["observed_count"], 1);
     assert_eq!(failed.context["error"], "[redacted] timeout");
 }
 

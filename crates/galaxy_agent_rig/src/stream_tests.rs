@@ -16,6 +16,22 @@ fn flattened_sse_http_client_error_is_recoverable_transport() {
 }
 
 #[test]
+fn safe_transport_diagnostics_survive_rig_flattening_and_remain_retryable() {
+    let error = crate::http_client::diagnose_transport_error(
+        rig_core::http_client::Error::Instance(Box::new(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "private-token-not-for-diagnostics",
+        ))),
+    );
+    // Rig uses Display text for SSE failures without a provider response status.
+    let mapped = map_completion_error(CompletionError::ProviderError(error.to_string()));
+    assert_eq!(mapped.kind, AgentErrorKind::Transport);
+    assert_eq!(mapped.recoverable, true);
+    assert_eq!(mapped.message.contains("ConnectionRefused"), true);
+    assert_eq!(mapped.message.contains("private-token"), false);
+}
+
+#[test]
 fn flattened_streamed_provider_overload_is_recoverable() {
     let error = CompletionError::ProviderError(
         r#"{"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}"#

@@ -93,7 +93,7 @@ impl GrepError {
                 error: GrepErrorType::NonZeroExitCode,
                 output: Some(output),
                 ..
-            } => format!("{NON_ZERO_EXIT_CODE_ERROR}, output:\n{output}"),
+            } => actionable_grep_error(format!("{NON_ZERO_EXIT_CODE_ERROR}, output:\n{output}")),
             GrepError {
                 error: GrepErrorType::NonZeroExitCode,
                 output: None,
@@ -102,8 +102,40 @@ impl GrepError {
             GrepError {
                 error: GrepErrorType::Other(error),
                 ..
-            } => error.clone(),
+            } => actionable_grep_error(error.clone()),
         }
+    }
+}
+
+/// Preserve backend regex semantics and report recovery guidance only after
+/// that backend has diagnosed invalid syntax. Never retry with different
+/// semantics or reject valid backend-specific expressions in a local parser.
+fn actionable_grep_error(message: String) -> String {
+    let lower = message.to_ascii_lowercase();
+    let invalid_regex = [
+        "invalid regular expression",
+        "invalid pattern",
+        "regex parse error",
+        "unmatched [",
+        "unmatched (",
+        "unmatched )",
+        "unbalanced parenth",
+        "parentheses not balanced",
+        "brackets ([ ]) not balanced",
+        "unclosed group",
+        "unclosed character class",
+        "unterminated character class",
+        "unterminated [",
+        "missing closing parenthesis",
+        "not enough )",
+        "not enough ]",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker));
+    if invalid_regex {
+        format!("{message}\nGrep uses regex by default. For literal source text, retry the same queries with fixed_strings: true. For an intended regex, correct or escape the invalid syntax; do not repeat the same malformed pattern.")
+    } else {
+        message
     }
 }
 

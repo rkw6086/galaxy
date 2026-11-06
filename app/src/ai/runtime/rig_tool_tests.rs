@@ -651,3 +651,74 @@ fn mcp_title_metadata_does_not_change_tool_arguments() {
         if input == serde_json::json!({"message": "hello", "_galaxy_tool_title": "a real server argument"}))
     );
 }
+
+
+#[test]
+fn grep_literal_mode_escapes_queries_without_changing_scope() {
+    let action = action_from_tool_call(
+        "task",
+        &call(
+            "grep",
+            serde_json::json!({
+                "queries": ["variantResolutions: []", "indexAsset(context"],
+                "fixed_strings": true,
+                "path": "/project/src",
+            }),
+        ),
+        &SkillPathOrigin::Local,
+        &HashMap::new(),
+    )
+    .unwrap();
+    let AIAgentActionType::Grep { queries, path } = action.action else {
+        panic!("expected grep action");
+    };
+    assert_eq!(
+        queries,
+        vec![r"variantResolutions: \[\]", r"indexAsset\(context"]
+    );
+    assert_eq!(path, "/project/src");
+}
+
+#[test]
+fn grep_default_and_explicit_regex_modes_preserve_patterns() {
+    for fixed_strings in [None, Some(false)] {
+        let mut input = serde_json::json!({"queries": ["[unclosed", "foo|bar"]});
+        if let Some(value) = fixed_strings {
+            input["fixed_strings"] = value.into();
+        }
+        let action = action_from_tool_call(
+            "task",
+            &call("grep", input),
+            &SkillPathOrigin::Local,
+            &HashMap::new(),
+        )
+        .unwrap();
+        let AIAgentActionType::Grep { queries, .. } = action.action else {
+            panic!("expected grep action");
+        };
+        assert_eq!(queries, vec!["[unclosed", "foo|bar"]);
+    }
+}
+
+#[test]
+fn grep_literal_mode_still_rejects_invalid_booleans_and_excessive_batches() {
+    for (input, expected) in [
+        (
+            serde_json::json!({"queries": ["needle"], "fixed_strings": "true"}),
+            "fixed_strings",
+        ),
+        (
+            serde_json::json!({"queries": ["a", "b", "c", "d"], "fixed_strings": true}),
+            "queries",
+        ),
+    ] {
+        let error = action_from_tool_call(
+            "task",
+            &call("grep", input),
+            &SkillPathOrigin::Local,
+            &HashMap::new(),
+        )
+        .unwrap_err();
+        assert!(error.contains(expected), "unexpected error: {error}");
+    }
+}

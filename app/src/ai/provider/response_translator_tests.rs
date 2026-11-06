@@ -522,3 +522,36 @@ fn direct_provider_known_tools_exclude_hosted_only_tools() {
     assert!(is_known_tool("recall_tool_history"));
     assert!(is_known_tool("interrupt_shell_command"));
 }
+
+
+#[test]
+fn compatibility_grep_literal_mode_uses_the_same_escaped_patterns() {
+    let tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "grep-1",
+        "grep",
+        r#"{"queries":["variantResolutions: []","indexAsset(context"],"fixed_strings":true,"path":"/project/src"}"#,
+    ));
+    let api::message::tool_call::Tool::Grep(grep) = tool else {
+        panic!("expected grep tool");
+    };
+    assert_eq!(
+        grep.queries,
+        vec![r"variantResolutions: \[\]", r"indexAsset\(context"]
+    );
+    assert_eq!(grep.path, "/project/src");
+}
+
+#[test]
+fn compatibility_grep_keeps_default_regex_semantics() {
+    let tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "grep-1",
+        "grep",
+        r#"{"queries":["foo|bar","[unclosed"]}"#,
+    ));
+    let api::message::tool_call::Tool::Grep(grep) = tool else {
+        panic!("expected grep tool");
+    };
+    assert_eq!(grep.queries, vec!["foo|bar", "[unclosed"]);
+}

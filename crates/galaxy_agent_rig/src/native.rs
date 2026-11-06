@@ -13,6 +13,7 @@ use rig_core::http_client::{self, HttpClientExt};
 use rig_core::providers::gemini;
 
 use crate::anthropic_auth::{anthropic_client, prepare_subscription_request, restore_tool_names};
+use crate::http_client::DiagnosticHttpClient;
 use crate::request::build_completion_request;
 use crate::stream::{start_model_completion, start_model_turn};
 
@@ -124,7 +125,11 @@ fn anthropic_reasoning_efforts(entry: &serde_json::Value) -> Vec<String> {
 }
 
 pub async fn discover_gemini_models(api_key: &str) -> Result<Vec<RigModelInfo>, String> {
-    let client = gemini::Client::new(api_key).map_err(|error| error.to_string())?;
+    let client = gemini::Client::builder()
+        .api_key(api_key)
+        .http_client(DiagnosticHttpClient::new())
+        .build()
+        .map_err(|error| error.to_string())?;
     let models = client
         .list_models()
         .await
@@ -349,7 +354,10 @@ impl AgentRuntime for GeminiRuntime {
                 "A Gemini API key is required",
             ));
         }
-        let client = gemini::Client::new(&self.config.api_key)
+        let client = gemini::Client::builder()
+            .api_key(self.config.api_key.as_str())
+            .http_client(DiagnosticHttpClient::new())
+            .build()
             .map_err(|error| AgentError::new(AgentErrorKind::Configuration, error.to_string()))?;
         let model = client.completion_model(&self.config.model);
         let max_output_tokens = request.max_output_tokens.or(self.config.max_output_tokens);

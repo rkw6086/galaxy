@@ -1,5 +1,7 @@
 mod child_context;
 mod event_translator;
+#[cfg(not(target_family = "wasm"))]
+mod model_failure_diagnostics;
 mod provider_run_coordinator;
 mod rig;
 mod rig_request;

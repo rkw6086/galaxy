@@ -2258,7 +2258,12 @@ fn provider_run_terminal_remote_log_record(
     stream_id: &ResponseStreamId,
     run: &ProviderRun,
     outcome: &ProviderRunOutcome,
+    model_failure_diagnostics: serde_json::Value,
 ) -> RemoteLogRecord {
+    let source_error = match outcome {
+        ProviderRunOutcome::Failed(failure) => failure.source.as_ref(),
+        ProviderRunOutcome::Completed(_) | ProviderRunOutcome::Cancelled { .. } => None,
+    };
     let (level, outcome_name, llm_finished, stop_reason, failure_kind, error) = match outcome {
         ProviderRunOutcome::Completed(completion) => (
             RemoteLogLevel::Info,
@@ -2297,10 +2302,13 @@ fn provider_run_terminal_remote_log_record(
             "profile": run.profile().as_str(),
             "model_turn_count": run.model_turns(),
             "model_retry_count": run.model_retries(),
+            "model_failure_diagnostics": model_failure_diagnostics,
             "outcome": outcome_name,
             "stop_reason": stop_reason,
             "failure_kind": failure_kind,
             "error": error,
+            "error_kind": source_error.map(|error| format!("{:?}", error.kind)),
+            "error_recoverable": source_error.map(|error| error.recoverable),
             "llm_finished": llm_finished,
             "provider_run_finished": true,
             "response_stream_terminal": true,
@@ -9519,6 +9527,7 @@ impl BlocklistAIController {
                 &stream_id,
                 run.coordinator.run(),
                 &outcome,
+                run.coordinator.model_failure_diagnostics(),
             ),
         );
         let completed_cleanly = matches!(

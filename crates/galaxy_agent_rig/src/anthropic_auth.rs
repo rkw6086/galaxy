@@ -13,6 +13,8 @@ use rig_core::providers::anthropic;
 use rig_core::providers::anthropic::client::AnthropicExt;
 use serde_json::json;
 
+use crate::http_client::DiagnosticHttpClient;
+
 pub fn is_claude_subscription_token(credential: &str) -> bool {
     credential.trim().contains("sk-ant-oat")
 }
@@ -64,15 +66,22 @@ impl ProviderBuilder for SubscriptionBuilder {
     }
 }
 
-pub(crate) fn anthropic_client(credential: &str) -> Result<anthropic::Client, String> {
+pub(crate) fn anthropic_client(
+    credential: &str,
+) -> Result<anthropic::Client<DiagnosticHttpClient>, String> {
     let credential = credential.trim();
     if !is_claude_subscription_token(credential) {
-        return anthropic::Client::new(credential).map_err(|error| error.to_string());
+        return anthropic::Client::builder()
+            .api_key(credential)
+            .http_client(DiagnosticHttpClient::new())
+            .build()
+            .map_err(|error| error.to_string());
     }
     let headers = subscription_headers();
     Client::<SubscriptionProvider>::builder()
         .api_key(SubscriptionToken(credential.to_string()))
         .http_headers(headers)
+        .http_client(DiagnosticHttpClient::new())
         .build()
         // Never include a credential or raw header-validation error in diagnostics.
         .map_err(|_| "Could not configure Claude subscription authentication.".to_string())
