@@ -1092,6 +1092,7 @@ enum ProviderCommandResult {
 fn convert_provider_tool_batch(
     action_context: &ProviderActionContext,
     batch: &PendingToolBatch,
+    has_expected_orchestration_event: bool,
 ) -> (Vec<(AIAgentAction, bool)>, Vec<ToolResult>) {
     let mut actions = Vec::new();
     let mut invalid_results = Vec::new();
@@ -1100,7 +1101,18 @@ fn convert_provider_tool_batch(
         .iter()
         .filter(|pending| pending.state.result().is_none())
     {
-        match action_context.action_from_tool_call(&pending.call) {
+        let action = action_context.action_from_tool_call(&pending.call).and_then(|action| {
+            if matches!(action.action, AIAgentActionType::WaitForEvents { .. }) {
+                if batch.calls.len() != 1 {
+                    return Err("wait_for_events must be the only tool in its batch. Finish the other tool results first. Background commands deliver completion automatically; do not wait for them with this tool.".to_string());
+                }
+                if !has_expected_orchestration_event {
+                    return Err("No child-agent or orchestration notification source is pending. Handle the latest user request now: inspect the requested logs or answer from available evidence. Background commands deliver completion automatically. This tool cannot schedule a follow-up, watch a log file, or wait for a future incident.".to_string());
+                }
+            }
+            Ok(action)
+        });
+        match action {
             Ok(action) => actions.push((
                 action,
                 matches!(pending.state, PendingToolCallState::RecoveryPending),
@@ -8748,6 +8760,25 @@ impl BlocklistAIController {
         batch: PendingToolBatch,
         ctx: &mut ModelContext<Self>,
     ) {
+        // A generic wait has no way to observe files, incidents, or command output.
+        // Require a real orchestration source before parking a durable generation.
+        // Hosted tasks retain owner-side registration for out-of-band children/messages.
+        let has_expected_orchestration_event = batch.calls.len() == 1
+            && batch.calls[0].call.name == "wait_for_events"
+            && {
+                let history = BlocklistAIHistoryModel::as_ref(ctx);
+                let events = OrchestrationEventService::as_ref(ctx);
+                #[cfg(not(target_family = "wasm"))]
+                let has_pending_events = events.has_pending_events(conversation_id);
+                #[cfg(target_family = "wasm")]
+                let has_pending_events = false;
+                history
+                    .conversation(&conversation_id)
+                    .is_some_and(|conversation| conversation.task_id().is_some())
+                    || !active_descendant_conversation_ids(history, conversation_id).is_empty()
+                    || events.has_waiting_local_groups(conversation_id, ctx)
+                    || has_pending_events
+            };
         let Some(run) = self
             .active_provider_runs
             .get_mut(&conversation_id)
@@ -8765,8 +8796,11 @@ impl BlocklistAIController {
                     .map(|title| (pending.call.id.clone(), title))
             })
             .collect::<HashMap<_, _>>();
-        let (mut converted_actions, invalid_results) =
-            convert_provider_tool_batch(&run.action_context, &batch);
+        let (mut converted_actions, invalid_results) = convert_provider_tool_batch(
+            &run.action_context,
+            &batch,
+            has_expected_orchestration_event,
+        );
         // Seed each worker from the current durable transcript, including discoveries
         // made in this run that have not reached the persisted conversation yet.
         let history = BlocklistAIHistoryModel::as_ref(ctx);

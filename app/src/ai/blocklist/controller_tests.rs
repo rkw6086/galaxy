@@ -1455,7 +1455,8 @@ fn malformed_provider_tool_inputs_become_correlated_errors_without_dropping_vali
         panic!("expected provider tool batch");
     };
 
-    let (actions, errors) = super::convert_provider_tool_batch(&snapshot.action_context, &batch);
+    let (actions, errors) =
+        super::convert_provider_tool_batch(&snapshot.action_context, &batch, false);
 
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].0.id.to_string(), "good-grep");
@@ -1492,7 +1493,8 @@ fn malformed_provider_tool_error_can_be_committed_and_run_continues() {
     let Some(ProviderRunStep::DispatchTools(batch)) = snapshot.run.next_step().unwrap() else {
         panic!("expected provider tool batch");
     };
-    let (actions, errors) = super::convert_provider_tool_batch(&snapshot.action_context, &batch);
+    let (actions, errors) =
+        super::convert_provider_tool_batch(&snapshot.action_context, &batch, false);
     assert!(actions.is_empty());
 
     snapshot
@@ -4594,4 +4596,176 @@ fn restored_provider_checkpoint_waits_for_explicit_resume() {
             });
         });
     });
+}
+
+fn dispatch_follow_up_tool_batch(
+    snapshot: &mut super::ActiveProviderRunSnapshot,
+    calls: Vec<ToolCall>,
+) -> galaxy_agent_core::PendingToolBatch {
+    let Some(ProviderRunStep::CallModel(call)) = snapshot.run.next_step().unwrap() else {
+        panic!("expected model call");
+    };
+    let advertised_tools = calls.iter().map(|call| call.name.clone()).collect();
+    snapshot
+        .run
+        .accept_model_turn(
+            &call.work_id,
+            CompletedModelTurn {
+                assistant_content: Vec::new(),
+                tool_calls: calls,
+                usage: Usage::default(),
+                stop_reason: StopReason::Completed,
+                advertised_tools,
+            },
+        )
+        .unwrap();
+    let Some(ProviderRunStep::DispatchTools(batch)) = snapshot.run.next_step().unwrap() else {
+        panic!("expected tool batch");
+    };
+    batch
+}
+
+#[test]
+fn wait_without_an_event_source_returns_a_correlated_error_and_allows_another_model_turn() {
+    let mut snapshot = provider_snapshot(AIConversationId::new());
+    let batch = dispatch_follow_up_tool_batch(
+        &mut snapshot,
+        vec![ToolCall {
+            id: "unsupported-wait".to_owned(),
+            name: "wait_for_events".to_owned(),
+            arguments: serde_json::json!({}),
+        }],
+    );
+    let (actions, errors) =
+        super::convert_provider_tool_batch(&snapshot.action_context, &batch, false);
+    assert_eq!(actions.len(), 0);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].call_id, "unsupported-wait");
+    assert_eq!(errors[0].status, galaxy_agent_core::ToolResultStatus::Error);
+    assert!(errors[0]
+        .content
+        .contains("No child-agent or orchestration notification source"));
+    assert!(errors[0].content.contains("cannot schedule a follow-up"));
+
+    snapshot
+        .run
+        .complete_tool(&batch.work_id, errors[0].clone())
+        .unwrap();
+    snapshot.run.commit_tool_batch(&batch.work_id).unwrap();
+    let MessageContent::MultiPart(parts) = &snapshot.run.transcript().last().unwrap().content
+    else {
+        panic!("expected committed tool result");
+    };
+    assert!(matches!(&parts[0], ContentPart::ToolResult {
+        tool_use_id, is_error: true, ..
+    } if tool_use_id == "unsupported-wait"));
+    assert!(matches!(
+        snapshot.run.next_step().unwrap(),
+        Some(ProviderRunStep::CallModel(_))
+    ));
+}
+
+#[test]
+fn sole_wait_with_an_expected_orchestration_notification_remains_executable() {
+    let mut snapshot = provider_snapshot(AIConversationId::new());
+    let batch = dispatch_follow_up_tool_batch(
+        &mut snapshot,
+        vec![ToolCall {
+            id: "child-wait".to_owned(),
+            name: "wait_for_events".to_owned(),
+            arguments: serde_json::json!({"idle_timeout_seconds": 45}),
+        }],
+    );
+    let (actions, errors) =
+        super::convert_provider_tool_batch(&snapshot.action_context, &batch, true);
+    assert_eq!(errors.len(), 0);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].0.id.to_string(), "child-wait");
+    assert!(
+        matches!(&actions[0].0.action, AIAgentActionType::WaitForEvents {
+        tool_call_id, idle_timeout_seconds: 45,
+    } if tool_call_id == "child-wait")
+    );
+    assert!(
+        matches!(snapshot.run.state(), ProviderRunState::AwaitingTools { batch } if !batch.is_complete())
+    );
+}
+
+#[test]
+fn mixed_shell_launch_and_wait_preserves_the_launch_and_yields_after_every_result_commits() {
+    let mut snapshot = provider_snapshot(AIConversationId::new());
+    let batch = dispatch_follow_up_tool_batch(
+        &mut snapshot,
+        vec![
+            ToolCall {
+                id: "job-launch".to_owned(),
+                name: "run_shell_command".to_owned(),
+                arguments: serde_json::json!({"command": "echo ready"}),
+            },
+            ToolCall {
+                id: "mixed-wait".to_owned(),
+                name: "wait_for_events".to_owned(),
+                arguments: serde_json::json!({}),
+            },
+        ],
+    );
+    let (actions, errors) =
+        super::convert_provider_tool_batch(&snapshot.action_context, &batch, true);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].0.id.to_string(), "job-launch");
+    assert!(
+        matches!(&actions[0].0.action, AIAgentActionType::RequestCommandOutput { command, .. } if command == "echo ready")
+    );
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].call_id, "mixed-wait");
+    assert_eq!(errors[0].status, galaxy_agent_core::ToolResultStatus::Error);
+    assert!(errors[0].content.contains("only tool in its batch"));
+
+    snapshot
+        .run
+        .complete_tool(&batch.work_id, errors[0].clone())
+        .unwrap();
+    let error = snapshot.run.commit_tool_batch(&batch.work_id).unwrap_err();
+    assert!(error.to_string().contains("job-launch"));
+    assert!(matches!(
+        snapshot.run.state(),
+        ProviderRunState::AwaitingTools { .. }
+    ));
+    snapshot
+        .run
+        .start_tool(&batch.work_id, "job-launch")
+        .unwrap();
+    snapshot
+        .run
+        .complete_tool(
+            &batch.work_id,
+            galaxy_agent_core::ToolResult {
+                call_id: "job-launch".to_owned(),
+                content: serde_json::json!({
+                    "background_job_started": {"job_id": "job-1", "command": "echo ready"}
+                })
+                .to_string(),
+                status: galaxy_agent_core::ToolResultStatus::Success,
+                images: Vec::new(),
+            },
+        )
+        .unwrap();
+    snapshot.run.commit_tool_batch(&batch.work_id).unwrap();
+
+    let MessageContent::MultiPart(parts) = &snapshot.run.transcript().last().unwrap().content
+    else {
+        panic!("expected both committed tool results");
+    };
+    assert_eq!(parts.len(), 2);
+    assert!(matches!(&parts[0], ContentPart::ToolResult {
+        tool_use_id, is_error: false, ..
+    } if tool_use_id == "job-launch"));
+    assert!(matches!(&parts[1], ContentPart::ToolResult {
+        tool_use_id, is_error: true, ..
+    } if tool_use_id == "mixed-wait"));
+    assert!(
+        matches!(snapshot.run.next_step().unwrap(), Some(ProviderRunStep::Done(
+        ProviderRunOutcome::Completed(completion)
+    )) if completion.stop_reason == StopReason::Completed)
+    );
 }

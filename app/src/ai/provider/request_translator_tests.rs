@@ -697,3 +697,43 @@ fn compatibility_background_acknowledgment_does_not_invent_monitoring() {
     };
     assert_eq!(super::long_running_command_content(&snapshot), content);
 }
+
+#[test]
+fn status_and_log_followups_are_not_parked_behind_event_waits() {
+    let request = api::Request {
+        settings: Some(api::request::Settings {
+            supported_tools: vec![
+                api::ToolType::RunShellCommand.into(),
+                api::ToolType::ReadFiles.into(),
+                api::ToolType::Subagent.into(),
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let prompt = extract_system_prompt(&request, &[]).expect("system prompt");
+    for instruction in [
+        "Background jobs continue independently",
+        "Do not use wait_for_events for background commands",
+        "inspect the available evidence and answer now",
+        "read the retained log path for the requested snapshot",
+        "do not defer that inspection until command exit",
+    ] {
+        assert!(
+            prompt.contains(instruction),
+            "missing instruction: {instruction}"
+        );
+    }
+    assert!(!super::PROGRESS_COMMUNICATION_GUIDANCE
+        .contains("command or subagent, use its wait tool"));
+
+    let tools = extract_tools(&request);
+    let wait = tools
+        .iter()
+        .find(|tool| tool.name == "wait_for_events")
+        .expect("child wait tool");
+    assert!(wait.description.contains("expected update from an already-started child agent or orchestration event source"));
+    assert!(wait.description.contains("never park that request in a wait"));
+    assert!(!wait.description.contains("other asynchronous work"));
+    assert!(tools.iter().any(|tool| tool.name == "read_files"));
+}
