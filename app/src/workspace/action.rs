@@ -183,6 +183,22 @@ pub enum WorkspaceAction {
     CloseTabsRightActiveTab,
     /// Close every tab that belongs to the given tab group.
     CloseTabGroup(TabGroupId),
+    /// Open the tab identified by its pane-group entity ID side-by-side with
+    /// the active tab in split view (max 4 total visible tabs).
+    ///
+    /// **Split view state is intentionally transient** – it is not persisted
+    /// across restarts.  The `EntityId` key is stable under tab reorder, pin,
+    /// group, and cross-window transfer operations.
+    OpenTabInSplitView {
+        pane_group_id: EntityId,
+    },
+    /// Remove a specific pane-group from the current split view.
+    /// If only one tab would remain, the split view is exited.
+    RemoveFromSplitView {
+        pane_group_id: EntityId,
+    },
+    /// Exit split view entirely and return to the single-tab display.
+    ExitSplitView,
     /// Toggle collapsed state for the given tab group.
     ToggleTabGroupCollapsed(TabGroupId),
     /// Opens an inline editor over the given group's header for renaming.
@@ -948,6 +964,9 @@ impl WorkspaceAction {
             | CloseTabsRight(_)
             | CloseTabsRightActiveTab
             | CloseTabGroup(_)
+            | OpenTabInSplitView { .. }
+            | RemoveFromSplitView { .. }
+            | ExitSplitView
             | ToggleTabGroupCollapsed(_)
             | RenameTabGroup(_)
             | NewTabGroupFromTab(_)

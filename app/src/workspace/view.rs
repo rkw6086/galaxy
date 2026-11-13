@@ -950,6 +950,93 @@ fn query_for_rewind_prefill(inputs: &[AIAgentInput]) -> Option<String> {
     inputs.iter().find_map(AIAgentInput::display_query)
 }
 
+/// Tracks which tabs are currently displayed side-by-side in split view.
+///
+/// Membership is keyed by stable [`EntityId`] (the pane-group's view ID) so
+/// that tab reorder, pin, group, and cross-window transfer operations cannot
+/// corrupt the set.
+///
+/// **This state is intentionally transient** – it is never persisted to disk
+/// and is not restored after a restart.  The workspace always starts with
+/// split view inactive.
+#[derive(Default)]
+pub(crate) struct SplitViewState {
+    /// Ordered list of pane-group entity IDs currently visible in the split.
+    /// Empty means split view is inactive.  Capped at
+    /// [`SplitViewState::MAX_VISIBLE`].
+    pane_group_ids: Vec<EntityId>,
+    /// The pane-group that holds keyboard focus within the split, or `None`
+    /// when split view is inactive / focus has not been set yet.
+    focused_id: Option<EntityId>,
+}
+
+impl SplitViewState {
+    /// Maximum number of tabs that may be visible simultaneously in split view.
+    pub(crate) const MAX_VISIBLE: usize = 4;
+
+    /// Whether split view is currently active (2 or more slots filled).
+    pub(crate) fn is_active(&self) -> bool {
+        self.pane_group_ids.len() >= 2
+    }
+
+    /// True if the given entity ID is a member of the split view.
+    pub(crate) fn contains(&self, id: EntityId) -> bool {
+        self.pane_group_ids.contains(&id)
+    }
+
+    /// Number of tabs currently in the split view.
+    pub(crate) fn len(&self) -> usize {
+        self.pane_group_ids.len()
+    }
+
+    /// Ordered slice of pane-group IDs in the split view.
+    pub(crate) fn ids(&self) -> &[EntityId] {
+        &self.pane_group_ids
+    }
+
+    /// The ID that currently holds focus within the split, or `None`.
+    pub(crate) fn focused_id(&self) -> Option<EntityId> {
+        self.focused_id
+    }
+
+    /// Add `id` to the split view, returning `true` if it was actually added.
+    /// Does nothing (returns `false`) when already present or at capacity.
+    pub(crate) fn add(&mut self, id: EntityId) -> bool {
+        if self.pane_group_ids.contains(&id) || self.pane_group_ids.len() >= Self::MAX_VISIBLE {
+            return false;
+        }
+        self.pane_group_ids.push(id);
+        if self.focused_id.is_none() {
+            self.focused_id = Some(id);
+        }
+        true
+    }
+
+    /// Remove `id` from the split view.  Returns `true` if it was present.
+    /// Clears focused_id when it matched the removed entry.
+    pub(crate) fn remove(&mut self, id: EntityId) -> bool {
+        let pos = self.pane_group_ids.iter().position(|&x| x == id);
+        let Some(pos) = pos else { return false };
+        self.pane_group_ids.remove(pos);
+        if self.focused_id == Some(id) {
+            // Transfer focus to the nearest remaining slot.
+            self.focused_id = self.pane_group_ids.first().copied();
+        }
+        true
+    }
+
+    /// Set which pane-group has focus within the split.
+    pub(crate) fn set_focused_id(&mut self, id: EntityId) {
+        self.focused_id = Some(id);
+    }
+
+    /// Reset to the inactive state.
+    pub(crate) fn clear(&mut self) {
+        self.pane_group_ids.clear();
+        self.focused_id = None;
+    }
+}
+
 /// Snapshot of a tab used to move it between workspaces or into a new window.
 /// Built by `Workspace::tab_transfer_info_at_index` and consumed by
 /// `insert_transferred_tab_at_index`. Captures the pane group handle, visual
@@ -1181,6 +1268,15 @@ pub struct Workspace {
     /// orchestration cards' "New API key…" flow. Cloud mode renders the
     /// FTUX view inline and does not use this.
     create_auth_secret_modal: Option<ViewHandle<Modal<AuthSecretFtuxView>>>,
+    /// Tracks which pane-groups are currently displayed side-by-side in split
+    /// view.  State is keyed by stable `EntityId` and is intentionally
+    /// **not persisted** – it is always reset to inactive on startup.
+    split_view_state: SplitViewState,
+    /// The pane-group ID of the tab currently being dragged out of the window
+    /// (i.e. `tab_data.detached == true`).  Set when a drag crosses the
+    /// tab-bar boundary; cleared in `DropTab`.  Used by `FocusSelf` to restore
+    /// the active tab after a cancelled drag.
+    detached_tab_pane_group_id: Option<EntityId>,
 }
 
 impl Workspace {
@@ -3569,6 +3665,8 @@ impl Workspace {
             remove_tab_config_confirmation_dialog:
                 Self::build_remove_tab_config_confirmation_dialog(ctx),
             create_auth_secret_modal: None,
+            split_view_state: SplitViewState::default(),
+            detached_tab_pane_group_id: None,
         };
 
         ws.configure_new_workspace(workspace_setting, ctx);
@@ -5422,6 +5520,19 @@ impl Workspace {
             // If the agent management view is open, we want to close it when we activate a new tab.
             if FeatureFlag::AgentManagementView.is_enabled() {
                 self.set_is_agent_management_view_open(false, ctx);
+            }
+
+            // If split view is active and the target tab is not part of the
+            // split, exit split view before activating.  Switching to a tab
+            // that is in the split is handled by `handle_pane_group_focus_in_split`
+            // (via FocusPaneGroup), so a direct call here with an in-split tab
+            // is treated as a normal activation without exiting.
+            if self.split_view_state.is_active() {
+                if let Some(tab) = self.tabs.get(index) {
+                    if !self.split_view_state.contains(tab.pane_group.id()) {
+                        self.split_view_state.clear();
+                    }
+                }
             }
 
             self.set_active_tab_index(index, ctx);
@@ -7818,7 +7929,7 @@ impl Workspace {
         let can_move_left = self.can_move_tab(tab_index, TabMovement::Left);
         let can_move_right = self.can_move_tab(tab_index, TabMovement::Right);
         let is_only_member_of_group = self.tab_is_only_member_of_its_group(tab_index);
-        let menu_items = {
+        let mut menu_items = {
             let tab = &self.tabs[tab_index];
             tab.menu_items(
                 tab_index,
@@ -7830,6 +7941,13 @@ impl Workspace {
                 ctx,
             )
         };
+        // Inject split-view entries.  We use the pane-group EntityId (stable
+        // under tab reorder / transfer) rather than the index.
+        let split_items = self.build_split_view_menu_items_for_tab(tab_index);
+        if !split_items.is_empty() {
+            menu_items.push(MenuItem::Separator);
+            menu_items.extend(split_items);
+        }
         ctx.update_view(&self.tab_right_click_menu, |context_menu, view_ctx| {
             context_menu.set_items(menu_items, view_ctx);
         });
@@ -7906,7 +8024,7 @@ impl Workspace {
         let can_move_right = self.can_move_tab(tab_index, TabMovement::Right);
         let is_only_member_of_group = self.tab_is_only_member_of_its_group(tab_index);
         let tab = &self.tabs[tab_index];
-        let menu_items = tab.menu_items_with_pane_name_target(
+        let mut menu_items = tab.menu_items_with_pane_name_target(
             tab_index,
             self.tabs.len(),
             &self.tab_groups,
@@ -7916,6 +8034,12 @@ impl Workspace {
             Some(pane_name_target),
             ctx,
         );
+        // Inject split-view entries (stable EntityId approach).
+        let split_items = self.build_split_view_menu_items_for_tab(tab_index);
+        if !split_items.is_empty() {
+            menu_items.push(MenuItem::Separator);
+            menu_items.extend(split_items);
+        }
 
         ctx.update_view(&self.tab_right_click_menu, |context_menu, view_ctx| {
             context_menu.set_items(menu_items, view_ctx);
@@ -8969,6 +9093,160 @@ impl Workspace {
     pub fn close_tab_bar_overflow_menu(&mut self, ctx: &mut ViewContext<Self>) {
         self.show_tab_bar_overflow_menu = false;
         ctx.notify();
+    }
+
+    // ── Split-view helpers ────────────────────────────────────────────────
+
+    /// Build the split-view section of a right-click menu for the tab at
+    /// `tab_index`.  Returns an empty vec when no entries apply.
+    ///
+    /// Entry rules (all keyed by stable `EntityId`):
+    /// - Tab that is in an active split and is the **currently focused slot**:
+    ///   show "Exit Split View" (closes the whole split).
+    /// - Tab that is in an active split but is **not** the focused slot:
+    ///   show "Remove from Split View".
+    /// - Tab that is **not** in the split and there is still capacity (< 4):
+    ///   show "Open in Split View" — but only when split view is active or
+    ///   the right-clicked tab is not already the active tab (you need at
+    ///   least two distinct tabs to form a split).
+    fn build_split_view_menu_items_for_tab(
+        &self,
+        tab_index: usize,
+    ) -> Vec<MenuItem<WorkspaceAction>> {
+        let Some(tab) = self.tabs.get(tab_index) else {
+            return vec![];
+        };
+        let pane_group_id = tab.pane_group.id();
+
+        if self.split_view_state.contains(pane_group_id) {
+            // Tab is already in the split.
+            if self.split_view_state.focused_id() == Some(pane_group_id) {
+                // Focused slot: offer to exit the whole split.
+                vec![MenuItemFields::new("Exit Split View")
+                    .with_on_select_action(WorkspaceAction::ExitSplitView)
+                    .into_item()]
+            } else {
+                // Non-focused slot: offer to remove just this tab.
+                vec![
+                    MenuItemFields::new("Remove from Split View")
+                        .with_on_select_action(WorkspaceAction::RemoveFromSplitView {
+                            pane_group_id,
+                        })
+                        .into_item(),
+                    MenuItemFields::new("Exit Split View")
+                        .with_on_select_action(WorkspaceAction::ExitSplitView)
+                        .into_item(),
+                ]
+            }
+        } else if self.split_view_state.len() < SplitViewState::MAX_VISIBLE
+            && (self.split_view_state.is_active() || tab_index != self.active_tab_index)
+        {
+            // Tab is not in the split and there is room.  When no split is
+            // active yet we also need the active tab to be different (you
+            // need two distinct tabs to open a split).
+            vec![MenuItemFields::new("Open in Split View")
+                .with_on_select_action(WorkspaceAction::OpenTabInSplitView { pane_group_id })
+                .into_item()]
+        } else {
+            vec![]
+        }
+    }
+
+    /// Find the tab index for a pane-group entity ID, if it still lives in
+    /// this workspace window.
+    fn tab_index_for_pane_group_id(&self, id: EntityId) -> Option<usize> {
+        self.tabs.iter().position(|t| t.pane_group.id() == id)
+    }
+
+    /// Open the tab identified by `pane_group_id` in split view alongside the
+    /// currently active tab.  When no split is active yet, both the active tab
+    /// and the requested tab are added.  Silently ignored when the ID is not
+    /// found in this window.
+    fn open_tab_in_split_view(&mut self, pane_group_id: EntityId, ctx: &mut ViewContext<Self>) {
+        // The requested tab must exist in this workspace.
+        if self.tab_index_for_pane_group_id(pane_group_id).is_none() {
+            log::warn!("OpenTabInSplitView: pane_group_id not found in this workspace");
+            return;
+        }
+        // Can't add a tab that is already in the split.
+        if self.split_view_state.contains(pane_group_id) {
+            return;
+        }
+        // Enforce maximum.
+        if self.split_view_state.len() >= SplitViewState::MAX_VISIBLE {
+            return;
+        }
+
+        // Seed the split with the currently active tab if not yet active.
+        if !self.split_view_state.is_active() {
+            let active_id = self.active_tab_pane_group().id();
+            // Don't add the active tab if it *is* the requested tab.
+            if active_id != pane_group_id {
+                self.split_view_state.add(active_id);
+            }
+        }
+        self.split_view_state.add(pane_group_id);
+
+        // Keep active_tab_index pointing at the focused slot so workspace
+        // actions (rename, close etc.) operate on the right tab.
+        if let Some(focused_id) = self.split_view_state.focused_id() {
+            if let Some(idx) = self.tab_index_for_pane_group_id(focused_id) {
+                self.active_tab_index = idx;
+            }
+        }
+
+        ctx.dispatch_global_action("workspace:save_app", ());
+        ctx.notify();
+    }
+
+    /// Remove `pane_group_id` from the split view.  If only one slot remains
+    /// afterwards, the split is exited entirely.
+    fn remove_from_split_view(&mut self, pane_group_id: EntityId, ctx: &mut ViewContext<Self>) {
+        if !self.split_view_state.remove(pane_group_id) {
+            return;
+        }
+        // Auto-exit when fewer than 2 slots remain.
+        if !self.split_view_state.is_active() {
+            self.split_view_state.clear();
+        }
+        ctx.dispatch_global_action("workspace:save_app", ());
+        ctx.notify();
+    }
+
+    /// Exit split view entirely.
+    fn exit_split_view(&mut self, ctx: &mut ViewContext<Self>) {
+        if !self.split_view_state.is_active() {
+            return;
+        }
+        self.split_view_state.clear();
+        ctx.dispatch_global_action("workspace:save_app", ());
+        ctx.notify();
+    }
+
+    /// Called from `handle_file_tree_event` when a pane-group fires
+    /// `FocusPaneGroup`.  When the group is a member of the split view we
+    /// update the focused slot and `active_tab_index` **without** exiting the
+    /// split.  When it is outside the split we exit split view first, then
+    /// activate normally.
+    fn handle_pane_group_focus_in_split(
+        &mut self,
+        pane_group_id: EntityId,
+        tab_index: usize,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        if self.split_view_state.contains(pane_group_id) {
+            // Update focused slot without leaving split view.
+            self.split_view_state.set_focused_id(pane_group_id);
+            // Keep active_tab_index in sync so workspace actions operate on
+            // the right tab.  Do not call activate_tab_internal here because
+            // that would recursively exit split view.
+            self.set_active_tab_index(tab_index, ctx);
+            ctx.notify();
+        } else {
+            // Click outside split → exit split view, then activate normally.
+            self.split_view_state.clear();
+            self.activate_tab(tab_index, ctx);
+        }
     }
 
     /// Find an active session and pre-fill the input editor the Warp executable with the
@@ -11998,6 +12276,20 @@ impl Workspace {
         let removed_pane_group_id = tab_data.pane_group.id();
         self.tab_mru_order.retain(|id| *id != removed_pane_group_id);
 
+        // Remove from split view when applicable.  Snapshot remaining IDs
+        // immediately after remove and before any clear so the activation step
+        // below can prefer a surviving split member in both the still-active
+        // and the collapse-to-one cases.
+        let was_in_split = self.split_view_state.remove(removed_pane_group_id);
+        let remaining_split_ids: Vec<EntityId> = if was_in_split {
+            self.split_view_state.ids().to_vec()
+        } else {
+            Vec::new()
+        };
+        if was_in_split && !self.split_view_state.is_active() {
+            self.split_view_state.clear();
+        }
+
         // If the closed tab was a group member, prune the group when it now
         // has no remaining members.
         if let Some(group_id) = tab_data.group_id {
@@ -12016,12 +12308,16 @@ impl Workspace {
 
         match index.cmp(&self.active_tab_index) {
             Ordering::Equal => {
-                // Activate the tab that was immediately after the closed one — to the
-                // right for horizontal tabs, below for vertical tabs. After removal that
-                // tab occupies the same index. If the closed tab was the last one, fall
-                // back to the new last tab (the previous neighbor). This matches the
-                // browser / macOS convention for both layouts.
-                let active_index = index.min(self.tabs.len() - 1);
+                // The closed tab was the active one.  Prefer a surviving split
+                // member so the split view stays alive and consistent.  Fall
+                // back to the standard adjacent-tab convention when no split
+                // member is available (split already collapsed or was inactive).
+                let preferred_index = remaining_split_ids
+                    .iter()
+                    .find_map(|&id| self.tabs.iter().position(|t| t.pane_group.id() == id));
+
+                let active_index =
+                    preferred_index.unwrap_or_else(|| index.min(self.tabs.len() - 1));
                 self.activate_tab_internal(active_index, ctx);
             }
             Ordering::Less => {
@@ -13122,10 +13418,9 @@ impl Workspace {
                         || ctx
                             .view_with_id::<PaneGroup>(window_id, pane_view_locator.pane_group_id)
                             .and_then(|pane_group| {
-                                pane_group.as_ref(ctx).terminal_view_from_pane_id(
-                                    pane_view_locator.pane_id,
-                                    ctx,
-                                )
+                                pane_group
+                                    .as_ref(ctx)
+                                    .terminal_view_from_pane_id(pane_view_locator.pane_id, ctx)
                             })
                             .is_none_or(|terminal| terminal.id() != terminal_view_id)
                         || ctx.root_view_id(window_id).is_none()))
@@ -13265,9 +13560,13 @@ impl Workspace {
             .get_conversation_metadata(&conversation_id)
             .is_some_and(|m| m.has_local_data);
         let future = if local_only {
-            history_model.as_ref(ctx).load_local_conversation_data(conversation_id)
+            history_model
+                .as_ref(ctx)
+                .load_local_conversation_data(conversation_id)
         } else {
-            history_model.as_ref(ctx).load_conversation_data(conversation_id, ctx)
+            history_model
+                .as_ref(ctx)
+                .load_conversation_data(conversation_id, ctx)
         };
         let terminal_view_for_closure = terminal_view.clone();
         let window_id = ctx.window_id();
@@ -13344,9 +13643,13 @@ impl Workspace {
 
         let history_model = BlocklistAIHistoryModel::handle(ctx);
         let future = if local_only {
-            history_model.as_ref(ctx).load_local_conversation_data(conversation_id)
+            history_model
+                .as_ref(ctx)
+                .load_local_conversation_data(conversation_id)
         } else {
-            history_model.as_ref(ctx).load_conversation_data(conversation_id, ctx)
+            history_model
+                .as_ref(ctx)
+                .load_conversation_data(conversation_id, ctx)
         };
         ctx.spawn(future, move |_workspace, conversation, ctx| {
             let Some(conversation) = conversation else {
@@ -13420,9 +13723,13 @@ impl Workspace {
 
         let history_model = BlocklistAIHistoryModel::handle(ctx);
         let future = if local_only {
-            history_model.as_ref(ctx).load_local_conversation_data(conversation_id)
+            history_model
+                .as_ref(ctx)
+                .load_local_conversation_data(conversation_id)
         } else {
-            history_model.as_ref(ctx).load_conversation_data(conversation_id, ctx)
+            history_model
+                .as_ref(ctx)
+                .load_conversation_data(conversation_id, ctx)
         };
 
         ctx.spawn(future, move |workspace, conversation, ctx| {
@@ -16225,7 +16532,14 @@ impl Workspace {
             pane_group::Event::FocusPaneGroup => {
                 for (index, tab) in self.tabs.iter().enumerate() {
                     if tab.pane_group.id() == pane_group.id() {
-                        self.activate_tab(index, ctx);
+                        // If split view is active, delegate to the split-aware
+                        // handler so we don't accidentally exit the split when
+                        // the user clicks a visible (non-active) slot.
+                        if self.split_view_state.is_active() {
+                            self.handle_pane_group_focus_in_split(pane_group.id(), index, ctx);
+                        } else {
+                            self.activate_tab(index, ctx);
+                        }
                         break;
                     }
                 }
@@ -16263,6 +16577,29 @@ impl Workspace {
             // If focused pane contains an object, then set selected state in WD to that object
             pane_group::Event::PaneFocused => {
                 self.current_workspace_state.close_all_modals();
+
+                // When split view is active and a non-current slot emits
+                // PaneFocused, sync active_tab_index and focused_id to that
+                // slot before the rest of the handler reads active_tab_pane_group().
+                // Guard on both active_tab_index and focused_id: either can be
+                // stale when the tab-bar was used without updating the other.
+                let emitting_pg_id = pane_group.id();
+                if self.split_view_state.is_active()
+                    && self.split_view_state.contains(emitting_pg_id)
+                {
+                    if let Some(tab_index) = self
+                        .tabs
+                        .iter()
+                        .position(|t| t.pane_group.id() == emitting_pg_id)
+                    {
+                        let needs_sync = self.active_tab_index != tab_index
+                            || self.split_view_state.focused_id() != Some(emitting_pg_id);
+                        if needs_sync {
+                            self.split_view_state.set_focused_id(emitting_pg_id);
+                            self.set_active_tab_index(tab_index, ctx);
+                        }
+                    }
+                }
 
                 // Re-evaluate which region is focused and update pane dimming accordingly.
                 self.update_pane_dimming_for_current_focus_region(ctx);
@@ -21906,7 +22243,54 @@ impl Workspace {
     ) -> Box<dyn Element> {
         let active_tab_data = &self.tabs[self.active_tab_index];
 
-        let active_content = if FeatureFlag::AgentManagementView.is_enabled()
+        // When split view is active, render all split-member pane-groups
+        // side-by-side with equal flex weight and thin vertical dividers.
+        // Each slot is a full `PaneGroup` view – sessions remain intact and
+        // in situ; we only change how the workspace composites them.
+        let active_content = if self.split_view_state.is_active()
+            && !(FeatureFlag::AgentManagementView.is_enabled()
+                && self.current_workspace_state.is_agent_management_view_open)
+        {
+            // Collect pane-group handles for visible (non-detached) split slots.
+            // Detached tabs are owned by the preview window during a drag and
+            // must not be rendered here simultaneously.
+            let split_pane_groups: Vec<_> = self
+                .split_view_state
+                .ids()
+                .iter()
+                .filter_map(|&id| {
+                    self.tabs
+                        .iter()
+                        .find(|t| t.pane_group.id() == id && !t.detached)
+                })
+                .map(|t| t.pane_group.clone())
+                .collect();
+
+            if split_pane_groups.is_empty() {
+                // Guard: should not happen, but fall back to single-tab.
+                ChildView::new(&active_tab_data.pane_group).finish()
+            } else {
+                let divider_color = appearance.theme().outline().into_solid();
+                let mut row = Flex::row();
+                let last_idx = split_pane_groups.len().saturating_sub(1);
+                for (i, pane_group) in split_pane_groups.iter().enumerate() {
+                    row.add_child(
+                        Shrinkable::new(1.0, ChildView::new(pane_group).finish()).finish(),
+                    );
+                    // Render a thin vertical divider between adjacent slots,
+                    // matching the style used by `render_panel_separator`.
+                    if i < last_idx {
+                        let divider = ConstrainedBox::new(
+                            Rect::new().with_background_color(divider_color).finish(),
+                        )
+                        .with_width(1.0)
+                        .finish();
+                        row.add_child(divider);
+                    }
+                }
+                row.finish()
+            }
+        } else if FeatureFlag::AgentManagementView.is_enabled()
             && self.current_workspace_state.is_agent_management_view_open
         {
             ChildView::new(&self.agent_management_view).finish()
@@ -23749,6 +24133,13 @@ impl TypedActionView for Workspace {
                 self.close_tabs_direction(self.active_tab_index, TabMovement::Right, false, ctx)
             }
             CloseTabGroup(group_id) => self.close_tab_group(*group_id, ctx),
+            OpenTabInSplitView { pane_group_id } => {
+                self.open_tab_in_split_view(*pane_group_id, ctx)
+            }
+            RemoveFromSplitView { pane_group_id } => {
+                self.remove_from_split_view(*pane_group_id, ctx)
+            }
+            ExitSplitView => self.exit_split_view(ctx),
             ToggleTabGroupCollapsed(group_id) => self.toggle_tab_group_collapsed(*group_id, ctx),
             RenameTabGroup(group_id) => self.rename_tab_group(*group_id, ctx),
             CancelActiveRename => {
@@ -24834,6 +25225,9 @@ impl TypedActionView for Workspace {
                         tab.pinned = false;
                     }
                 }
+                // Clear preview bookkeeping before processing the drop result.
+                // Multi-tab returns restore focus through the put-back handoff.
+                self.detached_tab_pane_group_id = None;
                 send_telemetry_from_ctx!(TelemetryEvent::DragAndDropTab, ctx);
                 if is_cross_window {
                     let drop_result =
@@ -28218,13 +28612,36 @@ impl Workspace {
                 });
             }
 
-            if !source_was_single_tab && current_index == self.active_tab_index {
-                let adjacent = if current_index + 1 < self.tabs.len() {
-                    current_index + 1
-                } else {
-                    current_index.saturating_sub(1)
-                };
-                self.set_active_tab_index(adjacent, ctx);
+            if !source_was_single_tab {
+                // Record the detached tab's ID for cancel-drag restoration.
+                let detached_id = self.tabs.get(current_index).map(|t| t.pane_group.id());
+                self.detached_tab_pane_group_id = detached_id;
+
+                // Exit split view and pick a visible surviving member as the
+                // new active tab.  Using a surviving member keeps the split
+                // logically coherent; the detached tab may come back
+                // (FocusSelf) so we clear rather than trying to maintain
+                // partial membership across a drag.
+                let survivor = detached_id.and_then(|dragged_id| {
+                    self.split_view_state
+                        .ids()
+                        .iter()
+                        .copied()
+                        .find(|&id| id != dragged_id)
+                        .and_then(|id| self.tab_index_for_pane_group_id(id))
+                });
+                self.split_view_state.clear();
+
+                if current_index == self.active_tab_index {
+                    let new_active = survivor.unwrap_or_else(|| {
+                        if current_index + 1 < self.tabs.len() {
+                            current_index + 1
+                        } else {
+                            current_index.saturating_sub(1)
+                        }
+                    });
+                    self.set_active_tab_index(new_active, ctx);
+                }
             }
 
             ctx.notify();
@@ -28371,6 +28788,19 @@ impl Workspace {
             DropResult::FocusSelf => {
                 if let Some(tab) = self.tabs.first() {
                     tab.draggable_state.set_suppress_overlay_paint(false);
+                }
+                // Restore the active tab to the returned (formerly-detached)
+                // tab.  When we detached it we shifted active_tab_index to an
+                // adjacent or surviving-split-member tab; on cancel the
+                // dragged tab comes back so we should focus it again.
+                if let Some(detached_id) = self.detached_tab_pane_group_id.take() {
+                    if let Some(idx) = self
+                        .tabs
+                        .iter()
+                        .position(|t| t.pane_group.id() == detached_id)
+                    {
+                        self.set_active_tab_index(idx, ctx);
+                    }
                 }
                 self.focus_active_tab(ctx);
             }
