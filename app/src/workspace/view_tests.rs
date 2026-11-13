@@ -4636,6 +4636,74 @@ mod split_view_state_tests {
         assert_eq!(s.len(), 0);
         assert_eq!(s.focused_id(), None);
     }
+
+    // ── remove_from_split_view regression: focused-slot removed ──────────────
+    //
+    // Regression: survivor focused_id was captured *after* clear(), which
+    // wiped it.  These two tests verify the pure SplitViewState transitions
+    // that the workspace function relies on before and after the fix.
+
+    /// 2-slot split: remove the focused slot → state collapses to inactive,
+    /// focused_id transferred to the survivor while still readable.
+    #[test]
+    fn remove_focused_in_2slot_transfers_focus_before_clear() {
+        let (mut s, ids) = state_with(2);
+        // ids[0] is focused by default (first add sets focused_id).
+        assert_eq!(s.focused_id(), Some(ids[0]));
+
+        // Remove the focused slot.
+        let removed = s.remove(ids[0]);
+        assert!(removed);
+
+        // After remove() — before clear() — focused_id must point at the survivor.
+        // This is the value the workspace must capture before calling clear().
+        assert_eq!(
+            s.focused_id(),
+            Some(ids[1]),
+            "focused_id must transfer to survivor immediately after remove, before clear"
+        );
+
+        // Now the state is no longer active (only 1 slot).
+        assert!(!s.is_active());
+        // Calling clear() (as the production code does for 2→1) must wipe focused_id.
+        s.clear();
+        assert_eq!(s.focused_id(), None, "clear() must wipe focused_id");
+    }
+
+    /// 3-slot split: remove the focused middle slot → 2 survivors remain,
+    /// focused_id transferred to the first survivor, split still active.
+    #[test]
+    fn remove_focused_in_3slot_transfers_focus_to_first_remaining() {
+        let mut s = SplitViewState::default();
+        let id_a = make_id();
+        let id_b = make_id();
+        let id_c = make_id();
+        s.add(id_a); // focused_id = id_a
+        s.add(id_b);
+        s.add(id_c);
+
+        // Make B the focused slot.
+        s.set_focused_id(id_b);
+        assert_eq!(s.focused_id(), Some(id_b));
+
+        // Remove B (the focused slot).
+        let removed = s.remove(id_b);
+        assert!(removed);
+
+        // After remove — split still active (2 remaining).
+        assert!(s.is_active(), "split must remain active after 3→2");
+        assert_eq!(s.len(), 2);
+
+        // focused_id must have been transferred to the first remaining slot (A).
+        assert_eq!(
+            s.focused_id(),
+            Some(id_a),
+            "focused_id must transfer to first remaining slot (A) after removing focused B"
+        );
+        assert!(s.contains(id_a));
+        assert!(s.contains(id_c));
+        assert!(!s.contains(id_b));
+    }
 }
 
 // ── Issue-regression tests ───────────────────────────────────────────────────────

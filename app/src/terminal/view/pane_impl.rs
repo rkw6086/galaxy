@@ -732,8 +732,17 @@ impl BackingView for TerminalView {
             .is_sharer_or_viewer();
         let is_fullscreen_agent_view = FeatureFlag::AgentView.is_enabled()
             && self.agent_view_controller.as_ref(app).is_fullscreen();
+        // Show the header for any workspace-level split view participant so the
+        // three-dot overflow menu ("Remove from Split View" / "Exit Split View")
+        // is accessible regardless of share or agent-view state.
+        let is_in_workspace_split_view = self
+            .focus_handle
+            .as_ref()
+            .and_then(|h| h.workspace_split_view(app))
+            .is_some();
         is_shared
             || is_fullscreen_agent_view
+            || is_in_workspace_split_view
             || FeatureFlag::ContextWindowUsageV2.is_enabled()
                 && self.split_pane_state(app).is_in_split_pane()
     }

@@ -1,7 +1,31 @@
+use galaxyui::EntityId;
 use warpui::{AppContext, Entity, ModelContext, ModelHandle};
 
 use super::pane::{PaneId, TerminalPaneId};
 use super::{PaneState, SplitPaneState};
+
+/// Membership of this pane group in the workspace-level split view (multiple
+/// tabs rendered side-by-side).  Distinct from the within-tab pane split
+/// tracked by `in_split_pane`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkspaceSplitViewMembership {
+    /// The EntityId of the PaneGroup (tab) that owns this focus state.
+    pub pane_group_id: EntityId,
+    /// True when this tab is the focused slot in the workspace split view.
+    pub is_focused: bool,
+}
+
+/// Action dispatched from the pane header three-dot overflow menu for
+/// workspace-level split view operations.  Lives here (rather than in the
+/// workspace crate) so the generic `PaneHeader<P>` can dispatch it without
+/// taking a direct dependency on `WorkspaceAction`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkspaceSplitViewHeaderAction {
+    /// Remove the pane-group identified by `pane_group_id` from the split view.
+    RemoveFromSplitView { pane_group_id: EntityId },
+    /// Exit the whole split view, reverting to single-tab display.
+    ExitSplitView,
+}
 
 /// Centralized focus state for a pane group.
 /// This model tracks which pane is focused, which session is active,
@@ -12,6 +36,10 @@ pub struct PaneGroupFocusState {
     active_session_id: Option<TerminalPaneId>,
     in_split_pane: bool,
     is_focused_pane_maximized: bool,
+    /// Non-`None` when this tab is participating in the workspace-level split
+    /// view (multiple tabs rendered side-by-side).  Set/cleared by the
+    /// workspace whenever split view state changes.
+    workspace_split_view: Option<WorkspaceSplitViewMembership>,
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +54,7 @@ pub enum PaneGroupFocusEvent {
     },
     InSplitPaneChanged,
     FocusedPaneMaximizedChanged,
+    WorkspaceSplitViewStateChanged,
 }
 
 impl Entity for PaneGroupFocusState {
@@ -43,6 +72,7 @@ impl PaneGroupFocusState {
             active_session_id,
             in_split_pane,
             is_focused_pane_maximized: false,
+            workspace_split_view: None,
         }
     }
 
@@ -124,6 +154,24 @@ impl PaneGroupFocusState {
         if self.in_split_pane != in_split_pane {
             self.in_split_pane = in_split_pane;
             ctx.emit(PaneGroupFocusEvent::InSplitPaneChanged);
+        }
+    }
+
+    /// Returns the workspace-level split view membership for this pane group.
+    pub fn workspace_split_view(&self) -> Option<WorkspaceSplitViewMembership> {
+        self.workspace_split_view
+    }
+
+    /// Sets the workspace-level split view membership, emitting
+    /// `WorkspaceSplitViewStateChanged` when the value actually changes.
+    pub fn set_workspace_split_view(
+        &mut self,
+        membership: Option<WorkspaceSplitViewMembership>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if self.workspace_split_view != membership {
+            self.workspace_split_view = membership;
+            ctx.emit(PaneGroupFocusEvent::WorkspaceSplitViewStateChanged);
         }
     }
 
@@ -233,6 +281,13 @@ impl PaneFocusHandle {
             },
             PaneGroupFocusEvent::InSplitPaneChanged => true,
             PaneGroupFocusEvent::FocusedPaneMaximizedChanged => true,
+            PaneGroupFocusEvent::WorkspaceSplitViewStateChanged => true,
         }
+    }
+
+    /// Returns the workspace-level split view membership for this pane, delegating
+    /// to the underlying focus state model.
+    pub fn workspace_split_view(&self, app: &AppContext) -> Option<WorkspaceSplitViewMembership> {
+        self.focus_state.as_ref(app).workspace_split_view()
     }
 }

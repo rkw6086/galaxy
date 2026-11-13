@@ -294,7 +294,7 @@ use crate::pane_group::{
     self, AIFactPane, AnyPaneContent, ChildAgentOrigin, CodeDiffPane, CodePane, CodeReviewPanelArg,
     CustomRouterEditorPane, Direction as PaneGroupDirection, Direction, ExecutionProfileEditorPane,
     NetworkLogPane, NewTerminalOptions, PaneGroup, PaneId, PanesLayout, TabBarHoverIndex,
-    TerminalPaneId,
+    TerminalPaneId, WorkspaceSplitViewMembership,
 };
 use crate::persistence::ModelEvent;
 use crate::projects::ProjectManagementModel;
@@ -5531,6 +5531,7 @@ impl Workspace {
                 if let Some(tab) = self.tabs.get(index) {
                     if !self.split_view_state.contains(tab.pane_group.id()) {
                         self.split_view_state.clear();
+                        self.sync_workspace_split_view_state(ctx);
                     }
                 }
             }
@@ -9195,6 +9196,7 @@ impl Workspace {
             }
         }
 
+        self.sync_workspace_split_view_state(ctx);
         ctx.dispatch_global_action("workspace:save_app", ());
         ctx.notify();
     }
@@ -9205,10 +9207,24 @@ impl Workspace {
         if !self.split_view_state.remove(pane_group_id) {
             return;
         }
+        // SplitViewState::remove() already transferred focused_id to the first
+        // remaining slot if the removed entry was the focused one.  Capture the
+        // survivor NOW — before the possible clear() below wipes focused_id.
+        let survivor_idx = self
+            .split_view_state
+            .focused_id()
+            .and_then(|id| self.tab_index_for_pane_group_id(id));
         // Auto-exit when fewer than 2 slots remain.
         if !self.split_view_state.is_active() {
             self.split_view_state.clear();
         }
+        // Point active_tab_index at the survivor and hand keyboard focus to it
+        // so input is not targeted at the now-hidden removed tab.
+        if let Some(idx) = survivor_idx {
+            self.set_active_tab_index(idx, ctx);
+            self.focus_active_tab(ctx);
+        }
+        self.sync_workspace_split_view_state(ctx);
         ctx.dispatch_global_action("workspace:save_app", ());
         ctx.notify();
     }
@@ -9219,8 +9235,32 @@ impl Workspace {
             return;
         }
         self.split_view_state.clear();
+        self.sync_workspace_split_view_state(ctx);
         ctx.dispatch_global_action("workspace:save_app", ());
         ctx.notify();
+    }
+
+    /// Push the current split-view membership state into every tab's pane group
+    /// focus state so their pane header overflow menus can show the correct
+    /// "Remove from Split View" / "Exit Split View" items.
+    ///
+    /// Must be called after any mutation of `self.split_view_state`.
+    fn sync_workspace_split_view_state(&mut self, ctx: &mut ViewContext<Self>) {
+        let focused_id = self.split_view_state.focused_id();
+        for tab in &self.tabs {
+            let tab_id = tab.pane_group.id();
+            let membership = if self.split_view_state.contains(tab_id) {
+                Some(WorkspaceSplitViewMembership {
+                    pane_group_id: tab_id,
+                    is_focused: focused_id == Some(tab_id),
+                })
+            } else {
+                None
+            };
+            tab.pane_group.update(ctx, |pane_group, ctx| {
+                pane_group.set_workspace_split_view_state(membership, ctx);
+            });
+        }
     }
 
     /// Called from `handle_file_tree_event` when a pane-group fires
@@ -9241,10 +9281,12 @@ impl Workspace {
             // the right tab.  Do not call activate_tab_internal here because
             // that would recursively exit split view.
             self.set_active_tab_index(tab_index, ctx);
+            self.sync_workspace_split_view_state(ctx);
             ctx.notify();
         } else {
             // Click outside split → exit split view, then activate normally.
             self.split_view_state.clear();
+            self.sync_workspace_split_view_state(ctx);
             self.activate_tab(tab_index, ctx);
         }
     }
@@ -12289,7 +12331,18 @@ impl Workspace {
         if was_in_split && !self.split_view_state.is_active() {
             self.split_view_state.clear();
         }
-
+        // Push updated membership into surviving tabs' focus states so their
+        // pane header overflow menus reflect the new split composition.
+        if was_in_split {
+            self.sync_workspace_split_view_state(ctx);
+        }
+        // Clear the removed tab's own membership so the pane group does not
+        // carry stale split-view state into the undo stack.  Restoration via
+        // restore_closed_tab reinserts the same handle; without this clear the
+        // restored tab would show stale "Remove/Exit Split View" menu items.
+        tab_data.pane_group.update(ctx, |pg, ctx| {
+            pg.set_workspace_split_view_state(None, ctx);
+        });
         // If the closed tab was a group member, prune the group when it now
         // has no remaining members.
         if let Some(group_id) = tab_data.group_id {
@@ -27984,9 +28037,15 @@ impl Workspace {
         // Never split a group: a drop that resolves to the middle of a group's
         // run is pushed past the group's last member instead.
         let index = self.clamp_past_group(index);
-        let mut tab_data = TabData::new(pane_group);
+        let mut tab_data = TabData::new(pane_group.clone());
         tab_data.selected_color = color.map_or(SelectedTabColor::Unset, SelectedTabColor::Color);
         tab_data.draggable_state = draggable_state;
+        // The incoming pane group may carry stale workspace-split-view membership
+        // from its source window.  Explicitly clear it so the tab starts with
+        // no split-view membership in this window.
+        pane_group.update(ctx, |pg, ctx| {
+            pg.set_workspace_split_view_state(None, ctx);
+        });
         self.tabs.insert(index, tab_data);
         self.activate_tab_internal(index, ctx);
         ctx.notify();
@@ -28631,6 +28690,7 @@ impl Workspace {
                         .and_then(|id| self.tab_index_for_pane_group_id(id))
                 });
                 self.split_view_state.clear();
+                self.sync_workspace_split_view_state(ctx);
 
                 if current_index == self.active_tab_index {
                     let new_active = survivor.unwrap_or_else(|| {

@@ -199,6 +199,8 @@ pub use pane::{
     AnyPaneContent, BackingView, PaneConfiguration, PaneConfigurationEvent, PaneContent, PaneEvent,
     PaneHeaderAction, PaneHeaderCustomAction, PaneId, PaneView, TerminalPaneId,
 };
+pub use focus_state::WorkspaceSplitViewMembership;
+pub use focus_state::WorkspaceSplitViewHeaderAction;
 pub use tree::{Direction, PaneData, PaneFlex, PaneNode, SplitDirection};
 pub use working_directories::{WorkingDirectoriesEvent, WorkingDirectoriesModel};
 
@@ -2246,6 +2248,18 @@ impl PaneGroup {
         self.focus_state.clone()
     }
 
+    /// Update the workspace-level split view membership for this pane group.
+    /// Pass `None` to signal that this tab is no longer in the workspace split view.
+    pub fn set_workspace_split_view_state(
+        &mut self,
+        membership: Option<focus_state::WorkspaceSplitViewMembership>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        self.focus_state.update(ctx, |state, ctx| {
+            state.set_workspace_split_view(membership, ctx);
+        });
+    }
+
     pub fn snapshot(&self, app: &AppContext) -> PaneNodeSnapshot {
         self.snapshot_for_node(app, &self.panes.root)
     }
@@ -3846,6 +3860,7 @@ impl PaneGroup {
             }
             PaneGroupFocusEvent::InSplitPaneChanged => ctx.notify(),
             PaneGroupFocusEvent::FocusedPaneMaximizedChanged => ctx.notify(),
+            PaneGroupFocusEvent::WorkspaceSplitViewStateChanged => ctx.notify(),
         }
     }
 
