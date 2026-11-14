@@ -4,7 +4,10 @@ import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { copyWormholeHelpers, inspectWormholeHelpers, verifyWormholeHelpers } from './bundled-wormhole-helpers.mjs';
+
 const BUNDLE_ARGS = ['bundle', '--release', '--format', 'osx', '--bin', 'galaxy-oss', '--package', 'galaxy', '--features', 'release_bundle,extern_plist'];
+const CACHE_VERSION = 2;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const sha = (value) => createHash('sha256').update(value).digest('hex');
 
@@ -128,6 +131,20 @@ async function tree(root) {
   return sha(JSON.stringify(entries));
 }
 
+async function validateBuiltApp(app) {
+  try {
+    const directory = await fs.lstat(app);
+    if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error('app path is not a regular directory');
+    for (const relative of ['Contents/Info.plist', 'Contents/MacOS/galaxy-oss']) {
+      const entry = await fs.lstat(path.join(app, relative));
+      if (!entry.isFile() || entry.isSymbolicLink() || entry.size === 0) throw new Error(`${relative} is missing or not a nonempty regular file`);
+      if (relative.endsWith('/galaxy-oss') && (entry.mode & 0o111) === 0) throw new Error('Galaxy binary is not executable');
+    }
+  } catch (error) {
+    throw new Error(`cargo-bundle did not produce a complete Galaxy.app at ${app}: ${error.message}`, { cause: error });
+  }
+}
+
 async function identity(root, env, run, home, platform, arch, bundleArgs) {
   const cmd = (name, args) => run(name, args, { cwd: root, env });
   const [commit, rustc, cargo, bundle, clang, sdkPath, sdkVersion, sdkBuild, developerDir, ignoredResources, configs] = await Promise.all([
@@ -193,6 +210,12 @@ export async function prepareGalaxyBuild(workspaceRoot, observer = {}, options =
     const host = rustcVersion.match(/^host:\s*(\S+)\s*$/m)?.[1];
     if (!host || !/^[a-zA-Z0-9_-]+-apple-darwin$/.test(host)) throw new Error('Cannot determine native macOS Rust host');
     const bundleArgs = [...BUNDLE_ARGS, '--target', host];
+    // cargo-bundle only copies its Cargo.toml resource list. Wormhole's
+    // prebuilt Linux helper archives must be staged explicitly for both the
+    // install and deploy entrypoints; neither command rebuilds those helpers.
+    const helperSource = path.resolve(root, env.GALAXY_WORMHOLE_HELPERS_DIR || 'resources/wormhole-helpers');
+    const helpers = await inspectWormholeHelpers(helperSource);
+    const bundledHelpers = (app) => path.join(app, 'Contents', 'Resources', 'wormhole-helpers');
     // Unknown tool versions fail closed for reuse, while still permitting a normal build.
     let key;
     try { key = await identity(root, env, run, options.home || os.homedir(), options.platform || process.platform, options.arch || process.arch, bundleArgs); }
@@ -205,14 +228,19 @@ export async function prepareGalaxyBuild(workspaceRoot, observer = {}, options =
       key.targetDir = targetDir;
       try {
         const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-        reused = manifest.version === 1 && JSON.stringify(manifest.identity) === JSON.stringify(key) && manifest.tree === await tree(snapshot);
-      } catch { /* Missing or damaged cache is a miss. */ }
+        reused = manifest.version === CACHE_VERSION && JSON.stringify(manifest.identity) === JSON.stringify(key) && manifest.tree === await tree(snapshot);
+        if (reused) await verifyWormholeHelpers(helpers, bundledHelpers(snapshot));
+      } catch { reused = false; /* Missing or damaged cache is a miss. */ }
     }
     if (!reused) {
       const builtApp = path.join(targetDir, host, 'release', 'bundle', 'osx', 'Galaxy.app');
       // Prevent cargo-bundle from leaving us with an old app after an incomplete build.
       await fs.rm(builtApp, { recursive: true, force: true });
       await command('cargo', bundleArgs, 2);
+      // Resource staging must never manufacture an app after a successful
+      // command that failed to produce the actual bundle.
+      await validateBuiltApp(builtApp);
+      await copyWormholeHelpers(helpers, bundledHelpers(builtApp));
       const digest = await tree(builtApp);
       if ((await command('git', ['status', '--porcelain', '--untracked-files=all'], 2)).trim() ||
           (await command('git', ['rev-parse', '--verify', 'HEAD'], 2)).trim() !== pulledCommit) {
@@ -227,7 +255,7 @@ export async function prepareGalaxyBuild(workspaceRoot, observer = {}, options =
         await fs.rename(staged, snapshot);
         if (key && !key.external) {
           const tempManifest = path.join(cache, `manifest-${randomUUID()}.json`);
-          await fs.writeFile(tempManifest, JSON.stringify({ version: 1, identity: key, tree: digest }));
+          await fs.writeFile(tempManifest, JSON.stringify({ version: CACHE_VERSION, identity: key, tree: digest }));
           await fs.rename(tempManifest, manifestPath);
         }
       } finally { await fs.rm(staged, { recursive: true, force: true }); }
@@ -238,6 +266,7 @@ export async function prepareGalaxyBuild(workspaceRoot, observer = {}, options =
       await fs.mkdir(leaseDir);
       await fs.cp(snapshot, appPath, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true, force: false });
       if (await tree(appPath) !== await tree(snapshot)) throw new Error('Bundled app changed while copying');
+      await verifyWormholeHelpers(helpers, bundledHelpers(appPath));
       if ((await command('git', ['status', '--porcelain', '--untracked-files=all'], 2)).trim() ||
           (await command('git', ['rev-parse', '--verify', 'HEAD'], 2)).trim() !== pulledCommit) {
         throw new Error('Checkout changed during bundle preparation');

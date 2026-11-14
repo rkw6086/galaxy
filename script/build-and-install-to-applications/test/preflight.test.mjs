@@ -27,6 +27,7 @@ async function fixture() {
   await fs.copyFile(path.join(project, "src/index.tsx"), path.join(app, "src/index.tsx"));
   await fs.copyFile(path.join(project, "package.json"), path.join(app, "package.json"));
   await fs.copyFile(path.join(project, "../lib/prepare-galaxy-build.mjs"), path.join(lib, "prepare-galaxy-build.mjs"));
+  await fs.copyFile(path.join(project, "../lib/bundled-wormhole-helpers.mjs"), path.join(lib, "bundled-wormhole-helpers.mjs"));
   await fs.symlink(path.join(project, "node_modules"), path.join(app, "node_modules"), "dir");
   // A regression must never progress into a real Git, build, or install operation.
   const gitSentinel = path.join(root, "unexpected-git-command");

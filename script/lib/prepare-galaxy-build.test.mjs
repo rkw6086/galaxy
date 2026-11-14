@@ -3,7 +3,9 @@ import { afterEach, test } from 'node:test';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { prepareGalaxyBuild } from './prepare-galaxy-build.mjs';
+import { copyWormholeHelpers, inspectWormholeHelpers, verifyWormholeHelpers } from './bundled-wormhole-helpers.mjs';
 
 const roots = [];
 afterEach(async () => {
@@ -13,6 +15,12 @@ afterEach(async () => {
 async function fixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'galaxy-prep-test-'));
   roots.push(root);
+  for (const architecture of ['linux-x86_64', 'linux-aarch64']) {
+    const helpers = path.join(root, 'resources/wormhole-helpers', architecture);
+    await fs.mkdir(helpers, { recursive: true });
+    await fs.writeFile(path.join(helpers, 'galaxy-wormhole.tar.gz'), gzipSync(`prebuilt ${architecture}`));
+    await fs.writeFile(path.join(helpers, 'galaxy-wormhole.version'), `${'a'.repeat(64)}\n`);
+  }
   const state = { commit: 'a'.repeat(40), branch: 'main', status: '', rustc: 'rustc 1\nhost: aarch64-apple-darwin', cargo: 'cargo 1', bundle: 'cargo-bundle 1', clang: 'clang 1', sdkPath: '/sdk/one', sdkVersion: '14.0', sdkBuild: '22A', developerDir: '/Library/Developer/CommandLineTools', ignoredResources: '', builds: 0, fail: false, commands: [] };
   const stateTarget = path.join(root, 'target');
   const app = () => path.join(state.targetDir, 'aarch64-apple-darwin/release/bundle/osx/Galaxy.app');
@@ -42,7 +50,9 @@ async function fixture() {
       state.builds++;
       if (state.changeCommitOnBuild) state.commit = 'c'.repeat(40);
       if (state.fail) throw new Error('bundle failed');
+      if (state.noBundleOutput) return '';
       await fs.mkdir(path.join(app(), 'Contents/MacOS'), { recursive: true });
+      await fs.writeFile(path.join(app(), 'Contents/Info.plist'), '<plist><dict/></plist>');
       await fs.writeFile(path.join(app(), 'Contents/MacOS/galaxy-oss'), `built ${state.builds}`);
       await fs.chmod(path.join(app(), 'Contents/MacOS/galaxy-oss'), 0o755);
       await fs.symlink('MacOS/galaxy-oss', path.join(app(), 'Contents/link'));
@@ -152,7 +162,7 @@ test('external config and mutable overrides conservatively disable reuse', async
   const second = await f.prepare();
   assert.equal(second.reused, false);
   await second.release();
-  f.options.env.GALAXY_WORMHOLE_HELPERS_DIR = '/tmp/helpers';
+  f.options.env.GALAXY_WORMHOLE_HELPERS_DIR = path.join(f.root, 'resources/wormhole-helpers');
   const third = await f.prepare();
   assert.equal(third.reused, false);
   await third.release();
@@ -196,8 +206,9 @@ if (command === 'git') {
   console.log(JSON.stringify({ target_directory: path.join(process.cwd(), 'target') }));
 } else if (command === 'cargo' && args[0] === 'bundle' && args.includes('--release')) {
   const app = path.join(process.cwd(), 'target/aarch64-apple-darwin/release/bundle/osx/Galaxy.app');
-  fs.mkdirSync(app, { recursive: true });
-  fs.writeFileSync(path.join(app, 'binary'), 'fake');
+  fs.mkdirSync(path.join(app, 'Contents/MacOS'), { recursive: true });
+  fs.writeFileSync(path.join(app, 'Contents/Info.plist'), '<plist><dict/></plist>');
+  fs.writeFileSync(path.join(app, 'Contents/MacOS/galaxy-oss'), 'fake', { mode: 0o755 });
 } else if (command === 'rustc') console.log('rustc 1\\nhost: aarch64-apple-darwin');
 else console.log('fixed version');
 `;
@@ -313,4 +324,80 @@ test('concurrent requests serialize preparation and preserve private signed leas
   await fs.writeFile(path.join(a.appPath, 'Contents/MacOS/galaxy-oss'), 'signed');
   assert.equal(await withRelease(b), 'built 1');
   await a.release();
+});
+
+test('fresh and reused private bundles include both prebuilt Wormhole helpers without compiling them', async () => {
+  const f = await fixture();
+  for (const reused of [false, true]) {
+    const result = await f.prepare();
+    assert.equal(result.reused, reused);
+    for (const architecture of ['linux-x86_64', 'linux-aarch64']) {
+      for (const filename of ['galaxy-wormhole.tar.gz', 'galaxy-wormhole.version']) {
+        assert.deepEqual(
+          await fs.readFile(path.join(result.appPath, 'Contents/Resources/wormhole-helpers', architecture, filename)),
+          await fs.readFile(path.join(f.root, 'resources/wormhole-helpers', architecture, filename)),
+        );
+      }
+    }
+    await result.release();
+  }
+  assert.equal(f.state.builds, 1);
+  assert.equal(f.state.commands.some(([command, ...args]) => command === 'cargo' && args[0] === 'build'), false);
+});
+
+test('missing or invalid prebuilt helpers fail before Cargo bundling', async () => {
+  for (const filename of ['galaxy-wormhole.tar.gz', 'galaxy-wormhole.version']) {
+    const f = await fixture();
+    await fs.rm(path.join(f.root, 'resources/wormhole-helpers/linux-aarch64', filename));
+    await assert.rejects(f.prepare(), /Prebuilt Wormhole helper linux-aarch64 is missing or invalid.*will not compile/);
+    assert.equal(f.state.builds, 0);
+  }
+  for (const [filename, content] of [
+    ['galaxy-wormhole.tar.gz', 'not a gzip archive, even though this file is long enough'],
+    ['galaxy-wormhole.version', 'invalid version'],
+  ]) {
+    const f = await fixture();
+    await fs.writeFile(path.join(f.root, 'resources/wormhole-helpers/linux-x86_64', filename), content);
+    await assert.rejects(f.prepare(), /Prebuilt Wormhole helper linux-x86_64 is missing or invalid/);
+    assert.equal(f.state.builds, 0);
+  }
+});
+
+test('legacy or incomplete resource caches are rebuilt rather than reused', async () => {
+  const f = await fixture();
+  await withRelease(await f.prepare());
+  const manifestPath = path.join(f.root, 'target/galaxy-build-cache/manifest.json');
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  manifest.version = 1;
+  await fs.writeFile(manifestPath, JSON.stringify(manifest));
+  const legacy = await f.prepare();
+  assert.equal(legacy.reused, false);
+  await legacy.release();
+  await fs.rm(path.join(f.root, 'target/galaxy-build-cache/Galaxy.app/Contents/Resources/wormhole-helpers/linux-aarch64/galaxy-wormhole.tar.gz'));
+  const result = await f.prepare();
+  assert.equal(result.reused, false);
+  await result.release();
+  assert.equal(f.state.builds, 3);
+});
+
+test('a successful cargo-bundle command without an app cannot manufacture a helper-only bundle', async () => {
+  const f = await fixture();
+  f.state.noBundleOutput = true;
+  await assert.rejects(f.prepare(), /cargo-bundle did not produce a complete Galaxy\.app/);
+  await assert.rejects(fs.access(f.app));
+  await assert.rejects(fs.access(path.join(f.root, 'target/galaxy-build-cache/Galaxy.app')));
+  await assert.rejects(fs.access(path.join(f.root, 'target/galaxy-build-cache/manifest.json')));
+});
+
+test('same-sized archive changes with an unchanged version marker fail exact helper verification', async () => {
+  const f = await fixture();
+  const helpers = await inspectWormholeHelpers(path.join(f.root, 'resources/wormhole-helpers'));
+  const destination = path.join(f.root, 'copied-helpers');
+  await copyWormholeHelpers(helpers, destination);
+  const archive = path.join(destination, 'linux-aarch64/galaxy-wormhole.tar.gz');
+  const changed = await fs.readFile(archive);
+  changed[changed.length - 1] ^= 1;
+  await fs.writeFile(archive, changed);
+  assert.equal((await fs.stat(archive)).size, helpers[1].archiveBytes);
+  await assert.rejects(verifyWormholeHelpers(helpers, destination), /does not match its prebuilt source/);
 });
