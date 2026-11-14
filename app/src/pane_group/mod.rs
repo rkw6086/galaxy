@@ -4507,7 +4507,7 @@ impl PaneGroup {
             let terminal_view_id = terminal_view.id();
 
             // Discard any child agent panes parented by this terminal view.
-            self.remove_child_agent_panes(terminal_view_id, ctx);
+            self.remove_child_agent_panes(terminal_view_id, false, ctx);
 
             // Preserve conversations from terminal views before cleaning up the pane
             BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _| {
@@ -4623,19 +4623,31 @@ impl PaneGroup {
             .collect()
     }
 
-    /// Removes and discards all child agent panes whose parent conversation
-    /// lives on the given terminal view.  Used by both `close_pane` and
-    /// `discard_pane` to ensure children are cleaned up regardless of which
-    /// path removes the parent.
+    /// Removes child-agent ownership for conversations parented by the given
+    /// terminal view. Permanent teardown discards every child; an individual
+    /// pane close preserves visible children as standalone panes.
     fn remove_child_agent_panes(
         &mut self,
         parent_terminal_view_id: EntityId,
+        preserve_visible_children: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         let children = self.child_pane_ids_for_parent(parent_terminal_view_id, ctx);
         for (conv_id, child_pane_id) in children {
             self.child_agent_panes.remove(&conv_id);
             self.panes.remove_hidden_pane(child_pane_id);
+            if preserve_visible_children && self.panes.is_pane_in_tree(child_pane_id) {
+                // Once its parent closes, this visible chat must use ordinary
+                // pane-close semantics. Leaving it tracked as a hidden child
+                // would hide the final remaining pane instead of closing its
+                // tab when the user later closes it.
+                if let Some(terminal_view) = self.terminal_view_from_pane_id(child_pane_id, ctx) {
+                    terminal_view.update(ctx, |view, ctx| {
+                        view.clear_orchestration_split_off(ctx);
+                    });
+                }
+                continue;
+            }
             self.discard_pane(child_pane_id, ctx);
         }
     }
@@ -4769,9 +4781,10 @@ impl PaneGroup {
         // working after this pane closes.
         self.transfer_child_agent_conversations_to_parents_on_close(pane_id, ctx);
 
-        // If this is a parent with child agents, discard the children first.
+        // Keep separately visible child chats when closing just their parent's
+        // pane. Hidden children still follow the parent's cleanup.
         if let Some(terminal_view) = self.terminal_view_from_pane_id(pane_id, ctx) {
-            self.remove_child_agent_panes(terminal_view.id(), ctx);
+            self.remove_child_agent_panes(terminal_view.id(), true, ctx);
         }
 
         if FeatureFlag::UndoClosedPanes.is_enabled() {

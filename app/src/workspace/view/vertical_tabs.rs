@@ -2157,7 +2157,14 @@ fn render_tab_group_internal(
     // Captured into row/group right-click closures so they can pick between
     // the single-pane menu and the multi-tab selection menu.
     let is_in_multi_tab_selection = workspace.is_tab_in_multi_tab_selection(tab_index);
-    let color_mode = compute_tab_group_color_mode(tab, pane_group, &visible_pane_ids, theme, app);
+    let color_mode = workspace
+        .split_view_color_for_tab(tab, app)
+        .map(|color| {
+            TabGroupColorMode::Uniform(color.to_ansi_color(&theme.terminal_colors().normal).into())
+        })
+        .unwrap_or_else(|| {
+            compute_tab_group_color_mode(tab, pane_group, &visible_pane_ids, theme, app)
+        });
     let per_pane_colors = color_mode.into_per_pane_colors(&visible_pane_ids);
     let is_being_renamed = is_active && workspace.current_workspace_state.is_tab_being_renamed();
     let rename_editor = workspace.tab_rename_editor.clone();

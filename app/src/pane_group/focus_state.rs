@@ -3,6 +3,8 @@ use warpui::{AppContext, Entity, ModelContext, ModelHandle};
 
 use super::pane::{PaneId, TerminalPaneId};
 use super::{PaneState, SplitPaneState};
+use crate::themes::theme::AnsiColorIdentifier;
+use crate::ui_components::color_dot::random_tab_color;
 
 /// Membership of this pane group in the workspace-level split view (multiple
 /// tabs rendered side-by-side).  Distinct from the within-tab pane split
@@ -13,6 +15,7 @@ pub struct WorkspaceSplitViewMembership {
     pub pane_group_id: EntityId,
     /// True when this tab is the focused slot in the workspace split view.
     pub is_focused: bool,
+    pub color: AnsiColorIdentifier,
 }
 
 /// Shared payload for workspace split operations in generic pane-header menus.
@@ -32,6 +35,7 @@ pub struct PaneGroupFocusState {
     focused_pane_id: PaneId,
     active_session_id: Option<TerminalPaneId>,
     in_split_pane: bool,
+    pane_split_color: Option<AnsiColorIdentifier>,
     is_focused_pane_maximized: bool,
     /// Non-`None` when this tab is participating in the workspace-level split
     /// view (multiple tabs rendered side-by-side).  Set/cleared by the
@@ -68,6 +72,7 @@ impl PaneGroupFocusState {
             focused_pane_id,
             active_session_id,
             in_split_pane,
+            pane_split_color: in_split_pane.then(random_tab_color),
             is_focused_pane_maximized: false,
             workspace_split_view: None,
         }
@@ -150,8 +155,15 @@ impl PaneGroupFocusState {
     pub(super) fn set_in_split_pane(&mut self, in_split_pane: bool, ctx: &mut ModelContext<Self>) {
         if self.in_split_pane != in_split_pane {
             self.in_split_pane = in_split_pane;
+            self.pane_split_color = in_split_pane.then(random_tab_color);
             ctx.emit(PaneGroupFocusEvent::InSplitPaneChanged);
         }
+    }
+
+    pub fn split_view_color(&self) -> Option<AnsiColorIdentifier> {
+        self.workspace_split_view
+            .map(|membership| membership.color)
+            .or(self.pane_split_color)
     }
 
     /// Returns the workspace-level split view membership for this pane group.
@@ -286,5 +298,9 @@ impl PaneFocusHandle {
     /// to the underlying focus state model.
     pub fn workspace_split_view(&self, app: &AppContext) -> Option<WorkspaceSplitViewMembership> {
         self.focus_state.as_ref(app).workspace_split_view()
+    }
+
+    pub fn split_view_color(&self, app: &AppContext) -> Option<AnsiColorIdentifier> {
+        self.focus_state.as_ref(app).split_view_color()
     }
 }

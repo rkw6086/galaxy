@@ -39,7 +39,9 @@ use crate::terminal::shared_session::render_util::shared_session_indicator_color
 use crate::terminal::view::TerminalViewState;
 use crate::themes::theme::{AnsiColorIdentifier, Fill as ThemeFill, VerticalGradient};
 use crate::ui_components::buttons::icon_button;
-use crate::ui_components::color_dot::{render_color_dot, TAB_COLOR_OPTIONS};
+use crate::ui_components::color_dot::{
+    render_color_dot, render_color_palette_rows, TAB_COLOR_OPTIONS,
+};
 use crate::ui_components::icons::{Icon, ICON_DIMENSIONS};
 use crate::util::color::{coloru_with_opacity, Opacity};
 use crate::util::truncation::truncate_from_end;
@@ -672,28 +674,33 @@ impl TabData {
         index: usize,
         terminal_colors: AnsiColors,
     ) -> Vec<MenuItem<WorkspaceAction>> {
-        vec![MenuItem::ItemsRow {
-            items: TAB_COLOR_OPTIONS
-                .iter()
-                .map(|color_option| {
-                    let color = color_option.to_ansi_color(&terminal_colors);
-                    MenuItemFields::new_with_icon(
-                        if self.color() == Some(*color_option) {
-                            TAB_NO_COLOR_ICON_PATH
-                        } else {
-                            TAB_COLOR_ICON_PATH
-                        },
-                        color.into(),
-                        color_option.to_string(),
-                    )
-                    .no_highlight_on_hover()
-                    .with_on_select_action(WorkspaceAction::ToggleTabColor {
-                        color: *color_option,
-                        tab_index: index,
+        TAB_COLOR_OPTIONS
+            .chunks(6)
+            .map(|colors| MenuItem::ItemsRow {
+                items: colors
+                    .iter()
+                    .map(|color_option| {
+                        let color = color_option.to_ansi_color(&terminal_colors);
+                        MenuItemFields::new_with_icon(
+                            if self.color() == Some(*color_option) {
+                                TAB_NO_COLOR_ICON_PATH
+                            } else {
+                                TAB_COLOR_ICON_PATH
+                            },
+                            color.into(),
+                            color_option.to_string(),
+                        )
+                        .no_highlight_on_hover()
+                        .with_on_select_action(
+                            WorkspaceAction::ToggleTabColor {
+                                color: *color_option,
+                                tab_index: index,
+                            },
+                        )
                     })
-                })
-                .collect(),
-        }]
+                    .collect(),
+            })
+            .collect()
     }
 }
 
@@ -719,7 +726,7 @@ impl ColorPickerTarget {
     }
 }
 
-/// Builds the shared dot-based color picker menu section (a single custom row)
+/// Builds the shared dot-based color picker menu section (a compact swatch grid)
 /// used by both the per-tab and per-group color selectors. The leading dot clears
 /// the color; the rest are the `TAB_COLOR_OPTIONS`. `current_color` drives the
 /// selected-dot ring and the clear dot's toggle-off; `target` selects which toggle
@@ -739,11 +746,7 @@ pub(crate) fn color_picker_menu_items(
                 let theme = appearance.theme();
                 let ring_color: ColorU = theme.accent().into();
 
-                let mut row = Flex::row()
-                    .with_main_axis_alignment(MainAxisAlignment::SpaceEvenly)
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_main_axis_size(MainAxisSize::Max);
-
+                let mut dots = Vec::new();
                 for (ansi_id, mouse_state) in std::iter::once(None)
                     .chain(TAB_COLOR_OPTIONS.iter().copied().map(Some))
                     .zip(mouse_states.iter().cloned())
@@ -780,10 +783,10 @@ pub(crate) fn color_picker_menu_items(
                         ctx.dispatch_typed_action(MenuAction::Close(true));
                     });
 
-                    row.add_child(dot.finish());
+                    dots.push(dot.finish());
                 }
 
-                row.finish()
+                render_color_palette_rows(dots)
             }),
             None,
         )

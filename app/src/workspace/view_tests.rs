@@ -3956,6 +3956,125 @@ fn test_close_tab_group_removes_group_and_members() {
 }
 
 #[test]
+fn test_closing_inactive_left_split_pane_preserves_other_chat_and_group() {
+    let _grouped_tabs_guard = FeatureFlag::GroupedTabs.override_enabled(true);
+
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        app.update(disable_quit_warning);
+        let workspace = mock_workspace(&mut app);
+
+        let (left, right, outside, left_terminal, group_id) =
+            workspace.update(&mut app, |workspace, ctx| {
+                workspace.add_terminal_tab(false, ctx);
+                workspace.add_terminal_tab(false, ctx);
+                let left = workspace.tabs[0].pane_group.clone();
+                let right = workspace.tabs[1].pane_group.clone();
+                let outside = workspace.tabs[2].pane_group.clone();
+                let left_terminal = left.as_ref(ctx).focused_session_view(ctx).unwrap();
+                let group = TabGroup::new();
+                let group_id = group.id;
+                workspace.tab_groups.insert(group_id, group);
+                workspace.tabs[0].group_id = Some(group_id);
+                workspace.tabs[1].group_id = Some(group_id);
+                workspace.tabs[0].selected_color =
+                    SelectedTabColor::Color(AnsiColorIdentifier::Magenta);
+                workspace.tabs[1].selected_color = SelectedTabColor::Cleared;
+                workspace.activate_tab(0, ctx);
+                workspace.open_tab_in_split_view(right.id(), ctx);
+                workspace.activate_tab(1, ctx);
+                assert_eq!(workspace.active_tab_pane_group().id(), right.id());
+                assert_eq!(
+                    workspace.tabs[0].selected_color,
+                    SelectedTabColor::Color(AnsiColorIdentifier::Magenta)
+                );
+                assert_eq!(workspace.tabs[1].selected_color, SelectedTabColor::Cleared);
+                (left, right, outside, left_terminal, group_id)
+            });
+
+        // This is the backing-view close handler invoked by the pane-header X.
+        left_terminal.update(&mut app, |terminal, ctx| {
+            crate::pane_group::pane::BackingView::close(terminal, ctx);
+        });
+
+        workspace.update(&mut app, |workspace, ctx| {
+            assert_eq!(workspace.tab_count(), 2);
+            assert_eq!(workspace.active_tab_pane_group().id(), right.id());
+            assert_eq!(workspace.tabs[0].selected_color, SelectedTabColor::Cleared);
+            assert!(workspace
+                .tabs
+                .iter()
+                .any(|tab| tab.pane_group.id() == outside.id()));
+            assert!(workspace.tab_groups.contains_key(&group_id));
+            assert_eq!(group_member_indices(&workspace.tabs, group_id).count(), 1);
+
+            // A late close notification from the removed pane cannot close its
+            // former neighbor after tab indices shift.
+            workspace.handle_file_tree_event(
+                left,
+                &pane_group::Event::Exited {
+                    add_to_undo_stack: true,
+                },
+                ctx,
+            );
+            assert_eq!(workspace.tab_count(), 2);
+
+            workspace.handle_file_tree_event(
+                right,
+                &pane_group::Event::Exited {
+                    add_to_undo_stack: true,
+                },
+                ctx,
+            );
+            assert_eq!(workspace.tab_count(), 1);
+            assert_eq!(workspace.active_tab_pane_group().id(), outside.id());
+            assert!(!workspace.tab_groups.contains_key(&group_id));
+        });
+    });
+}
+
+#[test]
+fn test_confirm_close_tab_group_keeps_unrelated_tabs_after_reorder() {
+    let _grouped_tabs_guard = FeatureFlag::GroupedTabs.override_enabled(true);
+    let _sharing_guard = FeatureFlag::CreatingSharedSessions.override_enabled(true);
+
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        app.update(disable_quit_warning);
+        let workspace = mock_workspace(&mut app);
+        setup_session_sharing_test(&workspace, &mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            let outside_id = workspace.tabs[2].pane_group.id();
+            let group = TabGroup::new();
+            let group_id = group.id;
+            workspace.tab_groups.insert(group_id, group);
+            workspace.tabs[0].group_id = Some(group_id);
+            workspace.tabs[1].group_id = Some(group_id);
+            workspace.close_tab_group(group_id, ctx);
+            assert!(workspace.current_workspace_state.is_close_session_confirmation_dialog_open);
+            assert!(matches!(
+                workspace.close_session_confirmation_dialog.as_ref(ctx).get_open_confirmation_source(),
+                Some(OpenDialogSource::CloseTabGroup { group_id: source_id }) if source_id == group_id
+            ));
+
+            workspace.move_tab_to_index(2, 0, ctx);
+            workspace.handle_close_session_confirmation_dialog_event(
+                &CloseSessionConfirmationEvent::CloseSession {
+                    dont_show_again: false,
+                    open_confirmation_source: OpenDialogSource::CloseTabGroup { group_id },
+                },
+                ctx,
+            );
+
+            assert_eq!(workspace.tab_count(), 1);
+            assert_eq!(workspace.active_tab_pane_group().id(), outside_id);
+            assert!(!workspace.tab_groups.contains_key(&group_id));
+        });
+    });
+}
+
+#[test]
 fn test_new_tab_with_after_all_tabs_setting_lands_top_level_at_end() {
     // With `new_tab_placement = AfterAllTabs`, a new tab lands at the very end
     // of the tab bar, outside any group — even when the active tab is in a
@@ -4494,6 +4613,28 @@ mod split_view_state_tests {
         let (s, _ids) = state_with(2);
         assert!(s.is_active());
         assert_eq!(s.len(), 2);
+    }
+
+    #[test]
+    fn members_share_stable_color_until_split_is_cleared() {
+        let (mut state, ids) = state_with(3);
+        let color = state.color_for(ids[0]);
+        assert!(color.is_some());
+        assert_eq!(state.color_for(ids[1]), color);
+        assert_eq!(state.color_for(ids[2]), color);
+        assert_eq!(state.color_for(make_id()), None);
+
+        state.set_focused_id(ids[2]);
+        assert_eq!(state.color_for(ids[0]), color);
+        assert_eq!(state.color_for(ids[2]), color);
+        state.remove(ids[0]);
+        assert_eq!(state.color_for(ids[0]), None);
+        assert_eq!(state.color_for(ids[1]), color);
+        assert_eq!(state.color_for(ids[2]), color);
+
+        state.clear();
+        assert_eq!(state.color_for(ids[1]), None);
+        assert_eq!(state.color_for(ids[2]), None);
     }
 
     #[test]

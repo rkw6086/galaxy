@@ -432,6 +432,7 @@ use crate::themes::theme_deletion_modal::{ThemeDeletionModal, ThemeDeletionModal
 use crate::tips::{TipsEvent, TipsView};
 use crate::ui_components::avatar::{Avatar, AvatarContent, StatusElementTypes};
 use crate::ui_components::buttons::{combo_inner_button, icon_button_with_color};
+use crate::ui_components::color_dot::random_tab_color;
 use crate::ui_components::red_notification_dot::RedNotificationDot;
 use crate::ui_components::window_focus_dimming::WindowFocusDimming;
 use crate::ui_components::{blended_colors, icons};
@@ -969,6 +970,8 @@ pub(crate) struct SplitViewState {
     /// Construction may temporarily select its first member before the split
     /// becomes active with a second member.
     focused_id: Option<EntityId>,
+    /// Shared visual cue for this transient split; saved tab colors stay intact.
+    color: Option<AnsiColorIdentifier>,
 }
 
 impl SplitViewState {
@@ -1000,11 +1003,22 @@ impl SplitViewState {
         self.focused_id
     }
 
+    pub(crate) fn color_for(&self, id: EntityId) -> Option<AnsiColorIdentifier> {
+        if self.is_active() && self.contains(id) {
+            self.color
+        } else {
+            None
+        }
+    }
+
     /// Add `id` to the split view, returning `true` if it was actually added.
     /// Does nothing (returns `false`) when already present or at capacity.
     pub(crate) fn add(&mut self, id: EntityId) -> bool {
         if self.pane_group_ids.contains(&id) || self.pane_group_ids.len() >= Self::MAX_VISIBLE {
             return false;
+        }
+        if self.pane_group_ids.is_empty() {
+            self.color = Some(random_tab_color());
         }
         self.pane_group_ids.push(id);
         if self.focused_id.is_none() {
@@ -1023,6 +1037,9 @@ impl SplitViewState {
             // Transfer focus to the first remaining slot.
             self.focused_id = self.pane_group_ids.first().copied();
         }
+        if self.pane_group_ids.is_empty() {
+            self.color = None;
+        }
         true
     }
 
@@ -1035,6 +1052,7 @@ impl SplitViewState {
     pub(crate) fn clear(&mut self) {
         self.pane_group_ids.clear();
         self.focused_id = None;
+        self.color = None;
     }
 }
 
@@ -5429,6 +5447,22 @@ impl Workspace {
         self.tabs.get(index).and_then(|tab| tab.color())
     }
 
+    fn split_view_color_for_tab(
+        &self,
+        tab: &TabData,
+        app: &AppContext,
+    ) -> Option<AnsiColorIdentifier> {
+        self.split_view_state
+            .color_for(tab.pane_group.id())
+            .or_else(|| {
+                tab.pane_group
+                    .as_ref(app)
+                    .focus_state_handle()
+                    .as_ref(app)
+                    .split_view_color()
+            })
+    }
+
     /// Finds the pane containing a terminal viewing the given ambient agent conversation,
     /// returning None if the ambient conversation is not open in any tab.
     fn find_pane_with_ambient_agent_conversation(
@@ -7300,6 +7334,15 @@ impl Workspace {
 
     /// Closes every tab in the given group and removes the group.
     pub fn close_tab_group(&mut self, group_id: TabGroupId, ctx: &mut ViewContext<Self>) {
+        self.close_tab_group_internal(group_id, false, ctx);
+    }
+
+    fn close_tab_group_internal(
+        &mut self,
+        group_id: TabGroupId,
+        skip_confirmation: bool,
+        ctx: &mut ViewContext<Self>,
+    ) {
         let indices: Vec<usize> = group_member_indices(&self.tabs, group_id).collect();
         if indices.is_empty() {
             self.tab_groups.remove(&group_id);
@@ -7307,19 +7350,18 @@ impl Workspace {
             ctx.notify();
             return;
         }
-        let first_index = indices[0];
         let closed = self.close_tabs(
             indices.into_iter(),
-            OpenDialogSource::CloseOtherTabs {
-                tab_index: first_index,
-            },
-            false,
+            OpenDialogSource::CloseTabGroup { group_id },
+            skip_confirmation,
             true,
             ctx,
         );
         if closed {
-            self.tab_groups.remove(&group_id);
-            ctx.notify();
+            // A final tab may remain while its window closes, or when window
+            // closing is disabled. Membership, rather than the close request's
+            // return value, determines whether the group is empty.
+            self.prune_empty_tab_group(group_id, ctx);
         }
     }
 
@@ -9251,14 +9293,14 @@ impl Workspace {
         let focused_id = self.split_view_state.focused_id();
         for tab in &self.tabs {
             let tab_id = tab.pane_group.id();
-            let membership = if self.split_view_state.contains(tab_id) {
-                Some(WorkspaceSplitViewMembership {
+            let membership = self
+                .split_view_state
+                .color_for(tab_id)
+                .map(|color| WorkspaceSplitViewMembership {
                     pane_group_id: tab_id,
                     is_focused: focused_id == Some(tab_id),
-                })
-            } else {
-                None
-            };
+                    color,
+                });
             tab.pane_group.update(ctx, |pane_group, ctx| {
                 pane_group.set_workspace_split_view_state(membership, ctx);
             });
@@ -11668,6 +11710,9 @@ impl Workspace {
                     OpenDialogSource::CloseTab { tab_index } => {
                         self.remove_tab(tab_index, true, true, ctx);
                     }
+                    OpenDialogSource::CloseTabGroup { group_id } => {
+                        self.close_tab_group_internal(group_id, true, ctx);
+                    }
                     OpenDialogSource::ClosePane {
                         pane_group_id,
                         pane_id,
@@ -12431,14 +12476,29 @@ impl Workspace {
                 // current workspace here.
                 let confirm_self = ctx.handle();
                 let navigate_self = ctx.handle();
-                let confirm_tabs = tab_indices_vec.clone();
+                let confirm_tabs: Vec<EntityId> = tab_indices_vec
+                    .iter()
+                    .filter_map(|i| self.get_pane_group_view(*i))
+                    .map(|tab| tab.id())
+                    .collect();
                 let dialog = summary
                     .dialog()
                     .on_confirm(move |ctx| {
                         if let Some(workspace) = confirm_self.upgrade(ctx) {
                             workspace.update(ctx, |workspace, ctx| {
+                                // Tab positions can change while the dialog is
+                                // open. Close only the original surviving tabs.
+                                let indices = confirm_tabs
+                                    .iter()
+                                    .filter_map(|id| {
+                                        workspace
+                                            .tabs
+                                            .iter()
+                                            .position(|tab| tab.pane_group.id() == *id)
+                                    })
+                                    .collect_vec();
                                 workspace.close_tabs(
-                                    confirm_tabs.into_iter(),
+                                    indices.into_iter(),
                                     dialog_source,
                                     true,
                                     add_to_undo_stack,
@@ -20181,6 +20241,10 @@ impl Workspace {
             is_drag_target,
             ctx,
         )
+        .with_effective_color(
+            self.split_view_color_for_tab(tab, ctx)
+                .or_else(|| tab.color()),
+        )
         .with_multi_tab_selection(self.is_tab_in_multi_tab_selection(tab_index))
         .build()
         .finish()
@@ -20279,7 +20343,9 @@ impl Workspace {
                     row.add_child(self.render_tab_hover_indicator(appearance));
                 }
                 let tab = &self.tabs[idx];
-                let effective_color = tab.color();
+                let effective_color = self
+                    .split_view_color_for_tab(tab, ctx)
+                    .or_else(|| tab.color());
                 // Highlight the member when a drag is hovering directly over it.
                 let is_drag_target = self.hovered_tab_index == Some(TabBarHoverIndex::OverTab(idx));
                 let member = TabComponent::new(
@@ -22317,12 +22383,27 @@ impl Workspace {
                 // Guard: should not happen, but fall back to single-tab.
                 ChildView::new(&active_tab_data.pane_group).finish()
             } else {
-                let divider_color = appearance.theme().outline().into_solid();
+                let split_color = self
+                    .split_view_state
+                    .color_for(split_pane_groups[0].id())
+                    .map(|color| {
+                        ColorU::from(
+                            color.to_ansi_color(&appearance.theme().terminal_colors().normal),
+                        )
+                    });
+                let divider_color = split_color
+                    .unwrap_or_else(|| appearance.theme().outline().into_solid());
                 let mut row = Flex::row();
                 let last_idx = split_pane_groups.len().saturating_sub(1);
                 for (i, pane_group) in split_pane_groups.iter().enumerate() {
+                    let mut slot = Container::new(ChildView::new(pane_group).finish());
+                    if let Some(color) = split_color {
+                        slot = slot.with_border(
+                            Border::all(2.).with_border_fill(coloru_with_opacity(color, 60)),
+                        );
+                    }
                     row.add_child(
-                        Shrinkable::new(1.0, ChildView::new(pane_group).finish()).finish(),
+                        Shrinkable::new(1.0, slot.finish()).finish(),
                     );
                     // Render a thin vertical divider between adjacent slots,
                     // matching the style used by `render_panel_separator`.

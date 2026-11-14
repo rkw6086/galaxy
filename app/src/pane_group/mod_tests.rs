@@ -849,6 +849,99 @@ fn test_closing_split_off_child_keeps_backing_pane_for_reopen() {
 }
 
 #[test]
+fn test_closing_parent_preserves_visible_child_and_closes_hidden_child() {
+    let _undo_closed_panes = FeatureFlag::UndoClosedPanes.override_enabled(true);
+
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let pane_group = mock_pane_group(&mut app, Default::default());
+        let exited = std::rc::Rc::new(std::cell::Cell::new(0));
+        let observed_exited = exited.clone();
+        app.update(|ctx| {
+            ctx.subscribe_to_view(&pane_group, move |_, event, _| {
+                if matches!(event, Event::Exited { .. }) {
+                    observed_exited.set(observed_exited.get() + 1);
+                }
+            });
+        });
+
+        let child_pane_id = pane_group.update(&mut app, |panes, ctx| {
+            let parent_pane_id = get_newly_created_pane_id(panes, &[]);
+            let parent_conversation_id = start_parent_conversation(panes, parent_pane_id, ctx);
+            let child = create_hidden_child_agent_conversation(
+                panes,
+                HiddenChildAgentConversationRequest {
+                    parent_pane_id,
+                    name: "Visible child".to_string(),
+                    parent_conversation_id,
+                    orchestration_harness: None,
+                    env_vars: HashMap::new(),
+                    task_context: None,
+                    is_shared_session_creator: IsSharedSessionCreator::No,
+                },
+                ctx,
+            )
+            .expect("visible child conversation should be created");
+            let child_pane_id = panes
+                .unhide_child_agent_pane_for_split_off(child.conversation_id, ctx)
+                .expect("child should be revealed next to its parent");
+            assert_eq!(panes.focused_pane_id(ctx), child_pane_id);
+            assert_eq!(panes.visible_pane_count(), 2);
+            assert!(child.terminal_view.as_ref(ctx).is_orchestration_split_off());
+
+            let hidden_child = create_hidden_child_agent_conversation(
+                panes,
+                HiddenChildAgentConversationRequest {
+                    parent_pane_id,
+                    name: "Hidden child".to_string(),
+                    parent_conversation_id,
+                    orchestration_harness: None,
+                    env_vars: HashMap::new(),
+                    task_context: None,
+                    is_shared_session_creator: IsSharedSessionCreator::No,
+                },
+                ctx,
+            )
+            .expect("hidden child conversation should be created");
+            let hidden_child_pane_id = panes.child_agent_panes[&hidden_child.conversation_id];
+            assert!(!panes.panes.is_pane_in_tree(hidden_child_pane_id));
+            assert_eq!(panes.focused_pane_id(ctx), child_pane_id);
+
+            panes.close_pane(parent_pane_id, ctx);
+
+            assert_eq!(panes.visible_pane_count(), 1);
+            assert_eq!(panes.focused_pane_id(ctx), child_pane_id);
+            assert!(panes.is_pane_hidden_for_close(parent_pane_id));
+            assert!(panes.panes.is_pane_in_tree(child_pane_id));
+            assert_eq!(
+                panes
+                    .terminal_view_from_pane_id(child_pane_id, ctx)
+                    .map(|view| view.id()),
+                Some(child.terminal_view_id)
+            );
+            assert_eq!(
+                BlocklistAIHistoryModel::as_ref(ctx)
+                    .terminal_surface_id_for_conversation(&child.conversation_id),
+                Some(child.terminal_view_id)
+            );
+            assert!(!panes.is_child_agent_pane(child_pane_id));
+            assert!(!child.terminal_view.as_ref(ctx).is_orchestration_split_off());
+            assert!(!panes.has_pane_id(hidden_child_pane_id));
+            assert!(!panes
+                .child_agent_panes
+                .contains_key(&hidden_child.conversation_id));
+            child_pane_id
+        });
+        assert_eq!(exited.get(), 0);
+
+        pane_group.update(&mut app, |panes, ctx| {
+            panes.close_pane(child_pane_id, ctx);
+        });
+        assert_eq!(exited.get(), 1);
+    });
+}
+
+#[test]
 fn test_swapping_to_child_agent_from_maximized_pane_keeps_maximized_state() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);

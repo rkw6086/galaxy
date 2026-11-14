@@ -16,6 +16,7 @@ use pathfinder_geometry::vector::vec2f;
 use crate::appearance::Appearance;
 use crate::pane_group::PaneId;
 use crate::ui_components::dialog::{dialog_styles, Dialog};
+use crate::workspace::tab_group::TabGroupId;
 use crate::workspace::TabMovement;
 
 #[allow(clippy::enum_variant_names)]
@@ -29,6 +30,8 @@ pub enum OpenDialogSource {
     },
     /// Close a specific tab
     CloseTab { tab_index: usize },
+    /// Close the tabs in a specific group
+    CloseTabGroup { group_id: TabGroupId },
     /// Close all tabs other than the tab_index
     CloseOtherTabs { tab_index: usize },
     /// Close all tabs to the right/left of tab_index

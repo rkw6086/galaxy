@@ -7,6 +7,7 @@ pub use header::PaneHeaderAction::CustomAction as PaneHeaderCustomAction;
 pub use header_content::{
     HeaderContent, HeaderRenderContext, StandardHeader, StandardHeaderOptions,
 };
+use galaxy_core::ui::color::coloru_with_opacity;
 use pathfinder_geometry::rect::RectF;
 use warpui::elements::{
     Border, Container, DropTarget, DropTargetData, Flex, MainAxisSize, ParentElement, SavePosition,
@@ -445,7 +446,24 @@ impl<P: BackingView> View for PaneView<P> {
             || self.is_being_dragged
             || is_in_workspace_split
         {
-            column.add_child(ChildView::new(&self.header).finish());
+            let mut header = Container::new(ChildView::new(&self.header).finish());
+            if let Some(color) = self
+                .focus_handle
+                .as_ref()
+                .and_then(|handle| handle.split_view_color(app))
+            {
+                let color = color
+                    .to_ansi_color(&appearance.theme().terminal_colors().normal)
+                    .into();
+                header = header
+                    .with_background(coloru_with_opacity(color, 20))
+                    .with_border(
+                        Border::all(2.)
+                            .with_sides(true, false, false, false)
+                            .with_border_fill(coloru_with_opacity(color, 60)),
+                    );
+            }
+            column.add_child(header.finish());
         }
 
         // Add the underlying pane view.

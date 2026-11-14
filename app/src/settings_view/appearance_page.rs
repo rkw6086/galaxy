@@ -81,7 +81,9 @@ use crate::themes::theme::{
     self, GalaxyTheme, RespectSystemTheme, SelectedSystemThemes, ThemeKind, WarpTheme,
 };
 use crate::themes::theme_chooser::ThemeChooserMode;
-use crate::ui_components::color_dot::{render_color_dot, TAB_COLOR_OPTIONS};
+use crate::ui_components::color_dot::{
+    render_color_dot, render_color_palette_rows, TAB_COLOR_OPTIONS,
+};
 use crate::ui_components::icons::Icon;
 use crate::user_config::{GalaxyConfig, WarpConfig};
 use crate::util::bindings;
@@ -5273,9 +5275,9 @@ impl SettingsWidget for DirectoryTabColorsWidget {
             )
             .finish();
 
-            let mut dots_row = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
+            let mut dots = Vec::new();
 
-            // None = default (no-color) dot, Some = ANSI color dot
+            // None = default (no-color) dot, Some = a theme-palette color dot.
             let color_options =
                 std::iter::once(None).chain(TAB_COLOR_OPTIONS.iter().copied().map(Some));
             for (ansi_id, mouse_state) in color_options.zip(dot_mouse_states.iter().cloned()) {
@@ -5294,7 +5296,7 @@ impl SettingsWidget for DirectoryTabColorsWidget {
                 };
                 let dir_path_clone = PathBuf::from(&dir_path);
 
-                dots_row.add_child(
+                dots.push(
                     render_color_dot(
                         mouse_state,
                         dot_color,
@@ -5322,7 +5324,7 @@ impl SettingsWidget for DirectoryTabColorsWidget {
             let mut right_controls = Flex::row()
                 .with_spacing(8.)
                 .with_cross_axis_alignment(CrossAxisAlignment::Center);
-            right_controls.add_child(dots_row.finish());
+            right_controls.add_child(render_color_palette_rows(dots));
             if let Some(delete_button) = view.directory_tab_color_delete_buttons.get(idx) {
                 right_controls.add_child(ChildView::new(delete_button).finish());
             }

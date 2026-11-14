@@ -1,12 +1,13 @@
 use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill as ThemeFill};
 use galaxyui::elements::{
-    Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, Element, Hoverable,
-    MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius,
-    Stack,
+    Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Element,
+    Flex, Hoverable, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
+    ParentElement, ParentOffsetBounds, Radius, Stack,
 };
 use galaxyui::platform::Cursor;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
+use rand::seq::SliceRandom;
 use ui_components::tooltip::{Params as TooltipParams, Tooltip as TooltipComponent};
 use ui_components::{Component as _, Options as ComponentOptions};
 
@@ -15,14 +16,48 @@ use crate::ui_components::icons::Icon;
 
 const COLOR_DOT_SIZE: f32 = 16.;
 
-pub(crate) const TAB_COLOR_OPTIONS: [AnsiColorIdentifier; 6] = [
+pub(crate) const TAB_COLOR_OPTIONS: [AnsiColorIdentifier; 12] = [
     AnsiColorIdentifier::Red,
     AnsiColorIdentifier::Green,
     AnsiColorIdentifier::Yellow,
     AnsiColorIdentifier::Blue,
     AnsiColorIdentifier::Magenta,
     AnsiColorIdentifier::Cyan,
+    AnsiColorIdentifier::Orange,
+    AnsiColorIdentifier::Pink,
+    AnsiColorIdentifier::Purple,
+    AnsiColorIdentifier::Teal,
+    AnsiColorIdentifier::Lime,
+    AnsiColorIdentifier::Gray,
 ];
+
+pub(crate) fn random_tab_color() -> AnsiColorIdentifier {
+    TAB_COLOR_OPTIONS
+        .choose(&mut rand::thread_rng())
+        .copied()
+        .unwrap_or(AnsiColorIdentifier::Blue)
+}
+
+/// Keeps tab, group, and directory palettes compact as more swatches are added.
+pub(crate) fn render_color_palette_rows(
+    dots: impl IntoIterator<Item = Box<dyn Element>>,
+) -> Box<dyn Element> {
+    let mut dots = dots.into_iter().peekable();
+    let mut column = Flex::column()
+        .with_cross_axis_alignment(CrossAxisAlignment::Start)
+        .with_spacing(4.);
+    while dots.peek().is_some() {
+        let mut row = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_main_axis_size(MainAxisSize::Min)
+            .with_spacing(4.);
+        for dot in dots.by_ref().take(7) {
+            row.add_child(dot);
+        }
+        column.add_child(row.finish());
+    }
+    column.finish()
+}
 
 /// Renders a hoverable color dot with selection ring, tooltip, and pointer cursor.
 /// For the no-color option, pass `is_no_color: true` to show a slash overlay.

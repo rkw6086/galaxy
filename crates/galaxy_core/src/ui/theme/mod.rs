@@ -531,7 +531,7 @@ impl AnsiColors {
     strum_macros::EnumString,
 )]
 #[schemars(
-    description = "One of the eight standard ANSI terminal colors.",
+    description = "A standard ANSI terminal color or a theme-derived accent color.",
     rename_all = "snake_case"
 )]
 #[serde(rename_all = "lowercase")]
@@ -545,6 +545,12 @@ pub enum AnsiColorIdentifier {
     Magenta,
     Cyan,
     White,
+    Orange,
+    Pink,
+    Purple,
+    Teal,
+    Lime,
+    Gray,
 }
 
 impl AnsiColorIdentifier {
@@ -558,6 +564,21 @@ impl AnsiColorIdentifier {
             Self::Magenta => colors.magenta,
             Self::Cyan => colors.cyan,
             Self::White => colors.white,
+            Self::Orange => Self::blend_colors(colors.red, colors.yellow),
+            Self::Pink => Self::blend_colors(colors.magenta, colors.white),
+            Self::Purple => Self::blend_colors(colors.blue, colors.magenta),
+            Self::Teal => Self::blend_colors(colors.cyan, colors.green),
+            Self::Lime => Self::blend_colors(colors.green, colors.yellow),
+            Self::Gray => Self::blend_colors(colors.black, colors.white),
+        }
+    }
+
+    fn blend_colors(first: AnsiColor, second: AnsiColor) -> AnsiColor {
+        let midpoint = |a: u8, b: u8| ((u16::from(a) + u16::from(b)) / 2) as u8;
+        AnsiColor {
+            r: midpoint(first.r, second.r),
+            g: midpoint(first.g, second.g),
+            b: midpoint(first.b, second.b),
         }
     }
 }
