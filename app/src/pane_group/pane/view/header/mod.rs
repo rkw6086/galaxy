@@ -22,7 +22,9 @@ use super::header_content::{HeaderContent, HeaderRenderContext, StandardHeaderOp
 use super::PaneDropTargetData;
 use crate::appearance::Appearance;
 use crate::menu::{Menu, MenuItem};
-use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusEvent};
+use crate::pane_group::focus_state::{
+    PaneFocusHandle, PaneGroupFocusEvent, WorkspaceSplitViewHeaderAction,
+};
 use crate::pane_group::pane::view::StandardHeader;
 use crate::pane_group::pane::{
     ActionOrigin, PaneConfiguration, PaneConfigurationEvent, PaneStack, PaneStackEvent,
@@ -115,6 +117,11 @@ pub enum PaneHeaderAction<A: ActionPayload, B: ActionPayload> {
         drop_location: PaneDragDropLocation, // Represents what kind of drop target the pane was dropped over
     },
     PaneHeaderClicked,
+    /// Workspace-level split view operation selected from the three-dot
+    /// overflow menu.  The `PaneHeader` handles this directly by dispatching
+    /// the corresponding `WorkspaceAction` without routing through the
+    /// backing view.
+    WorkspaceSplitAction(WorkspaceSplitViewHeaderAction),
 }
 
 impl<P: BackingView> Entity for PaneHeader<P> {
@@ -134,6 +141,10 @@ pub struct PaneHeader<P: BackingView> {
     open_overlay: OpenOverlay,
     is_visible_in_pane_group: bool, // If this pane header is being dragged along the tab bar, then it is not visible in the pane group
     toolbelt_feature_popup: ViewHandle<FeaturePopup>,
+    /// Backing-view-independent overflow items for workspace split view
+    /// ("Remove from Split View", "Exit Split View").  Set/cleared by the
+    /// parent `PaneView` when `WorkspaceSplitViewStateChanged` fires.
+    workspace_split_items: Vec<MenuItem<WorkspaceSplitViewHeaderAction>>,
 }
 
 impl<P: BackingView> PaneHeader<P> {
@@ -172,6 +183,7 @@ impl<P: BackingView> PaneHeader<P> {
             toolbelt_buttons: Default::default(),
             is_visible_in_pane_group: true,
             toolbelt_feature_popup,
+            workspace_split_items: Vec::new(),
         }
     }
 
@@ -202,6 +214,7 @@ impl<P: BackingView> PaneHeader<P> {
                 | PaneGroupFocusEvent::FocusedPaneMaximizedChanged
                 | PaneGroupFocusEvent::FocusChanged { .. } => ctx.notify(),
                 PaneGroupFocusEvent::ActiveSessionChanged { .. } => {}
+                PaneGroupFocusEvent::WorkspaceSplitViewStateChanged => ctx.notify(),
             },
         );
         self.focus_handle = Some(focus_handle);
@@ -271,44 +284,115 @@ impl<P: BackingView> PaneHeader<P> {
         items: impl IntoIterator<Item = MenuItem<P::PaneHeaderOverflowMenuAction>>,
         ctx: &mut ViewContext<Self>,
     ) {
-        // Convert the menu items to be [`PaneHeaderAction`]s.
+        // Convert the backing-view items to PaneHeaderAction and merge with any
+        // workspace-level split view items.
+        let backing_items: Vec<
+            MenuItem<PaneHeaderAction<P::PaneHeaderOverflowMenuAction, P::CustomAction>>,
+        > = items
+            .into_iter()
+            .map(|item| match item {
+                MenuItem::Separator => MenuItem::Separator,
+                MenuItem::Item(item) => {
+                    let on_select_action = item
+                        .on_select_action()
+                        .map(|a| PaneHeaderAction::OverflowMenuAction(a.to_owned()));
+                    MenuItem::Item(item.with_different_on_select_action_type(on_select_action))
+                }
+                MenuItem::ItemsRow { items } => {
+                    let items = items
+                        .into_iter()
+                        .map(|item| {
+                            let on_select_action = item
+                                .on_select_action()
+                                .map(|a| PaneHeaderAction::OverflowMenuAction(a.to_owned()));
+                            item.with_different_on_select_action_type(on_select_action)
+                        })
+                        .collect();
+                    MenuItem::ItemsRow { items }
+                }
+                MenuItem::Submenu { fields, .. } => {
+                    panic!(
+                        "Submenus are not supported in the pane header overflow menu: {fields:?}"
+                    );
+                }
+                MenuItem::Header { fields, .. } => {
+                    panic!(
+                        "Headers are not supported in the pane header overflow menu: {fields:?}"
+                    );
+                }
+            })
+            .collect();
+        let ws_items = Self::convert_workspace_split_items(
+            &self.workspace_split_items,
+            !backing_items.is_empty(),
+        );
+        let all_items: Vec<_> = backing_items.into_iter().chain(ws_items).collect();
         self.overflow_menu.update(ctx, |menu, ctx| {
-            menu.set_items(
-                items.into_iter().map(|item| match item {
-                    MenuItem::Separator => MenuItem::Separator,
-                    MenuItem::Item(item) => {
-                        let on_select_action = item
-                            .on_select_action()
-                            .map(|a| PaneHeaderAction::OverflowMenuAction(a.to_owned()));
-                        MenuItem::Item(item.with_different_on_select_action_type(on_select_action))
-                    }
-                    MenuItem::ItemsRow { items } => {
-                        let items = items
-                            .into_iter()
-                            .map(|item| {
-                                let on_select_action = item
-                                    .on_select_action()
-                                    .map(|a| PaneHeaderAction::OverflowMenuAction(a.to_owned()));
-                                item.with_different_on_select_action_type(on_select_action)
-                            })
-                            .collect();
-                        MenuItem::ItemsRow { items }
-                    }
-                    MenuItem::Submenu { fields, .. } => {
-                        panic!(
-                            "Submenus are not supported in the pane header overflow menu: {fields:?}"
-                        );
-                    }
-                    MenuItem::Header { fields, .. } => {
-                        panic!(
-                            "Headers are not supported in the pane header overflow menu: {fields:?}"
-                        );
-                    }
-                }),
-                ctx,
-            );
+            menu.set_items(all_items, ctx);
         });
         ctx.notify();
+    }
+
+    /// Set the workspace-level split view items for this header.  These items
+    /// are appended after the backing-view items whenever the menu is shown.
+    pub fn set_workspace_split_items(
+        &mut self,
+        items: Vec<MenuItem<WorkspaceSplitViewHeaderAction>>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        self.workspace_split_items = items;
+        // PaneView rereads the backing view's items and merges this membership's
+        // actions, including removing stale actions when membership is cleared.
+        self.pane_configuration.update(ctx, |config, ctx| {
+            config.refresh_pane_header_overflow_menu_items(ctx);
+        });
+        ctx.notify();
+    }
+
+    /// Convert workspace split view items to the internal `PaneHeaderAction` menu
+    /// type, optionally prepending a separator when `has_preceding_items` is true.
+    fn convert_workspace_split_items(
+        items: &[MenuItem<WorkspaceSplitViewHeaderAction>],
+        has_preceding_items: bool,
+    ) -> Vec<MenuItem<PaneHeaderAction<P::PaneHeaderOverflowMenuAction, P::CustomAction>>> {
+        if items.is_empty() {
+            return Vec::new();
+        }
+        let mut result = Vec::with_capacity(items.len() + 1);
+        if has_preceding_items {
+            result.push(MenuItem::Separator);
+        }
+        for item in items {
+            match item {
+                MenuItem::Separator => result.push(MenuItem::Separator),
+                MenuItem::Item(fields) => {
+                    let on_select = fields
+                        .on_select_action()
+                        .map(|a| PaneHeaderAction::WorkspaceSplitAction(a.clone()));
+                    result.push(MenuItem::Item(
+                        fields
+                            .clone()
+                            .with_different_on_select_action_type(on_select),
+                    ));
+                }
+                MenuItem::ItemsRow { items } => {
+                    let converted = items
+                        .iter()
+                        .map(|f| {
+                            let on_select = f
+                                .on_select_action()
+                                .map(|a| PaneHeaderAction::WorkspaceSplitAction(a.clone()));
+                            f.clone().with_different_on_select_action_type(on_select)
+                        })
+                        .collect();
+                    result.push(MenuItem::ItemsRow { items: converted });
+                }
+                MenuItem::Submenu { .. } | MenuItem::Header { .. } => {
+                    // Not supported; silently skip.
+                }
+            }
+        }
+        result
     }
 
     pub fn set_toolbelt_buttons(
@@ -1000,6 +1084,19 @@ impl<P: BackingView> TypedActionView for PaneHeader<P> {
                 );
             }
             PaneHeaderAction::PaneHeaderClicked => ctx.emit(Event::PaneHeaderClicked),
+            PaneHeaderAction::WorkspaceSplitAction(action) => {
+                use crate::workspace::WorkspaceAction;
+                match action {
+                    WorkspaceSplitViewHeaderAction::RemoveFromSplitView { pane_group_id } => {
+                        ctx.dispatch_typed_action(&WorkspaceAction::RemoveFromSplitView {
+                            pane_group_id: *pane_group_id,
+                        });
+                    }
+                    WorkspaceSplitViewHeaderAction::ExitSplitView => {
+                        ctx.dispatch_typed_action(&WorkspaceAction::ExitSplitView);
+                    }
+                }
+            }
         }
     }
 }

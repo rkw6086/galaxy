@@ -26,6 +26,8 @@ use crate::appearance::Appearance;
 use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusEvent};
 use crate::pane_group::pane::ActionOrigin;
 use crate::pane_group::{Direction, SplitPaneState, TabBarHoverIndex};
+use crate::menu::{MenuItem, MenuItemFields};
+use crate::pane_group::focus_state::WorkspaceSplitViewHeaderAction;
 use crate::server::telemetry::SharingDialogSource;
 use crate::settings::{PaneSettings, PaneSettingsChangedEvent};
 use crate::util::bindings::CustomAction;
@@ -145,6 +147,11 @@ impl<P: BackingView> PaneView<P> {
             });
         }
         self.focus_handle = Some(focus_handle);
+        // Seed the pane header with any workspace split view items that are
+        // already set in the focus state.  Without this a pane/header created
+        // after membership was established would never receive the initial items
+        // because it missed the WorkspaceSplitViewStateChanged event.
+        self.refresh_workspace_split_items(ctx);
     }
 
     fn handle_focus_state_event(
@@ -159,8 +166,45 @@ impl<P: BackingView> PaneView<P> {
                 // Re-render to update dimming and header visibility.
                 ctx.notify();
             }
+            PaneGroupFocusEvent::WorkspaceSplitViewStateChanged => {
+                // Update the pane header three-dot overflow menu so every
+                // participating tab (including the focused one) shows the
+                // correct split view actions.
+                self.refresh_workspace_split_items(ctx);
+                ctx.notify();
+            }
             PaneGroupFocusEvent::ActiveSessionChanged { .. } => {}
         }
+    }
+
+    /// Build workspace split view menu items from the current focus handle
+    /// membership and push them into the pane header.
+    fn refresh_workspace_split_items(&mut self, ctx: &mut ViewContext<Self>) {
+        let items = self
+            .focus_handle
+            .as_ref()
+            .and_then(|h| h.workspace_split_view(ctx))
+            .map(|membership| {
+                // Every participating tab – focused or not – gets both:
+                //   "Remove from Split View"  (removes just this tab)
+                //   "Exit Split View"         (closes the whole split)
+                vec![
+                    MenuItemFields::new("Remove from Split View")
+                        .with_on_select_action(
+                            WorkspaceSplitViewHeaderAction::RemoveFromSplitView {
+                                pane_group_id: membership.pane_group_id,
+                            },
+                        )
+                        .into_item(),
+                    MenuItemFields::new("Exit Split View")
+                        .with_on_select_action(WorkspaceSplitViewHeaderAction::ExitSplitView)
+                        .into_item(),
+                ]
+            })
+            .unwrap_or_default();
+        self.header.update(ctx, |header, ctx| {
+            header.set_workspace_split_items(items, ctx);
+        });
     }
 
     /// Returns the pane stack model.
@@ -390,7 +434,17 @@ impl<P: BackingView> View for PaneView<P> {
         // If being dragged, we must render the pane header, since that's what receives drag events.
         // Otherwise, if we stop rendering the header partway through a drag, the pane will be stuck
         // in its dragged state.
-        if active_child.as_ref(app).should_render_header(app) || self.is_being_dragged {
+        // Also always show the header for workspace split view participants so the
+        // three-dot overflow menu items (Remove/Exit Split View) are reachable.
+        let is_in_workspace_split = self
+            .focus_handle
+            .as_ref()
+            .and_then(|h| h.workspace_split_view(app))
+            .is_some();
+        if active_child.as_ref(app).should_render_header(app)
+            || self.is_being_dragged
+            || is_in_workspace_split
+        {
             column.add_child(ChildView::new(&self.header).finish());
         }
 

@@ -4446,3 +4446,708 @@ fn test_tab_group_rename_blur_does_not_commit_unfinished_name() {
         });
     });
 }
+
+// ── SplitViewState unit tests ───────────────────────────────────────────────────────
+//
+// These tests exercise the pure data structure only – no App context is
+// required, so they run without any heavy framework bootstrapping.
+
+#[cfg(test)]
+mod split_view_state_tests {
+    use galaxyui::EntityId;
+
+    use crate::workspace::view::SplitViewState;
+
+    fn make_id() -> EntityId {
+        EntityId::new()
+    }
+
+    // Helper: build a state with `n` pre-added IDs; returns (state, ids).
+    fn state_with(n: usize) -> (SplitViewState, Vec<EntityId>) {
+        let mut s = SplitViewState::default();
+        let ids: Vec<EntityId> = (0..n).map(|_| make_id()).collect();
+        for &id in &ids {
+            s.add(id);
+        }
+        (s, ids)
+    }
+
+    #[test]
+    fn default_state_is_inactive() {
+        let s = SplitViewState::default();
+        assert!(!s.is_active());
+        assert_eq!(s.len(), 0);
+        assert!(s.ids().is_empty());
+        assert_eq!(s.focused_id(), None);
+    }
+
+    #[test]
+    fn adding_one_id_does_not_make_split_active() {
+        let (s, ids) = state_with(1);
+        assert!(!s.is_active(), "one slot alone is not an active split");
+        assert_eq!(s.len(), 1);
+        assert!(s.contains(ids[0]));
+    }
+
+    #[test]
+    fn adding_two_ids_makes_split_active() {
+        let (s, _ids) = state_with(2);
+        assert!(s.is_active());
+        assert_eq!(s.len(), 2);
+    }
+
+    #[test]
+    fn first_added_id_becomes_focused() {
+        let (s, ids) = state_with(2);
+        assert_eq!(s.focused_id(), Some(ids[0]));
+    }
+
+    #[test]
+    fn add_is_idempotent_for_same_id() {
+        let mut s = SplitViewState::default();
+        let id = make_id();
+        assert!(s.add(id));
+        assert!(!s.add(id), "second add of same id must return false");
+        assert_eq!(s.len(), 1);
+    }
+
+    #[test]
+    fn add_respects_max_visible_cap() {
+        let (mut s, _) = state_with(SplitViewState::MAX_VISIBLE);
+        assert_eq!(s.len(), SplitViewState::MAX_VISIBLE);
+        let extra = make_id();
+        assert!(!s.add(extra), "adding beyond MAX_VISIBLE must return false");
+        assert_eq!(s.len(), SplitViewState::MAX_VISIBLE);
+        assert!(!s.contains(extra));
+    }
+
+    #[test]
+    fn remove_nonexistent_id_returns_false() {
+        let (mut s, _) = state_with(2);
+        let outside = make_id();
+        assert!(!s.remove(outside));
+        assert_eq!(s.len(), 2);
+    }
+
+    #[test]
+    fn remove_existing_id_returns_true_and_shrinks() {
+        let (mut s, ids) = state_with(3);
+        assert!(s.remove(ids[1]));
+        assert_eq!(s.len(), 2);
+        assert!(!s.contains(ids[1]));
+    }
+
+    #[test]
+    fn remove_focused_id_transfers_focus_to_first_remaining() {
+        let (mut s, ids) = state_with(3);
+        // ids[0] is focused by default.
+        assert_eq!(s.focused_id(), Some(ids[0]));
+        s.remove(ids[0]);
+        // After removal, focus should shift to what is now ids[1] (first remaining).
+        assert_eq!(s.focused_id(), Some(ids[1]));
+    }
+
+    #[test]
+    fn remove_non_focused_id_does_not_change_focus() {
+        let (mut s, ids) = state_with(3);
+        s.remove(ids[2]); // remove last, focus stays on ids[0]
+        assert_eq!(s.focused_id(), Some(ids[0]));
+    }
+
+    #[test]
+    fn clear_resets_to_inactive() {
+        let (mut s, _) = state_with(3);
+        s.clear();
+        assert!(!s.is_active());
+        assert_eq!(s.len(), 0);
+        assert_eq!(s.focused_id(), None);
+    }
+
+    #[test]
+    fn set_focused_id_updates_focused_slot() {
+        let (mut s, ids) = state_with(2);
+        s.set_focused_id(ids[1]);
+        assert_eq!(s.focused_id(), Some(ids[1]));
+    }
+
+    #[test]
+    fn ids_returns_ordered_slice() {
+        let (s, ids) = state_with(3);
+        assert_eq!(s.ids(), ids.as_slice());
+    }
+
+    // ── Lifecycle integration scenarios ───────────────────────────────────────
+
+    /// Simulates: user opens split, closes one slot → auto-exit.
+    #[test]
+    fn removing_down_to_one_requires_manual_clear_to_fully_exit() {
+        let (mut s, ids) = state_with(2);
+        assert!(s.is_active());
+        s.remove(ids[1]);
+        // One slot remaining – not "active" per the >= 2 invariant.
+        assert!(!s.is_active());
+        // The state still holds one entry; callers must call clear() when
+        // is_active() becomes false.
+        // This mirrors the production code in remove_tab:
+        //   if split_view_state.remove(id) && !split_view_state.is_active() {
+        //       split_view_state.clear();
+        //   }
+        s.clear();
+        assert_eq!(s.len(), 0);
+    }
+
+    /// Simulates: tab reorder is stable because we use EntityId, not an index.
+    #[test]
+    fn membership_stable_after_simulated_reorder() {
+        // Reorder just means the IDs live in a different position in
+        // `workspace.tabs`; the split state itself holds stable IDs and is
+        // unaffected.
+        let (mut s, ids) = state_with(2);
+        // Imagine the workspace reorders: ids[0] swaps with ids[1] in tabs vec.
+        // The split state must still report both as members.
+        assert!(s.contains(ids[0]));
+        assert!(s.contains(ids[1]));
+        // A new ID not in the split is not a member.
+        let other = make_id();
+        assert!(!s.contains(other));
+        // We can still add the third slot.
+        assert!(s.add(other));
+        assert_eq!(s.len(), 3);
+    }
+
+    /// Simulates: tab closed while in split → split auto-exits when < 2.
+    #[test]
+    fn close_last_non_active_slot_exits_split() {
+        let mut s = SplitViewState::default();
+        let id_a = make_id();
+        let id_b = make_id();
+        s.add(id_a);
+        s.add(id_b);
+        assert!(s.is_active());
+
+        // Simulate remove_tab calling remove() then checking is_active().
+        let removed = s.remove(id_b);
+        assert!(removed);
+        assert!(
+            !s.is_active(),
+            "split should auto-deactivate when only one slot remains"
+        );
+        s.clear();
+        assert_eq!(s.len(), 0);
+        assert_eq!(s.focused_id(), None);
+    }
+
+    // ── remove_from_split_view regression: focused-slot removed ──────────────
+    //
+    // Regression: survivor focused_id was captured *after* clear(), which
+    // wiped it.  These two tests verify the pure SplitViewState transitions
+    // that the workspace function relies on before and after the fix.
+
+    /// 2-slot split: remove the focused slot → state collapses to inactive,
+    /// focused_id transferred to the survivor while still readable.
+    #[test]
+    fn remove_focused_in_2slot_transfers_focus_before_clear() {
+        let (mut s, ids) = state_with(2);
+        // ids[0] is focused by default (first add sets focused_id).
+        assert_eq!(s.focused_id(), Some(ids[0]));
+
+        // Remove the focused slot.
+        let removed = s.remove(ids[0]);
+        assert!(removed);
+
+        // After remove() — before clear() — focused_id must point at the survivor.
+        // This is the value the workspace must capture before calling clear().
+        assert_eq!(
+            s.focused_id(),
+            Some(ids[1]),
+            "focused_id must transfer to survivor immediately after remove, before clear"
+        );
+
+        // Now the state is no longer active (only 1 slot).
+        assert!(!s.is_active());
+        // Calling clear() (as the production code does for 2→1) must wipe focused_id.
+        s.clear();
+        assert_eq!(s.focused_id(), None, "clear() must wipe focused_id");
+    }
+
+    /// 3-slot split: remove the focused middle slot → 2 survivors remain,
+    /// focused_id transferred to the first survivor, split still active.
+    #[test]
+    fn remove_focused_in_3slot_transfers_focus_to_first_remaining() {
+        let mut s = SplitViewState::default();
+        let id_a = make_id();
+        let id_b = make_id();
+        let id_c = make_id();
+        s.add(id_a); // focused_id = id_a
+        s.add(id_b);
+        s.add(id_c);
+
+        // Make B the focused slot.
+        s.set_focused_id(id_b);
+        assert_eq!(s.focused_id(), Some(id_b));
+
+        // Remove B (the focused slot).
+        let removed = s.remove(id_b);
+        assert!(removed);
+
+        // After remove — split still active (2 remaining).
+        assert!(s.is_active(), "split must remain active after 3→2");
+        assert_eq!(s.len(), 2);
+
+        // focused_id must have been transferred to the first remaining slot (A).
+        assert_eq!(
+            s.focused_id(),
+            Some(id_a),
+            "focused_id must transfer to first remaining slot (A) after removing focused B"
+        );
+        assert!(s.contains(id_a));
+        assert!(s.contains(id_c));
+        assert!(!s.contains(id_b));
+    }
+}
+
+#[test]
+fn test_split_pane_focused_event_reconciles_tab_selection_and_header_membership() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            let first = workspace.get_pane_group_view(0).unwrap().clone();
+            let second = workspace.get_pane_group_view(1).unwrap().clone();
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(second.id(), ctx);
+
+            // A tab-bar selection and a pane focus event can arrive separately.
+            workspace.split_view_state.set_focused_id(second.id());
+            workspace.handle_file_tree_event(second.clone(), &pane_group::Event::PaneFocused, ctx);
+            assert_eq!(workspace.active_tab_pane_group().id(), second.id());
+            assert_eq!(workspace.split_view_state.focused_id(), Some(second.id()));
+
+            // Reconcile stale split focus even when the selected tab is correct.
+            workspace.split_view_state.set_focused_id(first.id());
+            workspace.handle_file_tree_event(second.clone(), &pane_group::Event::PaneFocused, ctx);
+            assert_eq!(workspace.active_tab_pane_group().id(), second.id());
+            assert_eq!(workspace.split_view_state.focused_id(), Some(second.id()));
+            assert_eq!(workspace.split_view_state.ids(), &[first.id(), second.id()]);
+            assert!(
+                !first
+                    .as_ref(ctx)
+                    .focus_state_handle()
+                    .as_ref(ctx)
+                    .workspace_split_view()
+                    .unwrap()
+                    .is_focused
+            );
+            assert!(
+                second
+                    .as_ref(ctx)
+                    .focus_state_handle()
+                    .as_ref(ctx)
+                    .workspace_split_view()
+                    .unwrap()
+                    .is_focused
+            );
+        });
+    });
+}
+
+#[test]
+fn test_split_focus_pane_group_event_preserves_members_and_exits_for_another_tab() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            workspace.add_terminal_tab(false, ctx);
+            let first = workspace.get_pane_group_view(0).unwrap().clone();
+            let second = workspace.get_pane_group_view(1).unwrap().clone();
+            let outside = workspace.get_pane_group_view(2).unwrap().clone();
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(second.id(), ctx);
+
+            workspace.handle_file_tree_event(
+                second.clone(),
+                &pane_group::Event::FocusPaneGroup,
+                ctx,
+            );
+            assert_eq!(workspace.active_tab_pane_group().id(), second.id());
+            assert_eq!(workspace.split_view_state.focused_id(), Some(second.id()));
+            assert_eq!(workspace.split_view_state.ids(), &[first.id(), second.id()]);
+
+            workspace.handle_file_tree_event(
+                outside.clone(),
+                &pane_group::Event::FocusPaneGroup,
+                ctx,
+            );
+            assert_eq!(workspace.active_tab_pane_group().id(), outside.id());
+            assert!(workspace.split_view_state.ids().is_empty());
+            for pane_group in [first, second, outside] {
+                assert_eq!(
+                    pane_group
+                        .as_ref(ctx)
+                        .focus_state_handle()
+                        .as_ref(ctx)
+                        .workspace_split_view(),
+                    None
+                );
+            }
+        });
+    });
+}
+
+#[test]
+fn test_open_active_tab_in_split_view_does_not_create_membership() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            let active = workspace.active_tab_pane_group().clone();
+            workspace.open_tab_in_split_view(active.id(), ctx);
+            assert!(workspace.split_view_state.ids().is_empty());
+            assert_eq!(workspace.split_view_state.focused_id(), None);
+            assert_eq!(
+                active
+                    .as_ref(ctx)
+                    .focus_state_handle()
+                    .as_ref(ctx)
+                    .workspace_split_view(),
+                None
+            );
+        });
+    });
+}
+
+#[test]
+fn test_rename_outside_split_tab_exits_split_even_when_rename_is_cancelled() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            workspace.add_terminal_tab(false, ctx);
+            let first = workspace.get_pane_group_view(0).unwrap().clone();
+            let outside = workspace.get_pane_group_view(1).unwrap().clone();
+            let third = workspace.get_pane_group_view(2).unwrap().clone();
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(third.id(), ctx);
+            assert_eq!(workspace.split_view_state.ids(), &[first.id(), third.id()]);
+
+            workspace.handle_action(&WorkspaceAction::RenameTab(1), ctx);
+            assert_eq!(workspace.active_tab_pane_group().id(), outside.id());
+            assert!(workspace.current_workspace_state.is_tab_being_renamed());
+            assert!(workspace.split_view_state.ids().is_empty());
+            workspace.handle_action(&WorkspaceAction::CancelActiveRename, ctx);
+            assert!(!workspace.current_workspace_state.is_tab_being_renamed());
+            assert_eq!(workspace.active_tab_pane_group().id(), outside.id());
+            assert!(workspace.split_view_state.ids().is_empty());
+            for pane_group in [first, outside, third] {
+                assert_eq!(
+                    pane_group
+                        .as_ref(ctx)
+                        .focus_state_handle()
+                        .as_ref(ctx)
+                        .workspace_split_view(),
+                    None
+                );
+            }
+        });
+    });
+}
+
+// ── Issue 2: remove_tab must prefer remaining split member (workspace lifecycle) ──
+
+/// Scenario: tabs A B C D E with split view [A, C, E], C is active.
+/// Closing C must activate A or E (a remaining split member), not D
+/// (the adjacent non-member), and the split [A, E] must remain active.
+///
+/// This is a workspace-lifecycle test that exercises `remove_tab` and the
+/// new `remaining_split_ids` preference path end-to-end.
+#[test]
+fn test_close_active_split_tab_activates_remaining_split_member() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        // Start with 1 tab (A).  Add B, C, D, E – we now have 5 tabs 0..4.
+        let (id_a, id_b, id_c, id_d, id_e) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B → index 1
+            workspace.add_terminal_tab(false, ctx); // C → index 2
+            workspace.add_terminal_tab(false, ctx); // D → index 3
+            workspace.add_terminal_tab(false, ctx); // E → index 4
+            assert_eq!(workspace.tab_count(), 5);
+
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            let d = workspace.get_pane_group_view(3).unwrap().id();
+            let e = workspace.get_pane_group_view(4).unwrap().id();
+            (a, b, c, d, e)
+        });
+
+        // Build split [A, C, E] and make C the active/focused slot.
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.activate_tab(0, ctx);
+            // Open split: A (already active) + C.
+            workspace.open_tab_in_split_view(id_c, ctx);
+            // Add E to the existing split.
+            workspace.open_tab_in_split_view(id_e, ctx);
+
+            assert!(
+                workspace.split_view_state.is_active(),
+                "split must be active"
+            );
+            assert_eq!(workspace.split_view_state.len(), 3);
+            assert!(workspace.split_view_state.contains(id_a));
+            assert!(workspace.split_view_state.contains(id_c));
+            assert!(workspace.split_view_state.contains(id_e));
+
+            // Make C the active/focused tab.
+            workspace.handle_pane_group_focus_in_split(
+                id_c,
+                workspace
+                    .tabs
+                    .iter()
+                    .position(|t| t.pane_group.id() == id_c)
+                    .unwrap(),
+                ctx,
+            );
+            assert_eq!(workspace.split_view_state.focused_id(), Some(id_c));
+            assert_eq!(workspace.active_tab_pane_group().id(), id_c);
+        });
+
+        // Close C (the active split slot).
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_c = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_c)
+                .unwrap();
+            workspace.close_tab(idx_c, true, true, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // Split must still be active with [A, E].
+            assert!(
+                workspace.split_view_state.is_active(),
+                "split must remain active after closing one of three members"
+            );
+            assert_eq!(workspace.split_view_state.len(), 2);
+            assert!(
+                workspace.split_view_state.contains(id_a),
+                "A must remain in split"
+            );
+            assert!(
+                workspace.split_view_state.contains(id_e),
+                "E must remain in split"
+            );
+            // The workspace must NOT have activated D (the non-member adjacent tab).
+            let active_id = workspace.active_tab_pane_group().id();
+            assert_ne!(
+                active_id, id_d,
+                "must NOT activate the adjacent non-split member D"
+            );
+            assert_ne!(active_id, id_b, "must NOT activate B");
+            // The activated tab must be a remaining split member.
+            assert!(
+                active_id == id_a || active_id == id_e,
+                "active tab after close must be a remaining split member (A or E), got neither"
+            );
+        });
+    });
+}
+
+/// Closing a split-member tab when only one member remains collapses to
+/// single-tab mode.  Uses A/B/C with split [A,C] and C active so that the
+/// adjacent non-member B would be incorrectly chosen by old code.
+#[test]
+fn test_close_split_to_one_exits_split_view() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B at index 1
+            workspace.add_terminal_tab(false, ctx); // C at index 2
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            (a, b, c)
+        });
+
+        // Open split [A, C] and make C the active/focused slot.
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(id_c, ctx);
+            assert!(workspace.split_view_state.is_active());
+            workspace.handle_pane_group_focus_in_split(
+                id_c,
+                workspace
+                    .tabs
+                    .iter()
+                    .position(|t| t.pane_group.id() == id_c)
+                    .unwrap(),
+                ctx,
+            );
+            assert_eq!(workspace.split_view_state.focused_id(), Some(id_c));
+        });
+
+        // Close C: only A remains in the split → split must exit, activating A not B.
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_c = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_c)
+                .unwrap();
+            workspace.close_tab(idx_c, true, true, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "split must exit when only one member remains"
+            );
+            assert_eq!(workspace.split_view_state.len(), 0);
+            assert_eq!(workspace.tab_count(), 2, "A and B must still exist");
+            // Must activate the surviving split member A, not the adjacent non-member B.
+            let active = workspace.active_tab_pane_group().id();
+            assert_ne!(active, id_b, "must NOT activate non-member B");
+            assert_eq!(active, id_a, "must activate surviving split member A");
+        });
+    });
+}
+
+// ── Drag-out / detach regression tests ───────────────────────────────────
+//
+// These tests enter the production bookkeeping path after preview creation;
+// the App fixture does not create or transfer a native preview window.
+
+/// Dragging the active non-adjacent split member (A from split [A,C,E]) out
+/// of the window must:
+/// - Exit split view entirely.
+/// - Activate a surviving split member (C or E), not the adjacent tab B.
+/// - Record the dragged tab's ID for drop bookkeeping.
+#[test]
+fn test_detach_active_split_tab_prefers_split_survivor_not_adjacent() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        // Build tabs A(0) B(1) C(2) D(3) E(4), split [A,C,E] active A.
+        let (id_a, id_b, id_c, _id_d, id_e) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            workspace.add_terminal_tab(false, ctx); // C
+            workspace.add_terminal_tab(false, ctx); // D
+            workspace.add_terminal_tab(false, ctx); // E
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            let d = workspace.get_pane_group_view(3).unwrap().id();
+            let e = workspace.get_pane_group_view(4).unwrap().id();
+            (a, b, c, d, e)
+        });
+
+        workspace.update(&mut app, |workspace, ctx| {
+            // Open split [A,C,E] with A active/focused.
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(id_c, ctx);
+            workspace.open_tab_in_split_view(id_e, ctx);
+            assert!(workspace.split_view_state.is_active());
+            assert_eq!(workspace.active_tab_pane_group().id(), id_a);
+        });
+
+        // on_tab_drag marks the placeholder before starting the preview.
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_a = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_a)
+                .unwrap();
+
+            workspace.tabs[idx_a].detached = true;
+            workspace.finish_multi_tab_detach(idx_a, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // Split must be fully cleared.
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "split must exit on detach"
+            );
+            assert_eq!(workspace.split_view_state.len(), 0);
+
+            // Active tab must be a surviving split member (C or E), NOT B.
+            let active_id = workspace.active_tab_pane_group().id();
+            assert_ne!(active_id, id_b, "must NOT activate adjacent non-member B");
+            assert!(
+                active_id == id_c || active_id == id_e,
+                "must activate a surviving split member (C or E)"
+            );
+
+            assert_eq!(
+                workspace.detached_tab_pane_group_id,
+                Some(id_a),
+                "detached_tab_pane_group_id must be set to A"
+            );
+        });
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.handle_drop_result(
+                DropResult::RemoveSourceTab {
+                    transferred_tab_index: 0,
+                },
+                ctx,
+            );
+        });
+        workspace.read(&app, |workspace, _ctx| {
+            assert_eq!(workspace.tab_count(), 4);
+            assert!(workspace.tabs.iter().all(|tab| tab.pane_group.id() != id_a));
+            let active_id = workspace.active_tab_pane_group().id();
+            assert!(active_id == id_c || active_id == id_e);
+            assert!(workspace.split_view_state.ids().is_empty());
+        });
+    });
+}
+
+#[test]
+fn test_drop_tab_cleans_detach_bookkeeping_without_changing_survivor_selection() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_c) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            workspace.add_terminal_tab(false, ctx); // C
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(c, ctx);
+            assert!(workspace.split_view_state.is_active());
+            (a, c)
+        });
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.tabs[0].detached = true;
+            workspace.finish_multi_tab_detach(0, ctx);
+            assert_eq!(workspace.active_tab_pane_group().id(), id_c);
+            assert_eq!(workspace.detached_tab_pane_group_id, Some(id_a));
+        });
+
+        // Exercise DropTab cleanup without manufacturing a preview/put-back
+        // route; the cross-window model has no active drag in this fixture.
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            assert_eq!(workspace.active_tab_pane_group().id(), id_c);
+            assert!(workspace.tabs.iter().all(|tab| !tab.detached));
+            assert_eq!(workspace.detached_tab_pane_group_id, None);
+            assert!(workspace.split_view_state.ids().is_empty());
+        });
+    });
+}

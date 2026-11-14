@@ -29,9 +29,7 @@ use pathfinder_geometry::vector::Vector2F;
 use super::view_model::{ConversationEntry, ConversationListViewModel};
 use crate::ai::active_agent_views_model::{ActiveAgentViewsModel, ConversationOrTaskId};
 use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::agent_conversations_model::{
-    AgentConversationEntryId, AgentConversationsModel,
-};
+use crate::ai::agent_conversations_model::{AgentConversationEntryId, AgentConversationsModel};
 use crate::ai::agent_management::telemetry::{AgentManagementTelemetryEvent, OpenedFrom};
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
 use crate::ai::conversation_rename::rename_conversation;
@@ -707,11 +705,9 @@ impl ConversationListView {
                 ctx.emit(Event::NewConversationInNewTab);
             }
             ListItem::Conversation { entry, .. } => {
-                if let Some(action) = AgentConversationsModel::resolve_local_open_action(
-                    entry.id,
-                    None,
-                    ctx,
-                ) {
+                if let Some(action) =
+                    AgentConversationsModel::resolve_local_open_action(entry.id, None, ctx)
+                {
                     Self::send_open_telemetry(&entry.id, ctx);
                     ctx.dispatch_typed_action(&action);
                 }
@@ -1404,11 +1400,9 @@ impl TypedActionView for ConversationListView {
                 });
             }
             ConversationListViewAction::OpenItem { id } => {
-                let Some(action) = AgentConversationsModel::resolve_local_open_action(
-                    *id,
-                    None,
-                    ctx,
-                ) else {
+                let Some(action) =
+                    AgentConversationsModel::resolve_local_open_action(*id, None, ctx)
+                else {
                     return;
                 };
 
