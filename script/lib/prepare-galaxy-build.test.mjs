@@ -25,9 +25,10 @@ async function fixture() {
   const stateTarget = path.join(root, 'target');
   const app = () => path.join(state.targetDir, 'aarch64-apple-darwin/release/bundle/osx/Galaxy.app');
   state.targetDir = stateTarget;
-  const run = async (name, args, { onLog, env } = {}) => {
+  const run = async (name, args, { onLog, env, cwd } = {}) => {
     state.commands.push([name, ...args]);
     if (env && name === 'cargo' && args[0] === 'bundle' && args.includes('--release')) state.buildPath = env.PATH;
+    if (cwd && name === 'cargo' && args[0] === 'bundle' && args.includes('--release')) state.bundleCwd = cwd;
     const key = [name, ...args].join(' ');
     if (key === 'git status --porcelain --untracked-files=all') return state.status;
     if (key === 'git symbolic-ref --quiet --short HEAD') {
@@ -38,7 +39,7 @@ async function fixture() {
     if (key === 'git rev-parse --verify HEAD') return state.commit;
     if (key === 'rustc --version --verbose') return state.rustc;
     if (key === 'cargo --version --verbose') return state.cargo;
-    if (key === 'cargo bundle --version') return state.bundle;
+    if (key === 'cargo-bundle --version') return state.bundle;
     if (key === 'cargo metadata --format-version 1 --no-deps') return JSON.stringify({ target_directory: state.targetDir });
     if (key === 'clang --version') return state.clang;
     if (key === 'xcrun --show-sdk-path') { if (state.failSdk) throw new Error('SDK probe failed'); return state.sdkPath; }
@@ -86,7 +87,8 @@ test('first run distrusts an existing bundle; exact identity reuses verified sna
   assert.equal(second.reused, true);
   assert.equal(await withRelease(second), 'built 1');
   assert.equal(f.state.builds, 1);
-  assert.deepEqual(f.state.commands.find((cmd) => cmd[0] === 'cargo' && cmd[1] === 'bundle' && cmd.includes('--release')), ['cargo', 'bundle', '--release', '--format', 'osx', '--bin', 'galaxy-oss', '--package', 'galaxy', '--features', 'release_bundle,extern_plist', '--target', 'aarch64-apple-darwin']);
+  assert.deepEqual(f.state.commands.find((cmd) => cmd[0] === 'cargo' && cmd[1] === 'bundle' && cmd.includes('--release')), ['cargo', 'bundle', '--release', '--format', 'osx', '--bin', 'galaxy-oss', '--features', 'release_bundle,extern_plist', '--target', 'aarch64-apple-darwin']);
+  assert.equal(f.state.bundleCwd, path.join(f.root, 'app'));
   assert.deepEqual(f.events.filter(([index, event]) => index === 2 && event.status === 'done').map(([, event]) => event.detail), ['Built release bundle', 'Reused verified bundle']);
 });
 
@@ -205,18 +207,21 @@ if (command === 'git') {
   console.error('warning: metadata stderr');
   console.log(JSON.stringify({ target_directory: path.join(process.cwd(), 'target') }));
 } else if (command === 'cargo' && args[0] === 'bundle' && args.includes('--release')) {
-  const app = path.join(process.cwd(), 'target/aarch64-apple-darwin/release/bundle/osx/Galaxy.app');
+  const app = path.join(process.cwd(), '..', 'target/aarch64-apple-darwin/release/bundle/osx/Galaxy.app');
   fs.mkdirSync(path.join(app, 'Contents/MacOS'), { recursive: true });
   fs.writeFileSync(path.join(app, 'Contents/Info.plist'), '<plist><dict/></plist>');
   fs.writeFileSync(path.join(app, 'Contents/MacOS/galaxy-oss'), 'fake', { mode: 0o755 });
+} else if (command === 'cargo-bundle') {
+  console.log('cargo-bundle fixed');
 } else if (command === 'rustc') console.log('rustc 1\\nhost: aarch64-apple-darwin');
 else console.log('fixed version');
 `;
-  for (const name of ['git', 'cargo', 'rustc', 'clang', 'xcrun', 'xcode-select']) {
+  for (const name of ['git', 'cargo', 'cargo-bundle', 'rustc', 'clang', 'xcrun', 'xcode-select']) {
     const executable = path.join(bin, name);
     await fs.writeFile(executable, program);
     await fs.chmod(executable, 0o755);
   }
+  await fs.mkdir(path.join(f.root, 'app'), { recursive: true });
   const events = [];
   const observer = { updateStep: () => {}, appendLog: (_, line) => events.push(line) };
   const result = await prepareGalaxyBuild(f.root, observer, { env: { PATH: `${bin}${path.delimiter}${process.env.PATH}` }, home: f.options.home });

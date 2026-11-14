@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { copyWormholeHelpers, inspectWormholeHelpers, verifyWormholeHelpers } from './bundled-wormhole-helpers.mjs';
 
-const BUNDLE_ARGS = ['bundle', '--release', '--format', 'osx', '--bin', 'galaxy-oss', '--package', 'galaxy', '--features', 'release_bundle,extern_plist'];
+const BUNDLE_ARGS = ['bundle', '--release', '--format', 'osx', '--bin', 'galaxy-oss', '--features', 'release_bundle,extern_plist'];
 const CACHE_VERSION = 2;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const sha = (value) => createHash('sha256').update(value).digest('hex');
@@ -151,7 +151,7 @@ async function identity(root, env, run, home, platform, arch, bundleArgs) {
     cmd('git', ['rev-parse', '--verify', 'HEAD']),
     cmd('rustc', ['--version', '--verbose']),
     cmd('cargo', ['--version', '--verbose']),
-    cmd('cargo', ['bundle', '--version']),
+    cmd('cargo-bundle', ['--version']),
     cmd('clang', ['--version']),
     cmd('xcrun', ['--show-sdk-path']),
     cmd('xcrun', ['--show-sdk-version']),
@@ -181,7 +181,8 @@ export async function prepareGalaxyBuild(workspaceRoot, observer = {}, options =
   const env = buildEnvironment(root, options.env || process.env);
   const update = typeof observer === 'function' ? observer : observer.updateStep?.bind(observer) || (() => {});
   const log = typeof observer === 'function' ? (() => {}) : observer.appendLog?.bind(observer) || observer.log?.bind(observer) || (() => {});
-  const command = (name, args, step) => run(name, args, { cwd: root, env, capture: !(name === 'cargo' && args[0] === 'bundle' && args.includes('--release')), onLog: (line) => log(step, line) });
+  const appDir = path.join(root, 'app');
+  const command = (name, args, step) => run(name, args, { cwd: name === 'cargo' && args[0] === 'bundle' ? appDir : root, env, capture: !(name === 'cargo' && args[0] === 'bundle' && args.includes('--release')), onLog: (line) => log(step, line) });
   update(0, { status: 'running', detail: 'Acquiring build lock' });
   const unlock = await acquireLock(cache);
   try {
