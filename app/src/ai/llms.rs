@@ -654,6 +654,9 @@ pub struct LLMPreferences {
     bedrock_verified_config: Option<super::provider::client::BedrockClientConfig>,
     #[cfg(not(target_family = "wasm"))]
     bedrock_verified_model_ids: HashSet<String>,
+    /// External defaults are read once at startup, never during settings updates.
+    #[cfg(not(target_family = "wasm"))]
+    bedrock_default_model_id: Option<String>,
     #[cfg(not(target_family = "wasm"))]
     acp_selections: HashMap<LLMId, AcpModelSelection>,
 }
@@ -740,22 +743,13 @@ impl LLMPreferences {
             });
         }
 
-        // Re-inject provider models when Bedrock or OpenAI enabled state changes.
+        // Rebuild only the provider affected by a settings change.
         #[cfg(not(target_family = "wasm"))]
         ctx.subscribe_to_model(&AISettings::handle(ctx), |me, _, event, ctx| {
             use crate::settings::AISettingsChangedEvent;
-            if matches!(
+            let bedrock_changed = matches!(
                 event,
                 AISettingsChangedEvent::BedrockEnabled { .. }
-                    | AISettingsChangedEvent::OpenAIEnabled { .. }
-                    | AISettingsChangedEvent::AcpEnabled { .. }
-                    | AISettingsChangedEvent::OpenAIBaseUrl { .. }
-                    | AISettingsChangedEvent::OpenAIApiKey { .. }
-                    | AISettingsChangedEvent::OpenAIModels { .. }
-                    | AISettingsChangedEvent::OpenAIProviders { .. }
-                    | AISettingsChangedEvent::AcpProviders { .. }
-                    | AISettingsChangedEvent::AcpAgents { .. }
-                    | AISettingsChangedEvent::AcpAgentId { .. }
                     | AISettingsChangedEvent::BedrockModels { .. }
                     | AISettingsChangedEvent::BedrockAuthMethod { .. }
                     | AISettingsChangedEvent::BedrockProfile { .. }
@@ -763,7 +757,20 @@ impl LLMPreferences {
                     | AISettingsChangedEvent::BedrockAccessKeyId { .. }
                     | AISettingsChangedEvent::BedrockSecretAccessKey { .. }
                     | AISettingsChangedEvent::BedrockCrossRegionInference { .. }
-            ) {
+            );
+            let other_provider_changed = matches!(
+                event,
+                AISettingsChangedEvent::OpenAIEnabled { .. }
+                    | AISettingsChangedEvent::OpenAIBaseUrl { .. }
+                    | AISettingsChangedEvent::OpenAIApiKey { .. }
+                    | AISettingsChangedEvent::OpenAIModels { .. }
+                    | AISettingsChangedEvent::OpenAIProviders { .. }
+                    | AISettingsChangedEvent::AcpEnabled { .. }
+                    | AISettingsChangedEvent::AcpProviders { .. }
+                    | AISettingsChangedEvent::AcpAgents { .. }
+                    | AISettingsChangedEvent::AcpAgentId { .. }
+            );
+            if bedrock_changed || other_provider_changed {
                 let previous_ids: Vec<_> = me
                     .models_by_feature
                     .agent_mode
@@ -774,8 +781,15 @@ impl LLMPreferences {
                     })
                     .map(|model| model.id.as_str().to_owned())
                     .collect();
-                me.inject_bedrock_models(ctx);
-                me.inject_openai_models(ctx);
+                if bedrock_changed {
+                    me.inject_bedrock_models(ctx);
+                }
+                if other_provider_changed {
+                    me.inject_openai_models(ctx);
+                } else if matches!(event, AISettingsChangedEvent::BedrockEnabled { .. }) {
+                    // ACP can expose Bedrock models, gated by the same enable switch.
+                    me.inject_acp_models(ctx);
+                }
                 if matches!(
                     event,
                     AISettingsChangedEvent::OpenAIEnabled { .. }
@@ -784,7 +798,9 @@ impl LLMPreferences {
                 ) {
                     me.fetch_openai_models_from_endpoint(ctx);
                 }
-                me.refresh_changed_catalog_connections(ctx);
+                if other_provider_changed {
+                    me.refresh_changed_catalog_connections(ctx);
+                }
                 // Safety: ensure the default model is still present in choices.
                 // If all provider models were removed, the default_id would dangle.
                 me.ensure_default_model_present();
@@ -835,6 +851,8 @@ impl LLMPreferences {
             bedrock_verified_config: None,
             #[cfg(not(target_family = "wasm"))]
             bedrock_verified_model_ids: HashSet::new(),
+            #[cfg(not(target_family = "wasm"))]
+            bedrock_default_model_id: ExternalBedrockConfig::load().anthropic_model,
             #[cfg(not(target_family = "wasm"))]
             acp_selections: HashMap::new(),
         };
@@ -994,12 +1012,17 @@ impl LLMPreferences {
 
         // Bedrock models are populated only by the control-plane discovery
         // flow. Never fall back to a static catalog or external config here.
-        let discovered_models: Vec<BedrockModelConfig> = settings.bedrock_models.value().clone();
-        let region = settings.bedrock_region.value().clone();
+        let discovered_models = settings.bedrock_models.value();
+        let region = settings.bedrock_region.value();
         let cross_region = *settings.bedrock_cross_region_inference.value();
+        let connection_is_verified = self.bedrock_verified_config.as_ref()
+            == Some(&bedrock_discovery_config(settings));
 
         for model in discovered_models {
-            if !model.enabled || !self.bedrock_model_is_verified(&model.model_id, ctx) {
+            if !model.enabled
+                || !connection_is_verified
+                || !self.bedrock_verified_model_ids.contains(&model.model_id)
+            {
                 continue;
             }
             let metadata = model_metadata(&model.model_id);
@@ -1014,7 +1037,7 @@ impl LLMPreferences {
             }
 
             let model_id = if cross_region && !region.is_empty() {
-                super::provider::models::apply_cross_region_prefix(&model.model_id, &region)
+                super::provider::models::apply_cross_region_prefix(&model.model_id, region)
             } else {
                 model.model_id.clone()
             };
@@ -1066,10 +1089,8 @@ impl LLMPreferences {
 
         // Default agent mode to ANTHROPIC_MODEL from external config if set,
         // otherwise Claude Opus 4.6, falling back to the first available model.
-        let external_config_for_default = ExternalBedrockConfig::load();
-
-        if let Some(id) = external_config_for_default
-            .anthropic_model
+        if let Some(id) = self
+            .bedrock_default_model_id
             .as_ref()
             .and_then(|model_id| {
                 // Match by model_id (with or without cross-region prefix)

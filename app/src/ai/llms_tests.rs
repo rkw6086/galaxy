@@ -289,6 +289,7 @@ fn empty_preferences() -> LLMPreferences {
         bedrock_verification_generation: 0,
         bedrock_verified_config: None,
         bedrock_verified_model_ids: HashSet::new(),
+        bedrock_default_model_id: None,
         acp_selections: HashMap::new(),
     }
 }
@@ -507,6 +508,7 @@ fn acp_models_are_injected_only_while_acp_is_enabled() {
             bedrock_verification_generation: 0,
             bedrock_verified_config: None,
             bedrock_verified_model_ids: HashSet::new(),
+            bedrock_default_model_id: None,
             acp_selections: HashMap::new(),
         };
         app.read(|ctx| preferences.inject_acp_models(ctx));

@@ -1,4 +1,3 @@
-use ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent};
 use galaxy_core::ui::theme::color::internal_colors;
 use itertools::Itertools;
 use regex::Regex;
@@ -216,6 +215,7 @@ pub struct ExecutionProfileEditorView {
     full_terminal_reasoning_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
     computer_use_reasoning_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
     reasoning_roles: Vec<ProfileModelRole>,
+    last_model_selections: Option<[Option<LLMId>; 4]>,
     permission_mode_dropdown: ViewHandle<Dropdown<ExecutionProfileEditorViewAction>>,
     command_denylist_editor: ViewHandle<SubmittableTextInput>,
     command_allowlist_editor: ViewHandle<SubmittableTextInput>,
@@ -386,6 +386,7 @@ impl ExecutionProfileEditorView {
             full_terminal_reasoning_dropdown,
             computer_use_reasoning_dropdown,
             reasoning_roles: Vec::new(),
+            last_model_selections: None,
             permission_mode_dropdown,
             command_denylist_editor,
             command_allowlist_editor,
@@ -510,33 +511,6 @@ impl ExecutionProfileEditorView {
             me.refresh_reasoning_dropdowns(ctx);
         });
 
-        // Refresh model dropdowns when BYO API keys update so key icons reflect current state.
-        ctx.subscribe_to_model(
-            &ApiKeyManager::handle(ctx),
-            |me, _model, _event: &ApiKeyManagerEvent, ctx| {
-                let permissions = BlocklistAIPermissions::as_ref(ctx);
-                let current_permissions =
-                    permissions.permissions_profile_for_id(ctx, me.profile_id);
-                Self::refresh_filterable_model_dropdown(
-                    &me.base_model_dropdown,
-                    current_permissions.base_model.clone(),
-                    |prefs, app| prefs.get_base_llm_choices_for_agent_mode(app).collect_vec(),
-                    |id| ExecutionProfileEditorViewAction::SetBaseModel { id },
-                    |prefs| prefs.get_default_base_model().id.clone(),
-                    &me.upgrade_footer_mouse_state,
-                    ctx,
-                );
-                Self::refresh_coding_model_dropdown(
-                    &me.coding_model_dropdown,
-                    current_permissions.coding_model.clone(),
-                    ctx,
-                );
-                me.sync_context_window_editor(ctx, false);
-                me.refresh_reasoning_dropdowns(ctx);
-                ctx.notify();
-            },
-        );
-
         ctx.subscribe_to_model(
             &AIExecutionProfilesModel::handle(ctx),
             |me, _, event, ctx| {
@@ -558,6 +532,8 @@ impl ExecutionProfileEditorView {
         ctx.subscribe_to_model(&AISettings::handle(ctx), |me, _, event, ctx| {
             if let AISettingsChangedEvent::IsAnyAIEnabled { .. } = event {
                 Self::update_all_editor_interaction_states(me, ctx);
+                me.last_model_selections = None;
+                me.refresh_profile_state(ctx);
                 me.sync_context_window_editor(ctx, true);
                 ctx.notify();
             }
@@ -619,38 +595,50 @@ impl ExecutionProfileEditorView {
     fn refresh_profile_state(&mut self, ctx: &mut ViewContext<Self>) {
         let permissions = BlocklistAIPermissions::as_ref(ctx);
         let current_permissions = permissions.permissions_profile_for_id(ctx, self.profile_id);
-        Self::refresh_filterable_model_dropdown(
-            &self.base_model_dropdown,
+        let model_selections = [
             current_permissions.base_model.clone(),
-            |prefs, app| prefs.get_base_llm_choices_for_agent_mode(app).collect_vec(),
-            |id| ExecutionProfileEditorViewAction::SetBaseModel { id },
-            |prefs| prefs.get_default_base_model().id.clone(),
-            &self.upgrade_footer_mouse_state,
-            ctx,
-        );
-        Self::refresh_coding_model_dropdown(
-            &self.coding_model_dropdown,
             current_permissions.coding_model.clone(),
-            ctx,
-        );
-        Self::refresh_filterable_model_dropdown(
-            &self.full_terminal_use_model_dropdown,
             current_permissions.cli_agent_model.clone(),
-            |prefs, app| prefs.get_cli_agent_llm_choices(app).collect_vec(),
-            |id| ExecutionProfileEditorViewAction::SetFullTerminalUseModel { id },
-            |prefs| prefs.get_default_cli_agent_model().id.clone(),
-            &self.upgrade_footer_mouse_state,
-            ctx,
-        );
-        Self::refresh_filterable_model_dropdown(
-            &self.computer_use_model_dropdown,
             current_permissions.computer_use_model.clone(),
-            |prefs, app| prefs.get_computer_use_llm_choices(app).collect_vec(),
-            |id| ExecutionProfileEditorViewAction::SetComputerUseModel { id },
-            |prefs| prefs.get_default_computer_use_model().id.clone(),
-            &self.upgrade_footer_mouse_state,
-            ctx,
-        );
+        ];
+        // Name, permissions, and context-limit edits do not change model menus.
+        // Catalog updates refresh them independently through LLMPreferences.
+        if self.last_model_selections.as_ref() != Some(&model_selections) {
+            self.last_model_selections = Some(model_selections);
+            Self::refresh_filterable_model_dropdown(
+                &self.base_model_dropdown,
+                current_permissions.base_model.clone(),
+                |prefs, app| prefs.get_base_llm_choices_for_agent_mode(app).collect_vec(),
+                |id| ExecutionProfileEditorViewAction::SetBaseModel { id },
+                |prefs| prefs.get_default_base_model().id.clone(),
+                &self.upgrade_footer_mouse_state,
+                ctx,
+            );
+            Self::refresh_coding_model_dropdown(
+                &self.coding_model_dropdown,
+                current_permissions.coding_model.clone(),
+                ctx,
+            );
+            Self::refresh_filterable_model_dropdown(
+                &self.full_terminal_use_model_dropdown,
+                current_permissions.cli_agent_model.clone(),
+                |prefs, app| prefs.get_cli_agent_llm_choices(app).collect_vec(),
+                |id| ExecutionProfileEditorViewAction::SetFullTerminalUseModel { id },
+                |prefs| prefs.get_default_cli_agent_model().id.clone(),
+                &self.upgrade_footer_mouse_state,
+                ctx,
+            );
+            Self::refresh_filterable_model_dropdown(
+                &self.computer_use_model_dropdown,
+                current_permissions.computer_use_model.clone(),
+                |prefs, app| prefs.get_computer_use_llm_choices(app).collect_vec(),
+                |id| ExecutionProfileEditorViewAction::SetComputerUseModel { id },
+                |prefs| prefs.get_default_computer_use_model().id.clone(),
+                &self.upgrade_footer_mouse_state,
+                ctx,
+            );
+            self.refresh_reasoning_dropdowns(ctx);
+        }
 
         self.permission_mode_dropdown.update(ctx, |dropdown, ctx| {
             dropdown.set_selected_by_action(
@@ -674,7 +662,7 @@ impl ExecutionProfileEditorView {
 
         Self::update_profile_name_editor(&self.profile_name_editor, &current_permissions, ctx);
         self.sync_context_window_editor(ctx, false);
-        self.refresh_reasoning_dropdowns(ctx);
+        ctx.notify();
     }
 
     fn refresh_reasoning_dropdowns(&mut self, ctx: &mut ViewContext<Self>) {

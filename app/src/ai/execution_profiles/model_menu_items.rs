@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use galaxy_core::ui::Icon;
@@ -24,9 +24,10 @@ pub fn is_auto(llm: &LLMInfo) -> bool {
 
 /// Returns true when a model's configured connection advertises reasoning choices.
 pub fn has_reasoning_variants(llm: &LLMInfo, all_models: &[&LLMInfo]) -> bool {
-    all_models.iter().any(|other| {
-        other.reasoning_group_key() == llm.reasoning_group_key() && other.has_reasoning_level()
-    })
+    let key = llm.reasoning_group_key();
+    all_models
+        .iter()
+        .any(|other| other.has_reasoning_level() && other.reasoning_group_key() == key)
 }
 
 /// Keep one visible model entry per connection while preserving the selected
@@ -35,23 +36,55 @@ pub fn collapse_model_reasoning_choices<'a>(
     choices: Vec<&'a LLMInfo>,
     selected_id: Option<&LLMId>,
 ) -> Vec<&'a LLMInfo> {
-    let mut groups = HashSet::new();
-    let mut result = Vec::new();
-    for model in &choices {
-        if !has_reasoning_variants(model, &choices) {
+    struct ReasoningGroup {
+        first_index: usize,
+        default_index: Option<usize>,
+        selected_index: Option<usize>,
+        has_variants: bool,
+        emitted: bool,
+    }
+
+    let mut group_by_key = HashMap::new();
+    let mut groups = Vec::new();
+    let mut group_indices = Vec::with_capacity(choices.len());
+    for (index, model) in choices.iter().enumerate() {
+        let group_index = *group_by_key
+            .entry(model.reasoning_group_key())
+            .or_insert_with(|| {
+                groups.push(ReasoningGroup {
+                    first_index: index,
+                    default_index: None,
+                    selected_index: None,
+                    has_variants: false,
+                    emitted: false,
+                });
+                groups.len() - 1
+            });
+        let group = &mut groups[group_index];
+        if model.has_reasoning_level() {
+            group.has_variants = true;
+        } else {
+            group.default_index.get_or_insert(index);
+        }
+        if Some(&model.id) == selected_id {
+            group.selected_index.get_or_insert(index);
+        }
+        group_indices.push(group_index);
+    }
+
+    let mut result = Vec::with_capacity(choices.len());
+    for (model, group_index) in choices.iter().zip(group_indices) {
+        let group = &mut groups[group_index];
+        if !group.has_variants {
             result.push(*model);
-            continue;
+        } else if !group.emitted {
+            group.emitted = true;
+            let representative = group
+                .selected_index
+                .or(group.default_index)
+                .unwrap_or(group.first_index);
+            result.push(choices[representative]);
         }
-        let key = model.reasoning_group_key();
-        if !groups.insert(key.clone()) {
-            continue;
-        }
-        let matching = || choices.iter().copied().filter(|other| other.reasoning_group_key() == key);
-        let representative = matching()
-            .find(|other| Some(&other.id) == selected_id)
-            .or_else(|| matching().find(|other| !other.has_reasoning_level()))
-            .unwrap_or(model);
-        result.push(representative);
     }
     result
 }
@@ -64,13 +97,24 @@ pub fn reasoning_choices_for_model<'a>(
     let Some(selected) = choices.iter().find(|model| &model.id == selected_id) else {
         return Vec::new();
     };
-    if !has_reasoning_variants(selected, choices) {
-        return Vec::new();
+    let key = selected.reasoning_group_key();
+    let mut levels = HashSet::new();
+    let mut result = Vec::new();
+    let mut has_variants = false;
+    for model in choices.iter().copied() {
+        if model.reasoning_group_key() != key {
+            continue;
+        }
+        has_variants |= model.has_reasoning_level();
+        if levels.insert(model.reasoning_level.clone()) {
+            result.push(model);
+        }
     }
-    choices.iter().copied()
-        .filter(|model| model.reasoning_group_key() == selected.reasoning_group_key())
-        .unique_by(|model| model.reasoning_level.clone())
-        .collect()
+    if has_variants {
+        result
+    } else {
+        Vec::new()
+    }
 }
 
 fn with_cost_and_profile_info<A: Action + Clone>(

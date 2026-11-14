@@ -3,9 +3,9 @@ use pathfinder_geometry::vector::vec2f;
 use thousands::Separable;
 use uuid::Uuid;
 use warpui::elements::{
-    ChildAnchor, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Dismiss, Flex,
-    Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
-    ParentElement, ParentOffsetBounds, Shrinkable, Stack, Text,
+    Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    Dismiss, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning,
+    ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Shrinkable, Stack, Text,
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
@@ -667,33 +667,51 @@ fn render_orchestration_providers(
     profile: &AIExecutionProfile,
     appearance: &Appearance,
 ) -> Box<dyn Element> {
-    let mut column = Flex::column().with_child(create_section_header(
-        "Orchestration providers",
-        "Choose which providers can supply models for sub-agents and code reviews.",
-        appearance,
-    ));
+    let theme = appearance.theme();
+    let background = theme.surface_1();
+    // Label contrast belongs to the surrounding surface, independently of
+    // the checkbox's accent background and checkmark color.
+    let label_styles = UiComponentStyles {
+        font_family_id: Some(appearance.ui_font_family()),
+        font_size: Some(13.),
+        font_color: Some(theme.main_text_color(background).into()),
+        margin: Some(Coords::uniform(0.)),
+        ..Default::default()
+    };
     let all = profile.orchestration_providers.is_none();
-    let names: Vec<_> = view.orchestration_provider_checkboxes
-        .iter()
-        .map(|(name, _)| name.clone())
-        .collect();
-    let selected = if all { Some(names) } else { None };
-    let checkbox = appearance.ui_builder()
+    let selected = all.then(|| {
+        view.orchestration_provider_checkboxes
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect()
+    });
+    let checkbox = appearance
+        .ui_builder()
         .checkbox(view.all_providers_checkbox.clone(), Some(14.))
-        .with_label(Span::new("All providers", Default::default()))
-        .with_label_style(UiComponentStyles { font_color: Some(appearance.theme().active_ui_text_color().into()), ..Default::default() })
+        .with_label(Span::new("All providers", label_styles))
+        .with_label_style(UiComponentStyles {
+            font_weight: Some(Weight::Semibold),
+            ..label_styles
+        })
         .check(all)
         .build()
         .on_click(move |ctx, _, _| {
-            ctx.dispatch_typed_action(ExecutionProfileEditorViewAction::SetOrchestrationProviders {
-                providers: selected.clone(),
-            });
+            ctx.dispatch_typed_action(
+                ExecutionProfileEditorViewAction::SetOrchestrationProviders {
+                    providers: selected.clone(),
+                },
+            );
         })
         .finish();
-    column.add_child(Container::new(checkbox).with_margin_top(12.).finish());
+    let mut choices = Flex::column()
+        .with_cross_axis_alignment(CrossAxisAlignment::Start)
+        .with_spacing(4.)
+        .with_child(checkbox);
 
     if !all {
-        let mut providers = Flex::column();
+        let mut providers = Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Start)
+            .with_spacing(4.);
         for (name, state) in &view.orchestration_provider_checkboxes {
             let included = profile.includes_orchestration_provider(name);
             let mut next = profile.orchestration_providers.clone().unwrap_or_default();
@@ -702,23 +720,61 @@ fn render_orchestration_providers(
             } else {
                 next.push(name.clone());
             }
-            let checkbox = appearance.ui_builder()
+            let checkbox = appearance
+                .ui_builder()
                 .checkbox(state.clone(), Some(14.))
-                .with_label(Span::new(name.clone(), Default::default()))
-                .with_label_style(UiComponentStyles { font_color: Some(appearance.theme().active_ui_text_color().into()), ..Default::default() })
+                .with_label(Span::new(name.clone(), label_styles))
+                .with_label_style(label_styles)
                 .check(included)
                 .build()
                 .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(ExecutionProfileEditorViewAction::SetOrchestrationProviders {
-                        providers: Some(next.clone()),
-                    });
+                    ctx.dispatch_typed_action(
+                        ExecutionProfileEditorViewAction::SetOrchestrationProviders {
+                            providers: Some(next.clone()),
+                        },
+                    );
                 })
                 .finish();
-            providers.add_child(Container::new(checkbox).with_margin_top(12.).finish());
+            providers.add_child(checkbox);
         }
-        column.add_child(Container::new(providers.finish()).with_margin_left(24.).finish());
+        if view.orchestration_provider_checkboxes.is_empty() {
+            providers.add_child(
+                Text::new(
+                    "No configured providers to select.",
+                    appearance.ui_font_family(),
+                    12.,
+                )
+                .with_color(theme.sub_text_color(background).into())
+                .finish(),
+            );
+        }
+        choices.add_child(
+            Container::new(providers.finish())
+                .with_margin_left(24.)
+                .finish(),
+        );
     }
-    Container::new(column.finish()).with_margin_top(16.).with_margin_bottom(12.).finish()
+    let choices = Container::new(choices.finish())
+        .with_uniform_padding(10.)
+        .with_background(background)
+        .with_border(Border::all(1.).with_border_fill(theme.outline()))
+        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
+        .finish();
+    Container::new(
+        Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .with_spacing(8.)
+            .with_child(create_section_header(
+                "Orchestration providers",
+                "Choose which providers can supply models for sub-agents and code reviews.",
+                appearance,
+            ))
+            .with_child(choices)
+            .finish(),
+    )
+    .with_margin_top(16.)
+    .with_margin_bottom(12.)
+    .finish()
 }
 
 fn display_mcp_name(uuid: &Uuid, app: &AppContext) -> String {

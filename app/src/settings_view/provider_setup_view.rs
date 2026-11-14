@@ -3,8 +3,9 @@ use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
     Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
     CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement, Hoverable, MainAxisAlignment,
-    MainAxisSize, MouseStateHandle, Padding, ParentElement, Radius, RowBackground, ScrollbarWidth,
-    Table, TableColumnWidth, TableConfig, TableHeader, TableStateHandle, TableVerticalSizing, Text,
+    MainAxisSize, MouseStateHandle, Padding, ParentElement, Radius, RowBackground, ScrollStateHandle,
+    Scrollable, ScrollableElement, ScrollbarWidth, Table, TableColumnWidth, TableConfig, TableHeader,
+    TableStateHandle, TableVerticalSizing, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::platform::Cursor;
@@ -19,29 +20,31 @@ use pathfinder_color::ColorU;
 
 pub(super) fn model_catalog_table(
     state: TableStateHandle,
+    scroll_state: ScrollStateHandle,
     row_count: usize,
     render_row: impl Fn(usize, &AppContext) -> Vec<Box<dyn Element>> + 'static,
     appearance: &Appearance,
 ) -> Box<dyn Element> {
-    let headers = ["Use", "Model", "Context", "Capabilities"]
-        .into_iter()
-        .enumerate()
-        .map(|(index, label)| {
-            TableHeader::new(
-                Text::new(label.to_owned(), appearance.ui_font_family(), 11.)
-                    .with_color(appearance.theme().nonactive_ui_text_color().into())
-                    .with_style(Properties::default().weight(Weight::Semibold))
-                    .finish(),
-            )
-            .with_width(if index == 3 {
-                TableColumnWidth::Flex(1.)
-            } else {
-                TableColumnWidth::Intrinsic
-            })
-        })
-        .collect();
-    state.invalidate_all_intrinsic_widths();
-    Table::new(state, 0., 0.)
+    let headers = [
+        ("Use", TableColumnWidth::Fixed(64.)),
+        ("Model", TableColumnWidth::Flex(2.)),
+        ("Context", TableColumnWidth::Fixed(136.)),
+        ("Capabilities", TableColumnWidth::Flex(1.5)),
+    ]
+    .into_iter()
+    .map(|(label, width)| {
+        TableHeader::new(
+            Text::new(label.to_owned(), appearance.ui_font_family(), 11.)
+                .with_color(appearance.theme().nonactive_ui_text_color().into())
+                .with_style(Properties::default().weight(Weight::Semibold))
+                .finish(),
+        )
+        .with_width(width)
+    })
+    .collect();
+    // Keep catalog layout proportional to the viewport, including when the
+    // surrounding settings page gives its children unbounded height.
+    let table = Table::new(state, 700., 360.)
         .with_headers(headers)
         .with_row_count(row_count)
         .with_row_render_fn(render_row)
@@ -54,11 +57,25 @@ pub(super) fn model_catalog_table(
             cell_padding: 12.,
             header_background: appearance.theme().surface_2().into(),
             row_background: RowBackground::uniform(appearance.theme().surface_1().into()),
-            fixed_header: false,
-            vertical_sizing: TableVerticalSizing::ExpandToContent,
-            measure_body_cells_for_intrinsic_widths: true,
+            fixed_header: true,
+            vertical_sizing: TableVerticalSizing::Viewported,
+            measure_body_cells_for_intrinsic_widths: false,
         })
-        .finish()
+        .finish_scrollable();
+    ConstrainedBox::new(
+        Scrollable::vertical(
+            scroll_state,
+            table,
+            ScrollbarWidth::Auto,
+            appearance.theme().nonactive_ui_detail().into(),
+            appearance.theme().active_ui_detail().into(),
+            appearance.theme().surface_1().into(),
+        )
+        .with_overlayed_scrollbar()
+        .finish(),
+    )
+    .with_max_height(360.)
+    .finish()
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -281,6 +298,7 @@ pub struct ProviderSetupView {
     provider_type_scroll_state: ClippedScrollStateHandle,
     models_scroll_state: ClippedScrollStateHandle,
     model_table_state: TableStateHandle,
+    model_table_scroll_state: ScrollStateHandle,
     step_tab_mouse_states: Vec<MouseStateHandle>,
     back_button: ViewHandle<ActionButton>,
     cancel_button: ViewHandle<ActionButton>,
@@ -521,6 +539,7 @@ impl ProviderSetupView {
             provider_type_scroll_state: ClippedScrollStateHandle::default(),
             models_scroll_state: ClippedScrollStateHandle::default(),
             model_table_state: TableStateHandle::new(0, |_, _| Vec::new()),
+            model_table_scroll_state: ScrollStateHandle::default(),
             step_tab_mouse_states: (0..4).map(|_| MouseStateHandle::default()).collect(),
             back_button,
             cancel_button,
@@ -2106,6 +2125,7 @@ impl ProviderSetupView {
             let switches = self.bedrock_model_switches.clone();
             let table = model_catalog_table(
                 self.model_table_state.clone(),
+                self.model_table_scroll_state.clone(),
                 models.len(),
                 move |index, app| {
                     let appearance = Appearance::as_ref(app);
@@ -2113,6 +2133,7 @@ impl ProviderSetupView {
                     let text = |value: String| {
                         Text::new(value, appearance.ui_font_family(), 11.)
                             .with_color(appearance.theme().nonactive_ui_text_color().into())
+                            .soft_wrap(true)
                             .finish()
                     };
                     let toggle = appearance
@@ -2243,6 +2264,7 @@ impl ProviderSetupView {
         let buttons = self.model_capability_buttons.clone();
         let table = model_catalog_table(
             self.model_table_state.clone(),
+            self.model_table_scroll_state.clone(),
             models.len(),
             move |index, app| {
                 Self::render_openai_model_cells(

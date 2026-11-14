@@ -21,7 +21,7 @@ use galaxyui::elements::{
     Dismiss, Empty, Expanded, Fill, Flex, FormattedTextElement, HighlightedHyperlink, Hoverable,
     HyperlinkLens, HyperlinkUrl, MainAxisAlignment, MainAxisSize, MouseStateHandle,
     OffsetPositioning, Padding, ParentAnchor, ParentElement, ParentOffsetBounds, Radius,
-    Shrinkable, Stack, TableStateHandle, Text,
+    ScrollStateHandle, Shrinkable, Stack, TableStateHandle, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::keymap::{ContextPredicate, FixedBinding, Keystroke};
@@ -1256,11 +1256,9 @@ impl AISettingsPageView {
             },
         );
 
-        // Refresh model dropdowns when Bedrock credentials update so key icons reflect latest state.
-        ctx.subscribe_to_model(&ApiKeyManager::handle(ctx), |me, _model, _event, ctx| {
-            Self::refresh_base_model_menu(&me.base_model_dropdown, ctx);
-            Self::refresh_coding_model_menu(&me.coding_model_dropdown, ctx);
-            me.sync_context_window_editor(ctx, false);
+        // LLMPreferences refreshes model menus through UpdatedAvailableLLMs.
+        // Credential-dependent page content still needs a redraw.
+        ctx.subscribe_to_model(&ApiKeyManager::handle(ctx), |_, _, _, ctx| {
             ctx.notify();
         });
 
@@ -6628,6 +6626,7 @@ struct OpenAIProviderCardState {
     enabled_switch: SwitchStateHandle,
     model_switches: RefCell<HashMap<String, SwitchStateHandle>>,
     model_table_state: TableStateHandle,
+    model_table_scroll_state: ScrollStateHandle,
     edit_button: ViewHandle<ActionButton>,
     remove_button: ViewHandle<ActionButton>,
 }
@@ -6641,6 +6640,7 @@ struct ProviderSettingsWidget {
     bedrock_enabled_toggle: SwitchStateHandle,
     bedrock_model_switches: RefCell<HashMap<String, SwitchStateHandle>>,
     bedrock_model_table_state: TableStateHandle,
+    bedrock_model_table_scroll_state: ScrollStateHandle,
     add_anthropic_provider_button: ViewHandle<ActionButton>,
     add_openai_provider_button: ViewHandle<ActionButton>,
     add_litellm_provider_button: ViewHandle<ActionButton>,
@@ -6667,6 +6667,7 @@ impl ProviderSettingsWidget {
                 enabled_switch: SwitchStateHandle::default(),
                 model_switches: RefCell::new(HashMap::new()),
                 model_table_state: TableStateHandle::new(0, |_, _| Vec::new()),
+                model_table_scroll_state: ScrollStateHandle::default(),
                 edit_button: ctx.add_typed_action_view(move |_| {
                     ActionButton::new("Edit", SecondaryTheme).on_click(move |ctx| {
                         ctx.dispatch_typed_action(AISettingsPageAction::EditOpenAIProvider(index));
@@ -6772,6 +6773,7 @@ impl ProviderSettingsWidget {
             bedrock_enabled_toggle: SwitchStateHandle::default(),
             bedrock_model_switches: RefCell::new(HashMap::new()),
             bedrock_model_table_state: TableStateHandle::new(0, |_, _| Vec::new()),
+            bedrock_model_table_scroll_state: ScrollStateHandle::default(),
             add_anthropic_provider_button,
             add_openai_provider_button,
             add_litellm_provider_button,
@@ -6950,6 +6952,7 @@ impl ProviderSettingsWidget {
         let provider = provider.clone();
         model_catalog_table(
             card.model_table_state.clone(),
+            card.model_table_scroll_state.clone(),
             provider.models.len(),
             move |index, app| {
                 let appearance = Appearance::as_ref(app);
@@ -7031,6 +7034,7 @@ impl ProviderSettingsWidget {
         let models = models.to_vec();
         model_catalog_table(
             self.bedrock_model_table_state.clone(),
+            self.bedrock_model_table_scroll_state.clone(),
             models.len(),
             move |index, app| {
                 let appearance = Appearance::as_ref(app);
@@ -7063,6 +7067,7 @@ impl ProviderSettingsWidget {
                         )
                         .with_color(appearance.theme().active_ui_text_color().into())
                         .with_style(Properties::default().weight(Weight::Semibold))
+                        .soft_wrap(true)
                         .finish(),
                     )
                     .with_child(
@@ -7072,6 +7077,7 @@ impl ProviderSettingsWidget {
                             10.,
                         )
                         .with_color(appearance.theme().nonactive_ui_text_color().into())
+                        .soft_wrap(true)
                         .finish(),
                     )
                     .finish();
