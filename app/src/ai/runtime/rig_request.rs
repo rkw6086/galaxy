@@ -53,9 +53,15 @@ pub(crate) struct OrchestrationModelOption {
 }
 
 pub(crate) fn add_orchestration_model_options(
-    tools: &mut [ToolDefinition],
+    tools: &mut Vec<ToolDefinition>,
     models: &[OrchestrationModelOption],
 ) {
+    // Direct providers use the explicit per-child model choices on run_agents.
+    // Keep the legacy parser for saved calls, without advertising its implicit
+    // model fallback or leaving unrestricted delegation when no model is allowed.
+    tools.retain(|tool| {
+        tool.name != "start_agent" && (!models.is_empty() || tool.name != "run_agents")
+    });
     if models.is_empty() {
         return;
     }
@@ -91,6 +97,24 @@ pub(crate) fn add_orchestration_model_options(
         .iter()
         .map(|model| serde_json::Value::String(model.id.clone()))
         .collect::<Vec<_>>();
+
+    let mut run_wide_model_ids = model_ids.clone();
+    run_wide_model_ids.push(serde_json::Value::String(String::new()));
+    if let Some(properties) = tool
+        .input_schema
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        properties.insert(
+            "model_id".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "enum": run_wide_model_ids,
+                "default": "",
+                "description": "Optional shared model override, selected only from the allowed model IDs. Omit or use an empty string to use each child's required model_id; an empty override never chooses a model implicitly.",
+            }),
+        );
+    }
 
     let Some(agent_items) = tool
         .input_schema

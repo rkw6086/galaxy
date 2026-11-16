@@ -120,8 +120,9 @@ fn serialize_proto_to_base64<M: prost::Message>(message: &M) -> String {
     BASE64_STANDARD.encode(message.encode_to_vec())
 }
 
-/// Overrides the child's preferred agent-mode LLM. `None` is a no-op
-/// (inherits the parent's terminal model via `propagate_parent_agent_settings`).
+/// Overrides the child's preferred agent-mode LLM and confines its auxiliary
+/// model roles to the inherited profile's orchestration providers. `None`
+/// retains the permitted default from `propagate_parent_agent_settings`.
 #[cfg(not(target_family = "wasm"))]
 fn apply_child_model_id_override(
     child_terminal_view_id: EntityId,
@@ -133,7 +134,7 @@ fn apply_child_model_id_override(
     };
     let llm_id: ai::LLMId = model_id.into();
     LLMPreferences::handle(ctx).update(ctx, |llm_prefs, ctx| {
-        llm_prefs.update_preferred_agent_mode_llm(&llm_id, child_terminal_view_id, ctx);
+        llm_prefs.configure_orchestration_child_model(&llm_id, child_terminal_view_id, ctx);
     });
 }
 

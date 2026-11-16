@@ -95,17 +95,36 @@ fn propagate_parent_agent_settings(
         profiles.set_active_profile(child_terminal_view_id, parent_profile_id, ctx);
     });
 
-    let parent_terminal_model_id = LLMPreferences::as_ref(ctx)
-        .get_active_cli_agent_model(ctx, Some(parent_view_id))
-        .id
-        .clone();
-    LLMPreferences::handle(ctx).update(ctx, |llm_prefs, ctx| {
-        llm_prefs.update_preferred_agent_mode_llm(
-            &parent_terminal_model_id,
-            child_terminal_view_id,
-            ctx,
-        );
-    });
+    // A child's inherited default must satisfy the same provider restriction as
+    // an explicit orchestration model. A profile's terminal-use model may be
+    // intentionally different from its permitted orchestration providers.
+    let inherited_model_id = {
+        let preferences = LLMPreferences::as_ref(ctx);
+        [
+            preferences.get_active_cli_agent_model(ctx, Some(parent_view_id)),
+            preferences.get_active_base_model(ctx, Some(parent_view_id)),
+        ]
+        .into_iter()
+        .chain(preferences.get_base_llm_choices_for_agent_mode(ctx))
+        .find(|model| {
+            model.disable_reason.is_none()
+                && preferences.profile_allows_orchestration_model(
+                    model,
+                    Some(child_terminal_view_id),
+                    ctx,
+                )
+        })
+        .map(|model| model.id.clone())
+    };
+    if let Some(inherited_model_id) = inherited_model_id {
+        LLMPreferences::handle(ctx).update(ctx, |llm_prefs, ctx| {
+            llm_prefs.configure_orchestration_child_model(
+                &inherited_model_id,
+                child_terminal_view_id,
+                ctx,
+            );
+        });
+    }
 }
 
 fn start_new_child_conversation(

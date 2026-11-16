@@ -14,9 +14,8 @@ use uuid::Uuid;
 use warp_multi_agent_api::ToolType;
 
 use super::rig_request::{
-    add_orchestration_model_options, prepare_bedrock_rig_turn_for_mode, prepare_rig_turn,
-    prepare_rig_turn_for_mode, MCPToolTarget, OrchestrationModelOption, PreparedRigTurn,
-    RigRequestMode,
+    prepare_bedrock_rig_turn_for_mode, prepare_rig_turn, prepare_rig_turn_for_mode, MCPToolTarget,
+    OrchestrationModelOption, PreparedRigTurn, RigRequestMode,
 };
 use super::rig_tool::action_from_tool_call;
 use super::skill_creation::SkillCreationContext;
@@ -288,10 +287,10 @@ pub(crate) async fn prepare_provider_run(
             None,
         )
         .await?;
-        Some(
-            ProviderRunProfile::new(runtime, prepared.request)
-                .with_max_context_tokens(prepared.max_context_tokens),
-        )
+        let mut profile = ProviderRunProfile::new(runtime, prepared.request)
+            .with_max_context_tokens(prepared.max_context_tokens);
+        profile.refresh_orchestration_models(&orchestration_models);
+        Some(profile)
     } else {
         None
     };
@@ -321,7 +320,7 @@ pub(crate) async fn prepare_provider_run(
         }
     };
 
-    let (base_runtime, mut prepared) = prepare_provider_profile(
+    let (base_runtime, prepared) = prepare_provider_profile(
         base_provider_config,
         params,
         supported_tools.clone(),
@@ -329,7 +328,6 @@ pub(crate) async fn prepare_provider_run(
         None,
     )
     .await?;
-    add_orchestration_model_options(&mut prepared.request.tools, &orchestration_models);
     let (cli_runtime, cli_prepared) = prepare_provider_profile(
         cli_provider_config,
         cli_params,
@@ -371,9 +369,11 @@ pub(crate) async fn prepare_provider_run(
         capabilities: base_runtime.descriptor().capabilities.clone(),
         empty_output_message: None,
     };
+    let mut base_profile = ProviderRunProfile::new(base_runtime, request)
+        .with_max_context_tokens(prepared_context_tokens);
+    base_profile.refresh_orchestration_models(&orchestration_models);
     Ok(PreparedProviderRun {
-        base_profile: ProviderRunProfile::new(base_runtime, request)
-            .with_max_context_tokens(prepared_context_tokens),
+        base_profile,
         cli_monitor_profile,
         computer_use_profile,
         tool_result_archive,
@@ -449,13 +449,14 @@ pub(crate) async fn provider_runtime_for_request(
                 })
                 .with_reasoning_effort(config.reasoning_effort),
             ),
-            OpenAIProviderKind::ChatGPTSubscription => Arc::new(ChatGPTSubscriptionRuntime::new(
-                ChatGPTSubscriptionRuntimeConfig {
+            OpenAIProviderKind::ChatGPTSubscription => Arc::new(
+                ChatGPTSubscriptionRuntime::new(ChatGPTSubscriptionRuntimeConfig {
                     model,
                     reasoning_effort: config.reasoning_effort,
                     max_output_tokens: config.max_output_tokens.map(u64::from),
-                },
-            ).with_credential_resolver(crate::ai::chatgpt_auth::credential_resolver())),
+                })
+                .with_credential_resolver(crate::ai::chatgpt_auth::credential_resolver()),
+            ),
             OpenAIProviderKind::Anthropic => {
                 let credential = config.api_key.unwrap_or_default();
                 let stored = crate::ai::claude_subscription::is_stored_credential(&credential);
@@ -492,9 +493,11 @@ pub(crate) async fn provider_runtime_for_request(
         },
         crate::ai::provider::ProviderConfig::Bedrock(config) => {
             let max_output_tokens = Some(bedrock_max_output_tokens(&model));
-            let cross_region_inference = config.invocation_model_id.is_none() && config.cross_region_inference;
+            let cross_region_inference =
+                config.invocation_model_id.is_none() && config.cross_region_inference;
             let caching_config =
-                CachingConfig::from_external_config(&ExternalBedrockConfig::load()).for_model(&model);
+                CachingConfig::from_external_config(&ExternalBedrockConfig::load())
+                    .for_model(&model);
             let invocation_model = config
                 .invocation_model_id
                 .clone()

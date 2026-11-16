@@ -4462,9 +4462,8 @@ impl BlocklistAIController {
         // Also retain the wait while completion metadata is being published after a save
         // failure. A fast job must not make an orchestrated child successful before its
         // final execution evidence reaches the model.
-        jobs.records().any(|job| {
-            job.conversation_id == conversation_id && !job.completion_delivered
-        })
+        jobs.records()
+            .any(|job| job.conversation_id == conversation_id && !job.completion_delivered)
     }
 
     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
@@ -6921,18 +6920,7 @@ impl BlocklistAIController {
                 }),
             },
         );
-        let orchestration_models = LLMPreferences::as_ref(ctx)
-            .get_base_llm_choices_for_agent_mode(ctx)
-            .filter(|model| model.disable_reason.is_none() && LLMPreferences::as_ref(ctx).profile_allows_orchestration_model(model, Some(self.terminal_surface_id), ctx))
-            .map(|model| OrchestrationModelOption {
-                id: model.id.to_string(),
-                display_name: model.display_name.clone(),
-                provider: LLMPreferences::as_ref(ctx).orchestration_provider_name(model).to_string(),
-                quality: model.spec.as_ref().map(|spec| spec.quality),
-                cost: model.spec.as_ref().map(|spec| spec.cost),
-                credit_multiplier: model.usage_metadata.credit_multiplier,
-            })
-            .collect();
+        let orchestration_models = self.available_orchestration_models(ctx);
         let computer_use_provider_config = ResponseStream::resolve_provider_config(
             request_params.computer_use_model.as_str(),
             ctx,
@@ -6952,6 +6940,97 @@ impl BlocklistAIController {
                 me.handle_prepared_provider_run(conversation_id, stream_id, result, ctx);
             },
         );
+    }
+
+    fn available_orchestration_models(&self, ctx: &AppContext) -> Vec<OrchestrationModelOption> {
+        let preferences = LLMPreferences::as_ref(ctx);
+        preferences
+            .get_base_llm_choices_for_agent_mode(ctx)
+            .filter(|model| {
+                model.disable_reason.is_none()
+                    && preferences.profile_allows_orchestration_model(
+                        model,
+                        Some(self.terminal_surface_id),
+                        ctx,
+                    )
+            })
+            .map(|model| OrchestrationModelOption {
+                id: model.id.to_string(),
+                display_name: model.display_name.clone(),
+                provider: preferences.orchestration_provider_name(model).to_string(),
+                quality: model.spec.as_ref().map(|spec| spec.quality),
+                cost: model.spec.as_ref().map(|spec| spec.cost),
+                credit_multiplier: model.usage_metadata.credit_multiplier,
+            })
+            .collect()
+    }
+
+    fn child_provider_boundary_error(
+        &self,
+        conversation_id: AIConversationId,
+        ctx: &AppContext,
+    ) -> Option<String> {
+        let slot = self.active_provider_runs.get(&conversation_id)?;
+        if slot.cancellation_reason.is_some() {
+            return None;
+        }
+        let run = slot.run.as_ref()?;
+        if !matches!(
+            run.coordinator.run().state(),
+            ProviderRunState::ReadyToCallModel
+        ) {
+            return None;
+        }
+        let profile = run.coordinator.run().profile().as_str();
+        let request = run.coordinator.profile_request(profile)?;
+        self.child_model_request_error(conversation_id, profile, request, ctx)
+    }
+
+    fn child_model_request_error(
+        &self,
+        conversation_id: AIConversationId,
+        profile: &str,
+        request: &galaxy_agent_core::TurnRequest,
+        ctx: &AppContext,
+    ) -> Option<String> {
+        if !BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .is_some_and(|conversation| conversation.is_child_agent_conversation())
+        {
+            return None;
+        }
+        if crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx)
+            .active_profile(Some(self.terminal_surface_id), ctx)
+            .data()
+            .orchestration_providers
+            .is_none()
+        {
+            return None;
+        }
+        // The durable routing identity retains connection and reasoning
+        // selection even when its wire model name is different.
+        let model_id = request
+            .metadata
+            .get("galaxy_provider_selection")
+            .and_then(|selection| selection.get("model_id"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(request.model.as_str());
+        let preferences = LLMPreferences::as_ref(ctx);
+        let model = preferences.get_llm_info(&LLMId::from(model_id));
+        if model.is_some_and(|model| {
+            model.disable_reason.is_none()
+                && preferences.profile_allows_orchestration_model(
+                    model,
+                    Some(self.terminal_surface_id),
+                    ctx,
+                )
+                && (profile != COMPUTER_USE_PROVIDER_PROFILE || model.vision_supported)
+        }) {
+            return None;
+        }
+        Some(format!(
+            "Child agent model {model_id} is no longer available for the {profile} role under this profile's orchestration provider selection. Choose an enabled model from an allowed provider."
+        ))
     }
 
     fn handle_prepared_provider_run(
@@ -7676,14 +7755,17 @@ impl BlocklistAIController {
         // A background result must not re-enter an active model call or dispatch
         // an awaiting tool batch again. Normal work consumes it at its next boundary.
         if waiting_for_context
-            && self.active_provider_runs.get(&conversation_id).is_some_and(|slot| {
-                slot.run.as_ref().is_some_and(|run| {
-                    matches!(
-                        run.coordinator.run().state(),
-                        ProviderRunState::ReadyToCallModel
-                    )
+            && self
+                .active_provider_runs
+                .get(&conversation_id)
+                .is_some_and(|slot| {
+                    slot.run.as_ref().is_some_and(|run| {
+                        matches!(
+                            run.coordinator.run().state(),
+                            ProviderRunState::ReadyToCallModel
+                        )
+                    })
                 })
-            })
         {
             self.drive_active_provider_run(conversation_id, ctx);
         }
@@ -7763,9 +7845,8 @@ impl BlocklistAIController {
                         "[progressive-summary] Discarding stale background summary for active conversation {:?}; the snapshotted prefix no longer matches",
                         conversation_id,
                     );
-                    failure = Some(
-                        "summary prefix no longer matches conversation history".to_string(),
-                    );
+                    failure =
+                        Some("summary prefix no longer matches conversation history".to_string());
                 } else {
                     let drained = transcript[..plan.split_point].to_vec();
                     let retained = transcript[plan.split_point..].to_vec();
@@ -7882,7 +7963,8 @@ impl BlocklistAIController {
                 conversation_id,
                 format!(
                     "context compaction could not recover enough space: {}",
-                    failure.unwrap_or_else(|| "could not replace the summarized history".to_string())
+                    failure
+                        .unwrap_or_else(|| "could not replace the summarized history".to_string())
                 ),
                 ctx,
             );
@@ -8044,6 +8126,59 @@ impl BlocklistAIController {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
+        if let Some(error) = self.child_provider_boundary_error(conversation_id, ctx) {
+            self.fail_active_provider_run(conversation_id, error, ctx);
+            return;
+        }
+        let refresh_catalog = self
+            .active_provider_runs
+            .get(&conversation_id)
+            .is_some_and(|slot| {
+                slot.cancellation_reason.is_none()
+                    && slot.run.as_ref().is_some_and(|run| {
+                        matches!(
+                            run.coordinator.run().state(),
+                            ProviderRunState::ReadyToCallModel
+                        ) && run.coordinator.has_orchestration_tools()
+                    })
+            });
+        let orchestration_models = if refresh_catalog {
+            self.available_orchestration_models(ctx)
+        } else {
+            Vec::new()
+        };
+        let catalog_changed = self
+            .active_provider_runs
+            .get_mut(&conversation_id)
+            .and_then(|slot| slot.run.as_mut())
+            .is_some_and(|run| {
+                refresh_catalog
+                    && run
+                        .coordinator
+                        .refresh_orchestration_models(&orchestration_models)
+            });
+        #[cfg(not(target_family = "wasm"))]
+        if catalog_changed {
+            remote_logging::log_model_event(
+                ctx,
+                RemoteLogRecord {
+                    level: RemoteLogLevel::Info,
+                    message: "Orchestration model catalog updated".to_string(),
+                    context: serde_json::json!({
+                        "event": "orchestration_model_catalog",
+                        "conversation_id": conversation_id,
+                        "model_count": orchestration_models.len(),
+                        "models": orchestration_models.iter().take(128).map(|model| {
+                            serde_json::json!({
+                                "id": remote_logging::sanitize_error(&model.id),
+                                "provider": remote_logging::sanitize_error(&model.provider),
+                            })
+                        }).collect::<Vec<_>>(),
+                        "models_truncated": orchestration_models.len() > 128,
+                    }),
+                },
+            );
+        }
         #[cfg(not(target_family = "wasm"))]
         if activity::is_recording() {
             if let Some(conversation) =
@@ -8106,17 +8241,25 @@ impl BlocklistAIController {
         // exhausted its context, polling must not relaunch that same request
         // while its recovery summary is still running. Cancellation still drives.
         if matches!(
-            self.active_provider_progressive_summaries.get(&conversation_id),
+            self.active_provider_progressive_summaries
+                .get(&conversation_id),
             Some(ActiveProviderProgressiveSummaryState::InFlight {
                 waiting_for_context: true,
                 ..
             })
-        ) && self.active_provider_runs.get(&conversation_id).is_some_and(|slot| {
-            slot.cancellation_reason.is_none()
-                && slot.run.as_ref().is_some_and(|run| {
-                    matches!(run.coordinator.run().state(), ProviderRunState::ReadyToCallModel)
-                })
-        }) {
+        ) && self
+            .active_provider_runs
+            .get(&conversation_id)
+            .is_some_and(|slot| {
+                slot.cancellation_reason.is_none()
+                    && slot.run.as_ref().is_some_and(|run| {
+                        matches!(
+                            run.coordinator.run().state(),
+                            ProviderRunState::ReadyToCallModel
+                        )
+                    })
+            })
+        {
             return;
         }
         self.begin_active_provider_progressive_summary(conversation_id, false, ctx);
@@ -8403,6 +8546,36 @@ impl BlocklistAIController {
                 checkpoint,
                 acknowledgement,
             } => {
+                if checkpoint.run.id() != &slot.run_id {
+                    let _ = acknowledgement.send(Err(
+                        "provider checkpoint run identity did not match".to_string(),
+                    ));
+                    return;
+                }
+                // Every model call, including an automatic transport retry,
+                // waits for this checkpoint acknowledgement before starting.
+                // Check live child policy here while the async driver owns the
+                // coordinator so a changed restriction cannot bypass the guard.
+                if slot.cancellation_reason.is_none()
+                    && matches!(
+                        checkpoint.run.state(),
+                        ProviderRunState::AwaitingModel { .. }
+                    )
+                {
+                    let profile = checkpoint.run.profile().as_str();
+                    let request = match profile {
+                        BASE_PROVIDER_PROFILE => Some(&checkpoint.base_request),
+                        CLI_MONITOR_PROVIDER_PROFILE => checkpoint.cli_monitor_request.as_ref(),
+                        COMPUTER_USE_PROVIDER_PROFILE => checkpoint.computer_use_request.as_ref(),
+                        _ => None,
+                    };
+                    if let Some(error) = request.and_then(|request| {
+                        self.child_model_request_error(conversation_id, profile, request, ctx)
+                    }) {
+                        let _ = acknowledgement.send(Err(error));
+                        return;
+                    }
+                }
                 let result = match self.active_provider_runs.get_mut(&conversation_id) {
                     Some(slot) if checkpoint.run.id() == &slot.run_id => {
                         slot.checkpoint = Some(*checkpoint);
@@ -8654,7 +8827,10 @@ impl BlocklistAIController {
                     );
                     return;
                 }
-                match self.active_provider_progressive_summaries.get_mut(&conversation_id) {
+                match self
+                    .active_provider_progressive_summaries
+                    .get_mut(&conversation_id)
+                {
                     Some(ActiveProviderProgressiveSummaryState::InFlight {
                         waiting_for_context,
                         ..
@@ -8763,9 +8939,8 @@ impl BlocklistAIController {
         // A generic wait has no way to observe files, incidents, or command output.
         // Require a real orchestration source before parking a durable generation.
         // Hosted tasks retain owner-side registration for out-of-band children/messages.
-        let has_expected_orchestration_event = batch.calls.len() == 1
-            && batch.calls[0].call.name == "wait_for_events"
-            && {
+        let has_expected_orchestration_event =
+            batch.calls.len() == 1 && batch.calls[0].call.name == "wait_for_events" && {
                 let history = BlocklistAIHistoryModel::as_ref(ctx);
                 let events = OrchestrationEventService::as_ref(ctx);
                 #[cfg(not(target_family = "wasm"))]

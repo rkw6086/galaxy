@@ -20,6 +20,7 @@ use warpui::r#async::Timer;
 
 #[cfg(not(target_family = "wasm"))]
 use super::model_failure_diagnostics::ModelFailureDiagnostics;
+use super::rig_request::{add_orchestration_model_options, OrchestrationModelOption};
 use super::task_progress::{add_task_list_context, initial_task_list, task_list_from_plan_batch};
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::activity;
@@ -266,20 +267,72 @@ pub(crate) struct ProviderRunProfile {
     pub(crate) runtime: Arc<dyn AgentRuntime>,
     pub(crate) request: TurnRequest,
     pub(crate) max_context_tokens: Option<u32>,
+    // Capture capability before a temporarily empty allowed-model catalog hides
+    // delegation. Never synthesize this tool for leaf or focused CLI profiles.
+    original_orchestration_tool: Option<galaxy_agent_core::ToolDefinition>,
 }
 
 impl ProviderRunProfile {
     pub(crate) fn new(runtime: Arc<dyn AgentRuntime>, request: TurnRequest) -> Self {
+        let original_orchestration_tool = request
+            .tools
+            .iter()
+            .find(|tool| tool.name == "run_agents")
+            .cloned();
         Self {
             runtime,
             request,
             max_context_tokens: None,
+            original_orchestration_tool,
         }
     }
 
     pub(crate) fn with_max_context_tokens(mut self, max_context_tokens: Option<u32>) -> Self {
         self.max_context_tokens = max_context_tokens;
         self
+    }
+
+    pub(crate) fn refresh_orchestration_models(&mut self, models: &[OrchestrationModelOption]) {
+        const AVAILABLE: &str = "\n## Current Orchestration Availability\nFor child-agent launches, use only run_agents and the model IDs in its current tool schema. That schema is authoritative over older history or generic tool-name lists. start_agent and implicit/default model selection are unavailable. Choose an allowed model explicitly for every child; do not invent another provider or model.\n";
+        const UNAVAILABLE: &str = "\n## Current Orchestration Availability\nChild-agent launches are unavailable because this profile has no advertised allowed launch models. Do not call run_agents or start_agent, including with implicit/default models. This current restriction overrides older history or generic tool-name lists. Existing child conversations may still receive messages or deliver results through their separately advertised tools.\n";
+        if !models.is_empty()
+            && !self
+                .request
+                .tools
+                .iter()
+                .any(|tool| tool.name == "run_agents")
+        {
+            if let Some(tool) = &self.original_orchestration_tool {
+                self.request.tools.push(tool.clone());
+            }
+        }
+        add_orchestration_model_options(&mut self.request.tools, models);
+
+        // The original prompt can include a generic tool list from before this
+        // catalog was applied. Replace only these exact Galaxy-owned paragraphs
+        // instead of rewriting user rules or accumulating per-turn appendices.
+        if self.original_orchestration_tool.is_some()
+            || self
+                .request
+                .system_prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.contains(AVAILABLE) || prompt.contains(UNAVAILABLE))
+        {
+            let prompt = self.request.system_prompt.get_or_insert_with(String::new);
+            *prompt = prompt.replace(AVAILABLE, "").replace(UNAVAILABLE, "");
+            prompt.push_str(
+                if self
+                    .request
+                    .tools
+                    .iter()
+                    .any(|tool| tool.name == "run_agents")
+                {
+                    AVAILABLE
+                } else {
+                    UNAVAILABLE
+                },
+            );
+        }
     }
 }
 
@@ -290,6 +343,7 @@ pub(crate) struct ProviderRunCoordinator {
     model_event_idle_timeout: Duration,
     context_compaction_requested: bool,
     max_context_tokens: Option<u32>,
+    last_orchestration_models: Option<Vec<OrchestrationModelOption>>,
     #[cfg(not(target_family = "wasm"))]
     activity_session_id: Option<String>,
     #[cfg(not(target_family = "wasm"))]
@@ -336,6 +390,7 @@ impl ProviderRunCoordinator {
             model_event_idle_timeout: PROVIDER_MODEL_EVENT_IDLE_TIMEOUT,
             context_compaction_requested: false,
             max_context_tokens: None,
+            last_orchestration_models: None,
             #[cfg(not(target_family = "wasm"))]
             activity_session_id: None,
             #[cfg(not(target_family = "wasm"))]
@@ -388,6 +443,32 @@ impl ProviderRunCoordinator {
 
     pub(crate) fn profile_request(&self, profile: &str) -> Option<&TurnRequest> {
         self.profiles.get(profile).map(|profile| &profile.request)
+    }
+
+    pub(crate) fn has_orchestration_tools(&self) -> bool {
+        self.profiles.iter().any(|(name, profile)| {
+            name != CLI_MONITOR_PROVIDER_PROFILE && profile.original_orchestration_tool.is_some()
+        })
+    }
+
+    /// Reconcile advertised model choices only between model calls. Permission
+    /// checks remain authoritative for actions already emitted by an older call.
+    pub(crate) fn refresh_orchestration_models(
+        &mut self,
+        models: &[OrchestrationModelOption],
+    ) -> bool {
+        if !matches!(self.run.state(), ProviderRunState::ReadyToCallModel)
+            || self.last_orchestration_models.as_deref() == Some(models)
+        {
+            return false;
+        }
+        for (name, profile) in &mut self.profiles {
+            if name != CLI_MONITOR_PROVIDER_PROFILE {
+                profile.refresh_orchestration_models(models);
+            }
+        }
+        self.last_orchestration_models = Some(models.to_vec());
+        true
     }
 
     /// The pending model profile owns the context budget, including after a
@@ -479,6 +560,7 @@ impl ProviderRunCoordinator {
         let profile = profile.into();
         validate_profile_runtime(&profile, config.runtime.as_ref())?;
         self.profiles.insert(profile, config);
+        self.last_orchestration_models = None;
         Ok(())
     }
 

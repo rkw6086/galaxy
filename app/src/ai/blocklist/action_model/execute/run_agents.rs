@@ -12,8 +12,8 @@ use ai::agent::action_result::{
 };
 use ai::agent::orchestration_config::OrchestrationConfig;
 use ai::skills::SkillReference;
-use futures::future::{join_all, BoxFuture};
 use futures::FutureExt;
+use futures::future::{BoxFuture, join_all};
 use galaxy_core::execution_mode::AppExecutionMode;
 use settings::Setting;
 use warp_cli::agent::Harness;
@@ -24,8 +24,8 @@ use super::start_agent::{
     StartAgentRequestId, StartAgentWaitPolicy,
 };
 use super::{
-    child_agent_delegation_denial_reason, ActionExecution, AnyActionExecution, ExecuteActionInput,
-    PreprocessActionInput,
+    ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput,
+    child_agent_delegation_denial_reason,
 };
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
@@ -40,6 +40,7 @@ use crate::ai::cloud_agent_settings::CloudAgentSettings;
 use crate::ai::document::plan_publication::{
     prepare_plan_publications, wait_for_plan_publications,
 };
+use crate::ai::llms::{LLMInfo, LLMPreferences};
 use crate::ai::local_harness_setup::local_harness_product_disabled_message;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
@@ -48,6 +49,8 @@ use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 /// this window (e.g. binary not found, server error), the slot is failed
 /// rather than hanging the "Spawning agents" UI indefinitely.
 const SPAWN_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_DIAGNOSTIC_MODELS: usize = 8;
+const MAX_DIAGNOSTIC_MODEL_CHARS: usize = 200;
 
 /// Snapshot of an in-flight dispatch, carried through
 /// [`RunAgentsExecutorEvent::SpawningStarted`].
@@ -100,21 +103,190 @@ impl Entity for RunAgentsExecutor {
 }
 
 impl RunAgentsExecutor {
-    fn validate_profile_providers(&self, request: &RunAgentsRequest, ctx: &ModelContext<Self>) -> Result<(), String> {
-        let profile = crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx).active_profile(Some(self.terminal_view_id), ctx);
-        if profile.data().orchestration_providers.is_none() { return Ok(()); }
-        if !request.harness_type.trim().is_empty() && !matches!(Harness::parse_orchestration_harness(&request.harness_type), Some(Harness::Oz)) {
+    /// Freeze the exact model that a restricted profile authorizes before any
+    /// publication or child launch. An omitted override normally inherits the
+    /// terminal-use model, rather than the parent's base conversation model.
+    fn normalize_profile_models(
+        &self,
+        request: &mut RunAgentsRequest,
+        ctx: &ModelContext<Self>,
+    ) -> Result<(), String> {
+        let profile =
+            crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx)
+                .active_profile(Some(self.terminal_view_id), ctx);
+        if profile.data().orchestration_providers.is_none() {
+            return Ok(());
+        }
+        if !request.harness_type.trim().is_empty()
+            && !matches!(
+                Harness::parse_orchestration_harness(&request.harness_type),
+                Some(Harness::Oz)
+            )
+        {
             return Err("This profile restricts orchestration to selected Galaxy model providers. External harnesses cannot bypass that selection.".to_string());
         }
-        let prefs = crate::ai::llms::LLMPreferences::as_ref(ctx);
+        let prefs = LLMPreferences::as_ref(ctx);
+        let mut resolved = Vec::with_capacity(request.agent_run_configs.len());
         for child in &request.agent_run_configs {
-            let id = if !child.model_id.trim().is_empty() { child.model_id.as_str() } else if !request.model_id.trim().is_empty() { request.model_id.as_str() } else { prefs.get_active_base_model(ctx, Some(self.terminal_view_id)).id.as_str() };
-            let model = prefs.get_llm_info(&crate::ai::llms::LLMId::from(id)).ok_or_else(|| format!("Unknown orchestration model: {id}"))?;
-            if model.disable_reason.is_some() || !prefs.profile_allows_orchestration_model(model, Some(self.terminal_view_id), ctx) {
-                return Err(format!("Model {id} is excluded by this profile's orchestration provider selection. Choose a model from the advertised provider list."));
+            let model = if let Some(id) = requested_child_model_id(request, child) {
+                prefs.get_llm_info(&id.into()).ok_or_else(|| {
+                    format!(
+                        "Unknown orchestration model: {}. {}",
+                        diagnostic_model_label(id),
+                        self.allowed_model_choices(ctx),
+                    )
+                })?
+            } else {
+                self.allowed_default_model(ctx).ok_or_else(|| {
+                    format!(
+                        "Neither the configured terminal-use model nor the active conversation model is available from this profile's orchestration providers. {}",
+                        self.allowed_model_choices(ctx),
+                    )
+                })?
+            };
+            if let Some(reason) = &model.disable_reason {
+                return Err(format!(
+                    "Model {} from provider {} is unavailable ({reason:?}). {}",
+                    diagnostic_model_label(model.id.as_str()),
+                    diagnostic_model_label(prefs.orchestration_provider_name(model)),
+                    self.allowed_model_choices(ctx),
+                ));
             }
+            if !prefs.profile_allows_orchestration_model(model, Some(self.terminal_view_id), ctx) {
+                return Err(format!(
+                    "Model {} from provider {} is excluded by this profile's orchestration provider selection. {}",
+                    diagnostic_model_label(model.id.as_str()),
+                    diagnostic_model_label(prefs.orchestration_provider_name(model)),
+                    self.allowed_model_choices(ctx),
+                ));
+            }
+            resolved.push(model.id.to_string());
+        }
+        // Do not partially rewrite the request if a later child is rejected.
+        for (child, model_id) in request.agent_run_configs.iter_mut().zip(resolved) {
+            child.model_id = model_id;
         }
         Ok(())
+    }
+
+    fn allowed_default_model<'a>(&self, ctx: &'a ModelContext<Self>) -> Option<&'a LLMInfo> {
+        let prefs = LLMPreferences::as_ref(ctx);
+        [
+            prefs.get_active_cli_agent_model(ctx, Some(self.terminal_view_id)),
+            prefs.get_active_base_model(ctx, Some(self.terminal_view_id)),
+        ]
+        .into_iter()
+        .find(|model| {
+            model.disable_reason.is_none()
+                && prefs.profile_allows_orchestration_model(model, Some(self.terminal_view_id), ctx)
+        })
+    }
+
+    fn allowed_model_choices(&self, ctx: &ModelContext<Self>) -> String {
+        let prefs = LLMPreferences::as_ref(ctx);
+        let choices = prefs
+            .get_base_llm_choices_for_agent_mode(ctx)
+            .filter(|model| {
+                model.disable_reason.is_none()
+                    && prefs.profile_allows_orchestration_model(
+                        model,
+                        Some(self.terminal_view_id),
+                        ctx,
+                    )
+            })
+            .take(MAX_DIAGNOSTIC_MODELS)
+            .map(|model| {
+                format!(
+                    "{} (provider {})",
+                    diagnostic_model_label(model.id.as_str()),
+                    diagnostic_model_label(prefs.orchestration_provider_name(model))
+                )
+            })
+            .collect::<Vec<_>>();
+        if choices.is_empty() {
+            "No orchestration models are currently available for this profile.".to_string()
+        } else {
+            format!(
+                "Available orchestration model IDs include: {}.",
+                choices.join(", ")
+            )
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn log_validation_failure(
+        &self,
+        action_id: &AIAgentActionId,
+        parent_conversation_id: AIConversationId,
+        request: &RunAgentsRequest,
+        stage: &str,
+        error: &str,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(prefs) = ctx.try_get_singleton_model_as_ref::<LLMPreferences>() else {
+            log_run_agents_event(
+                ctx,
+                RemoteLogLevel::Warn,
+                "RunAgents validation failed",
+                serde_json::json!({
+                    "event": "run_agents_validation_failed",
+                    "stage": stage,
+                    "action_id": action_id.to_string(),
+                    "parent_conversation_id": parent_conversation_id.to_string(),
+                    "error": remote_logging::sanitize_error(error),
+                    "model_catalog_available": false,
+                }),
+            );
+            return;
+        };
+        let profile =
+            crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx)
+                .active_profile(Some(self.terminal_view_id), ctx);
+        let inherited = prefs.get_active_cli_agent_model(ctx, Some(self.terminal_view_id));
+        let models = request
+            .agent_run_configs
+            .iter()
+            .take(MAX_DIAGNOSTIC_MODELS)
+            .map(|child| {
+                let requested = requested_child_model_id(request, child);
+                let model = match requested {
+                    Some(id) => prefs.get_llm_info(&id.into()),
+                    None => self.allowed_default_model(ctx),
+                };
+                serde_json::json!({
+                    "agent_name": remote_logging::sanitize_error(&child.name),
+                    "requested_model_id": requested.map(remote_logging::sanitize_error),
+                    "used_default": requested.is_none(),
+                    "effective_model_id": model.map(|model| remote_logging::sanitize_error(model.id.as_str())),
+                    "selected_provider": model.map(|model| remote_logging::sanitize_error(prefs.orchestration_provider_name(model))),
+                    "disable_reason": model.and_then(|model| model.disable_reason.as_ref()),
+                    "profile_allowed": model.map(|model| prefs.profile_allows_orchestration_model(model, Some(self.terminal_view_id), ctx)),
+                })
+            })
+            .collect::<Vec<_>>();
+        let context = serde_json::json!({
+            "event": "run_agents_validation_failed",
+            "stage": stage,
+            "action_id": action_id.to_string(),
+            "parent_conversation_id": parent_conversation_id.to_string(),
+            "terminal_view_id": self.terminal_view_id.to_string(),
+            "profile_id": profile.id().to_string(),
+            "error": remote_logging::sanitize_error(error),
+            "provider_allowlist": profile.data().orchestration_providers.as_ref().map(|providers| providers.iter().take(MAX_DIAGNOSTIC_MODELS).map(remote_logging::sanitize_error).collect::<Vec<_>>()),
+            "provider_allowlist_truncated": profile.data().orchestration_providers.as_ref().is_some_and(|providers| providers.len() > MAX_DIAGNOSTIC_MODELS),
+            "requested_run_model_id": remote_logging::sanitize_error(&request.model_id),
+            "inherited_terminal_model_id": remote_logging::sanitize_error(inherited.id.as_str()),
+            "inherited_terminal_provider": remote_logging::sanitize_error(prefs.orchestration_provider_name(inherited)),
+            "inherited_terminal_disable_reason": inherited.disable_reason,
+            "models": models,
+            "models_truncated": request.agent_run_configs.len() > MAX_DIAGNOSTIC_MODELS,
+        });
+        log_run_agents_event(
+            ctx,
+            RemoteLogLevel::Warn,
+            "RunAgents validation failed",
+            context,
+        );
     }
 
     pub fn new(
@@ -267,7 +439,7 @@ impl RunAgentsExecutor {
     fn dispatch_prepared_run_agents(
         &mut self,
         action_id: AIAgentActionId,
-        request: RunAgentsRequest,
+        mut request: RunAgentsRequest,
         parent_conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) -> async_channel::Receiver<RunAgentsResult> {
@@ -292,19 +464,18 @@ impl RunAgentsExecutor {
             return receiver;
         }
 
-        if let Err(error) = validate_request(&request).and_then(|()| self.validate_profile_providers(&request, ctx)) {
+        if let Err(error) = validate_request(&request)
+            .and_then(|()| self.normalize_profile_models(&mut request, ctx))
+        {
             log::warn!("RunAgentsExecutor: validation failure: {error}");
             #[cfg(not(target_family = "wasm"))]
-            log_run_agents_event(
+            self.log_validation_failure(
+                &action_id,
+                parent_conversation_id,
+                &request,
+                "before_plan_publication",
+                &error,
                 ctx,
-                RemoteLogLevel::Warn,
-                "RunAgents validation failed",
-                serde_json::json!({
-                    "event": "run_agents_validation_failed",
-                    "action_id": action_id.to_string(),
-                    "parent_conversation_id": parent_conversation_id.to_string(),
-                    "error": remote_logging::sanitize_error(&error),
-                }),
             );
             let _ = sender.try_send(RunAgentsResult::Failure { error });
             return receiver;
@@ -365,7 +536,7 @@ impl RunAgentsExecutor {
     fn dispatch_recovered_run_agents(
         &mut self,
         action_id: AIAgentActionId,
-        request: RunAgentsRequest,
+        mut request: RunAgentsRequest,
         parent_conversation_id: AIConversationId,
         recovery_children: HashMap<String, AIConversationId>,
         ctx: &mut ModelContext<Self>,
@@ -375,7 +546,18 @@ impl RunAgentsExecutor {
             let _ = sender.try_send(RunAgentsResult::Cancelled);
             return receiver;
         }
-        if let Err(error) = validate_request(&request).and_then(|()| self.validate_profile_providers(&request, ctx)) {
+        if let Err(error) = validate_request(&request)
+            .and_then(|()| self.normalize_profile_models(&mut request, ctx))
+        {
+            #[cfg(not(target_family = "wasm"))]
+            self.log_validation_failure(
+                &action_id,
+                parent_conversation_id,
+                &request,
+                "recovery",
+                &error,
+                ctx,
+            );
             let _ = sender.try_send(RunAgentsResult::Failure { error });
             return receiver;
         }
@@ -402,14 +584,30 @@ impl RunAgentsExecutor {
     fn dispatch_children_for_prepared_request(
         &mut self,
         action_id: AIAgentActionId,
-        request: RunAgentsRequest,
+        mut request: RunAgentsRequest,
         parent_conversation_id: AIConversationId,
         mut recovery_children: HashMap<String, AIConversationId>,
         sender: async_channel::Sender<RunAgentsResult>,
         ctx: &mut ModelContext<Self>,
     ) {
-        if let Err(error) = self.validate_profile_providers(&request, ctx) {
-            self.pending.remove(&(parent_conversation_id, action_id.clone()));
+        if let Err(error) = validate_request(&request)
+            .and_then(|()| self.normalize_profile_models(&mut request, ctx))
+        {
+            self.pending
+                .remove(&(parent_conversation_id, action_id.clone()));
+            #[cfg(not(target_family = "wasm"))]
+            self.log_validation_failure(
+                &action_id,
+                parent_conversation_id,
+                &request,
+                "before_child_dispatch",
+                &error,
+                ctx,
+            );
+            ctx.emit(RunAgentsExecutorEvent::SpawningFinished {
+                conversation_id: parent_conversation_id,
+                action_id: action_id.clone(),
+            });
             let _ = sender.try_send(RunAgentsResult::Failure { error });
             return;
         }
@@ -1161,6 +1359,30 @@ fn existing_launched_agents_for_conversation(
 fn normalize_agent_name(name: &str) -> Option<String> {
     let trimmed = name.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_ascii_lowercase())
+}
+
+fn requested_child_model_id<'a>(
+    request: &'a RunAgentsRequest,
+    child: &'a RunAgentsAgentRunConfig,
+) -> Option<&'a str> {
+    let child_id = child.model_id.trim();
+    if !child_id.is_empty() {
+        return Some(child_id);
+    }
+    let run_id = request.model_id.trim();
+    (!run_id.is_empty()).then_some(run_id)
+}
+
+fn diagnostic_model_label(value: &str) -> String {
+    let mut chars = value.chars();
+    let mut label = chars
+        .by_ref()
+        .take(MAX_DIAGNOSTIC_MODEL_CHARS)
+        .collect::<String>();
+    if chars.next().is_some() {
+        label.push('…');
+    }
+    label
 }
 
 fn requires_default_auth_secret_for_execution(request: &RunAgentsRequest) -> bool {

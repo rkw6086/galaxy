@@ -27,6 +27,7 @@ use warp_multi_agent_api as api;
 use super::custom_model_routers::{self, CustomModelRouter, ModelConfigError};
 use super::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::acp::{acp_launch_fingerprint, acp_provider_selection_identity};
+use crate::ai::blocklist::BlocklistAIHistoryModel;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::provider::external_config::ExternalBedrockConfig;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
@@ -413,6 +414,18 @@ pub struct AvailableLLMs {
 
     #[serde(default)]
     preferred_codex_model_id: Option<LLMId>,
+}
+
+/// Reuse the existing disabled, unroutable fallback when a child's profile
+/// leaves no eligible auxiliary model. Never substitute an excluded provider.
+fn unavailable_orchestration_role_model() -> &'static LLMInfo {
+    static EMPTY: std::sync::LazyLock<AvailableLLMs> = std::sync::LazyLock::new(|| AvailableLLMs {
+        default_id: "none".into(),
+        choices: Vec::new(),
+        legacy_reasoning_aliases: HashMap::new(),
+        preferred_codex_model_id: None,
+    });
+    EMPTY.default_llm_info()
 }
 
 impl AvailableLLMs {
@@ -2141,7 +2154,7 @@ impl LLMPreferences {
     ) -> &LLMInfo {
         let profile = AIExecutionProfilesModel::as_ref(app).active_profile(terminal_view_id, app);
 
-        profile
+        let preferred = profile
             .data()
             .coding_model
             .clone()
@@ -2150,7 +2163,9 @@ impl LLMPreferences {
                     .or_else(|| self.custom_llm_info_for_id_if_enabled(&id, app))
                     .or_else(|| self.custom_router_llm_info_for_id_if_enabled(&id))
             })
-            .unwrap_or_else(|| self.models_by_feature.coding.default_llm_info())
+            .unwrap_or_else(|| self.models_by_feature.coding.default_llm_info());
+        self.orchestration_child_role_model(preferred, terminal_view_id, app, false)
+            .unwrap_or_else(|| unavailable_orchestration_role_model())
     }
 
     /// Resolves `id` against a server-provided model list, but hides cloud/team
@@ -2202,7 +2217,70 @@ impl LLMPreferences {
         if profile.data().orchestration_providers.is_some() && custom_model_routers::is_custom_router_id(model.id.as_str()) {
             return false;
         }
-        profile.data().includes_orchestration_provider(self.orchestration_provider_name(model))
+        profile
+            .data()
+            .includes_orchestration_provider(self.orchestration_provider_name(model))
+    }
+
+    /// Derive child ownership from durable conversation ancestry, including the
+    /// initial/restored conversation before a response stream becomes active.
+    pub(crate) fn is_orchestration_child_terminal(
+        terminal_view_id: Option<EntityId>,
+        app: &AppContext,
+    ) -> bool {
+        let Some(terminal_view_id) = terminal_view_id else {
+            return false;
+        };
+        let Some(history) = app.try_get_singleton_model_as_ref::<BlocklistAIHistoryModel>() else {
+            return false;
+        };
+        history
+            .active_conversation(terminal_view_id)
+            .or_else(|| {
+                history
+                    .all_live_conversations_for_terminal_surface(terminal_view_id)
+                    .last()
+            })
+            .is_some_and(|conversation| conversation.is_child_agent_conversation())
+    }
+
+    /// A delegated child may retain an auxiliary role only while that model
+    /// remains enabled and allowed by its inherited orchestration profile.
+    /// This never changes the parent or the shared profile's role selections.
+    pub(crate) fn orchestration_child_role_model<'a>(
+        &'a self,
+        preferred: &'a LLMInfo,
+        terminal_view_id: Option<EntityId>,
+        app: &AppContext,
+        requires_vision: bool,
+    ) -> Option<&'a LLMInfo> {
+        if !Self::is_orchestration_child_terminal(terminal_view_id, app)
+            || AIExecutionProfilesModel::as_ref(app)
+                .active_profile(terminal_view_id, app)
+                .data()
+                .orchestration_providers
+                .is_none()
+        {
+            return Some(preferred);
+        }
+        let permitted = |model: &&LLMInfo| {
+            model.disable_reason.is_none()
+                && (!requires_vision || model.vision_supported)
+                && self.profile_allows_orchestration_model(model, terminal_view_id, app)
+        };
+        if let Some(model) = [
+            preferred,
+            self.get_preferred_base_model(app, terminal_view_id),
+        ]
+        .into_iter()
+        .find(permitted)
+        {
+            return Some(model);
+        }
+        if requires_vision {
+            return self.get_computer_use_llm_choices(app).find(permitted);
+        }
+        None
     }
 
     /// Returns the set of LLMs available for coding.
@@ -2239,7 +2317,7 @@ impl LLMPreferences {
         let profile = AIExecutionProfilesModel::as_ref(app).active_profile(terminal_view_id, app);
 
         let available = self.get_cli_agent_available();
-        profile
+        let preferred = profile
             .data()
             .cli_agent_model
             .clone()
@@ -2248,7 +2326,9 @@ impl LLMPreferences {
                     .info_for_id(&id)
                     .or_else(|| self.custom_llm_info_for_id_if_enabled(&id, app))
             })
-            .unwrap_or_else(|| available.default_llm_info())
+            .unwrap_or_else(|| available.default_llm_info());
+        self.orchestration_child_role_model(preferred, terminal_view_id, app, false)
+            .unwrap_or_else(|| unavailable_orchestration_role_model())
     }
 
     /// Returns the default CLI agent model as a fallback.
@@ -2283,12 +2363,14 @@ impl LLMPreferences {
     ) -> &'a LLMInfo {
         let profile = AIExecutionProfilesModel::as_ref(app).active_profile(terminal_view_id, app);
 
-        profile
+        let preferred = profile
             .data()
             .computer_use_model
             .clone()
             .and_then(|id| self.computer_use_llm_info_for_id(&id, app))
-            .unwrap_or_else(|| self.get_default_computer_use_model())
+            .unwrap_or_else(|| self.get_default_computer_use_model());
+        self.orchestration_child_role_model(preferred, terminal_view_id, app, true)
+            .unwrap_or_else(|| unavailable_orchestration_role_model())
     }
 
     /// Resolve migrated selection IDs before checking computer-use eligibility.
@@ -2618,6 +2700,21 @@ impl LLMPreferences {
             self.trigger_snapshot_save(ctx);
             ctx.emit(LLMPreferencesEvent::UpdatedActiveAgentModeLLM);
         }
+    }
+
+    /// Select a delegated child's base model. Auxiliary role restrictions are
+    /// resolved from its durable child ancestry rather than persisted overrides.
+    pub(crate) fn configure_orchestration_child_model(
+        &mut self,
+        preferred_llm_id: &LLMId,
+        terminal_view_id: EntityId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let canonical_id = self
+            .get_llm_info(preferred_llm_id)
+            .map(|info| info.id.clone())
+            .unwrap_or_else(|| preferred_llm_id.clone());
+        self.update_preferred_agent_mode_llm(&canonical_id, terminal_view_id, ctx);
     }
 
     /// Triggers a snapshot save to persist LLM override changes.

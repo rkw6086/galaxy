@@ -281,6 +281,14 @@ Key invariants:
 - Ask First and Allow All expose `ask_user_question` for clarifying missing information; Allow All still bypasses action-approval panes. Galaxy Decides and Read Only omit clarification pauses. CLI monitoring and tool-free assessments must not gain question tools through an explicit tool override.
 - Profiles persist `command_allowlist` regular expressions. A matching complete submitted command bypasses permission review in every mode, including Read Only, only after explicit restrictions are checked; denylist matching uses the shell command decomposition as well. Profile permission-mode changes preserve the explicit list but clear remembered command digests.
 - Profiles persist `orchestration_providers`: absent/null includes all providers (including future additions); an explicit empty list permits none. Entries use configured provider names. Orchestration tool descriptions and pickers filter models, and RunAgents validates per-child/default model selection again at launch and recovery. Restricted profiles cannot use custom routers or external harnesses to bypass provider selection.
+- Direct-provider orchestration catalogs refresh at safe model boundaries before
+  context accounting and checkpoints. Empty catalogs withhold launch tools;
+  legacy implicit launch tools are not advertised. Restricted launches freeze
+  canonical child model IDs before dispatch and revalidate after waits or edits.
+  Child coding, terminal-use, and computer-use roles also obey the inherited
+  orchestration provider selection without changing the parent profile. A role
+  with no eligible model remains unavailable; a pending child model call must
+  fail explicitly rather than invoke an excluded or disabled provider.
 
 ### Platform Setup
 - `./script/bootstrap` - Platform-specific setup plus common agent skill installation from `skills-lock.json`; prompts for project/global when an install or update is needed unless a target flag or environment override is provided.
