@@ -262,7 +262,12 @@ impl EventLoop {
                         }
                     };
 
-                    let leader_fd = result.as_ref().ok().map(|result| result.leader_fd);
+                    // Own the server's copy across the send so an IPC failure
+                    // also closes it. SCM_RIGHTS gives the host its own copy.
+                    let leader_fd = result
+                        .as_ref()
+                        .ok()
+                        .map(|result| unsafe { OwnedFd::from_raw_fd(result.leader_fd) });
 
                     // Send back a message indicating whether we succeeded or failed
                     // to spawn a shell.
@@ -271,20 +276,15 @@ impl EventLoop {
                         api::Message::SpawnShellResponse {
                             spawn_result: result.into(),
                         },
-                        leader_fd,
+                        leader_fd.as_ref().map(AsRawFd::as_raw_fd),
                     ) {
                         log::error!("Encountered unexpected error sending message to host process: {err:#}.");
                         log::info!("Shutting down terminal server...");
                         return None;
                     };
 
-                    // Close the leader file descriptor now that the host
-                    // process is holding a copy of it.
-                    if let Some(leader_fd) = leader_fd {
-                        if let Err(err) = nix::unistd::close(leader_fd) {
-                            log::error!("Failed to close leader fd after sending it back to host process: {err:?}");
-                        }
-                    }
+                    // Close the server's copy now that the host holds its own.
+                    drop(leader_fd);
                 }
                 api::Message::KillChildRequest { pid } => {
                     let result = match self.children.remove(&pid) {

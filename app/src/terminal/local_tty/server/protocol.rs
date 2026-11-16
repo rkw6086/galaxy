@@ -1,8 +1,7 @@
 use std::io::{IoSlice, IoSliceMut};
 use std::os::unix::prelude::*;
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
-use itertools::Itertools;
+use anyhow::{anyhow, ensure, Context, Result};
 use nix::cmsg_space;
 use nix::errno::Errno;
 use nix::sys::socket;
@@ -137,15 +136,15 @@ pub(super) fn try_receive_message(
 /// Receives a message sent across the provided Unix domain socket.  This
 /// supports both blocking and non-blocking sockets.
 fn try_receive_message_internal(socket_fd: impl AsRawFd) -> Result<TryReceiveMessageResult> {
-    let (payload_size, cmsgs) = match receive_message_header(&socket_fd)? {
+    let (payload_size, mut received_fds) = match receive_message_header(&socket_fd)? {
         ReceiveMessageHeaderResult::WouldBlock => return Ok(TryReceiveMessageResult::WouldBlock),
         ReceiveMessageHeaderResult::SocketClosed => {
             return Ok(TryReceiveMessageResult::SocketClosed)
         }
         ReceiveMessageHeaderResult::Success {
             payload_size,
-            cmsgs,
-        } => (payload_size, cmsgs),
+            received_fds,
+        } => (payload_size, received_fds),
     };
     ensure!(payload_size > 0, "Message payload should have a size >0!");
 
@@ -173,32 +172,25 @@ fn try_receive_message_internal(socket_fd: impl AsRawFd) -> Result<TryReceiveMes
         .context("Failed to deserialize received data as a Message")?;
     ensure!(message.initialized, "Received uninitialized message!");
 
-    // Extract extra information from Unix domain socket control messages for
-    // api::Message variants which require it.
+    // Keep received descriptors owned until the entire message is accepted, so
+    // malformed payloads or unexpected descriptors cannot leak a PTY master.
     if let api::Message::SpawnShellResponse {
         spawn_result: api::Result::Ok(PtySpawnResult { leader_fd, .. }),
         ..
     } = &mut message.data
     {
-        match &cmsgs[..] {
-            [socket::ControlMessageOwned::ScmRights(fds)] => {
-                let Some(received_fd) = fds.first() else {
-                    bail!(
-                        "Received {} fds alongside a SpawnShellResponse message; expected 1",
-                        fds.len()
-                    );
-                };
-                // Set the `leader_fd` field in the `TtySpawnResult` to the
-                // value we received in the control message.
-                *leader_fd = *received_fd;
-            }
-            _ => {
-                bail!(
-                    "Received {} cmsgs alongside a SpawnShellResponse message; expected 1",
-                    cmsgs.len()
-                );
-            }
-        };
+        ensure!(
+            received_fds.len() == 1,
+            "Received {} fds alongside a SpawnShellResponse message; expected 1",
+            received_fds.len()
+        );
+        // Transfer ownership only for an accepted successful spawn response.
+        *leader_fd = received_fds.pop().unwrap().into_raw_fd();
+    } else {
+        ensure!(
+            received_fds.is_empty(),
+            "Received unexpected file descriptors alongside a terminal server message"
+        );
     }
 
     Ok(TryReceiveMessageResult::Success(message.data))
@@ -215,12 +207,34 @@ fn receive_message_header(socket_fd: &impl AsRawFd) -> Result<ReceiveMessageHead
     // auxiliary data (in our case, specifically, a single file descriptor).
     let mut cmsg_buffer = cmsg_space!(AuxData);
 
+    // Receiving SCM_RIGHTS creates new descriptors; the sender's FD_CLOEXEC
+    // flag does not carry over. Set it atomically where the platform supports
+    // that, before another thread can spawn a process.
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    let receive_flags = socket::MsgFlags::MSG_CMSG_CLOEXEC;
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    )))]
+    let receive_flags = socket::MsgFlags::empty();
+
     // Read the message header from the socket.
     let msg = socket::recvmsg(
         socket_fd.as_raw_fd(),
         &mut buffers,
         Some(&mut cmsg_buffer),
-        socket::MsgFlags::empty(),
+        receive_flags,
     );
 
     // Check if we successfully received a message, if there was no data
@@ -235,6 +249,56 @@ fn receive_message_header(socket_fd: &impl AsRawFd) -> Result<ReceiveMessageHead
         },
     };
 
+    // Own every received descriptor before validating anything else. This also
+    // closes any delivered descriptors if ancillary data or the header is bad.
+    let mut received_fds = Vec::new();
+    let mut has_unexpected_control_messages = false;
+    for cmsg in msg.cmsgs() {
+        match cmsg {
+            socket::ControlMessageOwned::ScmRights(fds) => {
+                received_fds.extend(fds.into_iter().map(|fd| {
+                    // SAFETY: recvmsg created these descriptors and transferred
+                    // their ownership to this receiver.
+                    unsafe { OwnedFd::from_raw_fd(fd) }
+                }));
+            }
+            _ => has_unexpected_control_messages = true,
+        }
+    }
+
+    // macOS has no MSG_CMSG_CLOEXEC. Apply FD_CLOEXEC promptly on platforms
+    // without the atomic receive flag so jobs cannot keep closed panes alive.
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    )))]
+    for fd in &received_fds {
+        use nix::fcntl::{fcntl, FcntlArg, FdFlag};
+
+        let flags = FdFlag::from_bits_truncate(
+            fcntl(fd.as_raw_fd(), FcntlArg::F_GETFD)
+                .context("Failed to read received descriptor flags")?,
+        );
+        fcntl(
+            fd.as_raw_fd(),
+            FcntlArg::F_SETFD(flags | FdFlag::FD_CLOEXEC),
+        )
+        .context("Failed to set close-on-exec on received descriptor")?;
+    }
+
+    ensure!(
+        !msg.flags.contains(socket::MsgFlags::MSG_CTRUNC),
+        "Received truncated terminal server control messages"
+    );
+    ensure!(
+        !has_unexpected_control_messages,
+        "Received unexpected terminal server control message"
+    );
+
     if msg.bytes == 0 {
         // The other side of the connection has been closed, so we should
         // quit.
@@ -246,13 +310,6 @@ fn receive_message_header(socket_fd: &impl AsRawFd) -> Result<ReceiveMessageHead
         msg.bytes == USIZE_SIZE,
         "Message too small for message size header!"
     );
-
-    // Extract any control messages from the initial message.  If control
-    // messages are sent by the client alongside a payload which is larger than
-    // our receive buffer, the control messages will be read out in the initial
-    // readmsg() call, and the follow-up readmsg calls will only return payload
-    // data.
-    let cmsgs = msg.cmsgs().collect_vec();
 
     // Parse the message header - we convert the bytes back into a usize, which
     // tells us the size of the serialized message, in bytes.  We add the size
@@ -266,7 +323,7 @@ fn receive_message_header(socket_fd: &impl AsRawFd) -> Result<ReceiveMessageHead
 
     Ok(ReceiveMessageHeaderResult::Success {
         payload_size,
-        cmsgs,
+        received_fds,
     })
 }
 
@@ -275,6 +332,6 @@ enum ReceiveMessageHeaderResult {
     SocketClosed,
     Success {
         payload_size: usize,
-        cmsgs: Vec<socket::ControlMessageOwned>,
+        received_fds: Vec<OwnedFd>,
     },
 }

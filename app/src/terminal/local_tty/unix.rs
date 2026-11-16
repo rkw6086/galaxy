@@ -7,7 +7,7 @@ use std::ffi::{CStr, OsString};
 use std::fs::{DirBuilder, File};
 use std::mem::MaybeUninit;
 use std::os::unix::fs::DirBuilderExt;
-use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::{io, ptr};
 
@@ -42,23 +42,34 @@ use crate::{report_if_error, ASSETS};
 
 const BASH_HISTORY_SIZE_SENTINEL: &str = "57265949261";
 
-/// Get raw fds for leader/follower ends of a new PTY.
-fn make_pty(size: winsize) -> Result<(RawFd, RawFd)> {
+/// Get owned leader/follower ends of a new PTY.
+fn make_pty(size: winsize) -> Result<(File, File)> {
     let mut win_size = size;
     win_size.ws_xpixel = 0;
     win_size.ws_ypixel = 0;
 
     let ends = openpty(Some(&win_size), None).context("openpty failed")?;
+    // Own both ends immediately so any setup or shell-spawn failure releases
+    // the PTY instead of consuming a terminal slot until Galaxy exits.
+    let leader = unsafe { File::from_raw_fd(ends.master) };
+    let follower = unsafe { File::from_raw_fd(ends.slave) };
     // Configure the two new file descriptors to be closed on exec.  This keeps
     // us from leaking tty fds into spawned shells.  FD_CLOEXEC is _not_ shared
     // across duplicated fds, so when we call `libc::dup2()` below, those fds
     // will _not_ be closed when we exec the shell.
-    unsafe {
-        libc::fcntl(ends.master, libc::F_SETFD, libc::FD_CLOEXEC);
-        libc::fcntl(ends.slave, libc::F_SETFD, libc::FD_CLOEXEC);
+    for fd in [&leader, &follower] {
+        use nix::fcntl::{fcntl, FcntlArg, FdFlag};
+
+        let flags = fcntl(fd.as_raw_fd(), FcntlArg::F_GETFD)
+            .context("failed to read PTY descriptor flags")?;
+        fcntl(
+            fd.as_raw_fd(),
+            FcntlArg::F_SETFD(FdFlag::from_bits_truncate(flags) | FdFlag::FD_CLOEXEC),
+        )
+        .context("failed to set close-on-exec on PTY descriptor")?;
     }
 
-    Ok((ends.master, ends.slave))
+    Ok((leader, follower))
 }
 
 fn docker_sandbox_run_args(starter: &DockerSandboxShellStarter) -> Vec<std::ffi::OsString> {
@@ -405,11 +416,12 @@ fn spawn_command_in_pty(
     size: &SizeInfo,
     close_fds: bool,
 ) -> Result<PtySpawnInfo> {
-    let (leader, follower) = make_pty(size.to_winsize())?;
+    let (leader_file, follower_file) = make_pty(size.to_winsize())?;
 
-    // Close the follower at the end of this function.
-    // We need to keep it alive long enough for fork().
-    let _file = unsafe { File::from_raw_fd(follower) };
+    // Keep both ends owned until spawning succeeds. The follower closes at
+    // the end of this function, after fork; the leader transfers to the caller.
+    let leader = leader_file.as_raw_fd();
+    let follower = follower_file.as_raw_fd();
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     if let Ok(mut termios) = termios::tcgetattr(leader) {
@@ -521,7 +533,7 @@ fn spawn_command_in_pty(
     Ok(PtySpawnInfo {
         result: PtySpawnResult {
             pid: spawned.id(),
-            leader_fd: leader,
+            leader_fd: leader_file.into_raw_fd(),
         },
         child: spawned,
     })
@@ -552,13 +564,11 @@ impl Pty {
             pid
         );
 
-        let fd = unsafe {
-            // Maybe this should be done outside of this function so nonblocking
-            // isn't forced upon consumers. Although maybe it should be?
-            set_nonblocking(leader_fd);
+        let fd = unsafe { File::from_raw_fd(leader_fd) };
 
-            File::from_raw_fd(leader_fd)
-        };
+        // Maybe this should be done outside of this function so nonblocking
+        // isn't forced upon consumers. Although maybe it should be?
+        unsafe { set_nonblocking(fd.as_raw_fd()) };
 
         let mut pty = Pty {
             pty_handle,
