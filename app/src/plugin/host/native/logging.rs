@@ -15,6 +15,7 @@ pub(super) fn initialize_logging(client: &Arc<ipc::Client>, executor: &Arc<Backg
     )))
     .expect("Logger should only be set once.");
     log::set_max_level(log::LevelFilter::Info);
+    galaxy_logging::init_panic_logging();
 }
 
 /// A logger that relays plugin host log messages to the main app process via IPC `LogService`.

@@ -1,8 +1,12 @@
-//! Opt-in remote AI diagnostics logger.
+//! Opt-in remote application and AI diagnostics logger.
 //!
 //! This is intentionally separate from product telemetry. It is controlled
 //! exclusively by local settings and should only receive operational metadata:
 //! provider/model IDs, lifecycle states, counts, timings, and sanitized errors.
+//! Native application warnings and errors are captured independently of AI use.
+
+#[cfg(not(target_family = "wasm"))]
+mod global_errors;
 
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -36,11 +40,16 @@ static REMOTE_LOG_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::
 });
 const MAX_ERROR_CHARS: usize = 500;
 const MAX_ERROR_INPUT_CHARS: usize = 16 * 1024;
-static ERROR_URL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?i)https?://[^\s\"'<>]+"#).expect("valid error URL pattern"));
+static ERROR_URL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)[a-z][a-z0-9+.-]*://[^\s\"'<>]+"#).expect("valid error URL pattern")
+});
 static ERROR_CREDENTIAL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)[\"'\\]*\b(?:authorization|proxy-authorization|x-api-key|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|password|secret)\b[\"'\\\s]*[:=]\s*"#)
+    Regex::new(r#"(?i)[\"'\\]*\b(?:[a-z0-9]+[_-])*(?:authorization|proxy-authorization|x-api-key|api[_-]?key|access[_-]?key(?:[_-]?id)?|secret[_-]?access[_-]?key|client[_-]?secret|private[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|cookie|set-cookie|password|secret)\b[\"'\\\s]*[:=]\s*"#)
         .expect("valid error credential pattern")
+});
+static ERROR_PRIVATE_KEY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)")
+        .expect("valid private key pattern")
 });
 static ERROR_BEARER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?i)\bbearer\s+[^\s,\"';}\]]+"#).expect("valid bearer pattern"));
@@ -88,21 +97,103 @@ static LOCAL_LOG_FILE: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
 
 impl RemoteLogConfig {
     fn from_settings(settings: &AISettings) -> Option<Self> {
-        if !*settings.remote_logging_enabled.value() {
+        Self::from_values(
+            *settings.remote_logging_enabled.value(),
+            settings.remote_logging_endpoint.value(),
+            settings.remote_logging_api_key.value(),
+        )
+    }
+
+    fn from_values(enabled: bool, endpoint: &str, api_key: &str) -> Option<Self> {
+        if !enabled {
             return None;
         }
 
-        let api_key = settings.remote_logging_api_key.value().trim();
+        let api_key = api_key.trim();
         if api_key.is_empty() {
             return None;
         }
 
-        let endpoint = normalize_endpoint_url(settings.remote_logging_endpoint.value())?;
+        let endpoint = normalize_endpoint_url(endpoint)?;
         Some(Self {
             endpoint,
             api_key: api_key.to_string(),
         })
     }
+}
+
+/// Configure before the native logger starts, using the same local settings
+/// backend as the app. Startup errors then use the existing diagnostics opt-in.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn initialize_application_logging(
+    preferences: &dyn galaxyui_extras::user_preferences::UserPreferences,
+) {
+    use crate::settings::{RemoteLoggingApiKey, RemoteLoggingEnabled, RemoteLoggingEndpoint};
+
+    let enabled = RemoteLoggingEnabled::read_from_preferences(preferences)
+        .unwrap_or_else(RemoteLoggingEnabled::default_value);
+    let endpoint = RemoteLoggingEndpoint::read_from_preferences(preferences)
+        .unwrap_or_else(RemoteLoggingEndpoint::default_value);
+    let api_key = RemoteLoggingApiKey::read_from_preferences(preferences)
+        .unwrap_or_else(RemoteLoggingApiKey::default_value);
+    global_errors::configure(RemoteLogConfig::from_values(enabled, &endpoint, &api_key));
+    galaxy_logging::set_diagnostic_log_sink(global_errors::capture);
+}
+
+/// Keep the thread-safe uploader configuration synchronized without reading
+/// settings from the logger, where the UI model may already be borrowed.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn register_application_logging(ctx: &mut galaxyui::AppContext) {
+    use crate::settings::AISettingsChangedEvent;
+
+    global_errors::configure(RemoteLogConfig::from_settings(AISettings::as_ref(ctx)));
+    ctx.subscribe_to_model(&AISettings::handle(ctx), |_, event, ctx| {
+        if matches!(
+            event,
+            AISettingsChangedEvent::RemoteLoggingEnabled { .. }
+                | AISettingsChangedEvent::RemoteLoggingEndpoint { .. }
+                | AISettingsChangedEvent::RemoteLoggingApiKey { .. }
+        ) {
+            global_errors::configure(RemoteLogConfig::from_settings(AISettings::as_ref(ctx)));
+        }
+    });
+}
+
+/// Give queued diagnostics a bounded chance to finish during normal exit.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn flush_application_logging(timeout: Duration) {
+    global_errors::flush(timeout);
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn report_application_exit_error(error: &anyhow::Error) {
+    if log::log_enabled!(target: "galaxy::startup", log::Level::Error) {
+        log::error!(target: "galaxy::startup", "Galaxy stopped with an error: {error:#}");
+    } else {
+        // Logger setup itself can fail after the opt-in was read. Capture that
+        // error directly rather than relying on an uninitialized log facade.
+        global_errors::capture(
+            &log::Record::builder()
+                .level(log::Level::Error)
+                .target("galaxy::startup")
+                .args(format_args!("Galaxy stopped with an error: {error:#}"))
+                .build(),
+        );
+    }
+}
+
+/// Retain the existing panic reporting hook, then give the uploader a short,
+/// bounded chance to deliver its diagnostic before unwinding or aborting.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn install_application_panic_flush() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            previous(info);
+            global_errors::flush(Duration::from_millis(500));
+        }));
+    });
 }
 
 pub(crate) fn log_model_event<M>(ctx: &mut ModelContext<M>, record: RemoteLogRecord)
@@ -244,7 +335,7 @@ pub(crate) fn sanitize_error(error: impl std::fmt::Display) -> String {
         remaining: MAX_ERROR_INPUT_CHARS,
     };
     let _ = std::fmt::write(&mut prefix, format_args!("{error}"));
-    let text = prefix.text;
+    let text = ERROR_PRIVATE_KEY.replace_all(&prefix.text, "[redacted private key]");
     let safe_urls = ERROR_URL.replace_all(&text, |captures: &regex::Captures<'_>| {
         let matched = &captures[0];
         let url_text = matched.trim_end_matches([')', ']', '}', ',', ';']);
@@ -388,7 +479,14 @@ fn app_context() -> Value {
 
 async fn send_remote_log(config: RemoteLogConfig, payload: RemoteLogPayload) -> Result<(), String> {
     let client = REMOTE_LOG_CLIENT.as_ref().map_err(Clone::clone)?;
+    send_remote_log_with_client(client, config, payload).await
+}
 
+async fn send_remote_log_with_client(
+    client: &reqwest::Client,
+    config: RemoteLogConfig,
+    payload: RemoteLogPayload,
+) -> Result<(), String> {
     let response = client
         .post(&config.endpoint)
         .header("x-api-key", config.api_key)
@@ -423,6 +521,11 @@ fn redact_sensitive_token(token: &str) -> &str {
     let lower = trimmed.to_ascii_lowercase();
     if trimmed.starts_with("sk-")
         || trimmed.starts_with("log_sk_")
+        || trimmed.starts_with("AKIA")
+        || trimmed.starts_with("ASIA")
+        || trimmed.starts_with("ghp_")
+        || trimmed.starts_with("github_pat_")
+        || trimmed.starts_with("glpat-")
         || lower.starts_with("bearer.")
         || lower.starts_with("bearer:")
         || lower == "bearer"

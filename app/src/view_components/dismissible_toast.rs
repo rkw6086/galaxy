@@ -329,6 +329,9 @@ pub enum ToastType {
 
 impl<A: Action + Clone> DismissibleToast<A> {
     pub fn new(main_text: String, flavor: ToastFlavor) -> Self {
+        if flavor == ToastFlavor::Error {
+            log::error!(target: "galaxy::ui::error_toast", "{main_text}");
+        }
         Self {
             flavor,
             main_text,

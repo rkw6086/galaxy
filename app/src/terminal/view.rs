@@ -26286,6 +26286,33 @@ impl TerminalSurface for TerminalView {
 
     #[cfg(feature = "local_tty")]
     fn on_pty_spawn_failed(&mut self, error: anyhow::Error, ctx: &mut ViewContext<Self>) {
+        let terminal_view_id = ctx.handle().id().to_string();
+        let terminal_session_id = self.model.lock().pending_session_id();
+        let conversation_id = self.active_conversation_id(ctx);
+        let in_split_pane = self
+            .focus_handle
+            .as_ref()
+            .map(|handle| handle.is_in_split_pane(ctx));
+        let in_workspace_split_view = self
+            .focus_handle
+            .as_ref()
+            .map(|handle| handle.workspace_split_view(ctx).is_some());
+        crate::ai::remote_logging::log_view_event(
+            ctx,
+            crate::ai::remote_logging::RemoteLogRecord {
+                level: crate::ai::remote_logging::RemoteLogLevel::Error,
+                message: "Terminal shell process could not start".to_string(),
+                context: serde_json::json!({
+                    "event": "terminal_pty_spawn_failed",
+                    "terminal_view_id": terminal_view_id,
+                    "terminal_session_id": terminal_session_id,
+                    "conversation_id": conversation_id,
+                    "in_split_pane": in_split_pane,
+                    "in_workspace_split_view": in_workspace_split_view,
+                    "error": crate::ai::remote_logging::sanitize_error(format_args!("{error:#}")),
+                }),
+            },
+        );
         self.pty_spawn_failed = true;
         self.fail_pending_child_agent_query(
             format!("Child agent shell failed to start: {error:#}"),

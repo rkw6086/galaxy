@@ -1,16 +1,17 @@
+use std::cell::Cell;
 use std::env;
 use std::fs::{self, File};
 use std::io::{IsTerminal, Write, copy};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Once, OnceLock};
 
 use anyhow::Result;
 use chrono::Local;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
-use log::LevelFilter;
+use log::{LevelFilter, Log};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
@@ -48,6 +49,87 @@ struct LogState {
 }
 
 static LOG_STATE: OnceLock<LogState> = OnceLock::new();
+static DIAGNOSTIC_LOG_SINK: OnceLock<fn(&log::Record<'_>)> = OnceLock::new();
+static PANIC_LOGGING_INIT: Once = Once::new();
+
+thread_local! {
+    static IN_DIAGNOSTIC_LOG_SINK: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Installs a process-wide observer for errors and enabled warnings.
+///
+/// The observer runs synchronously on the logging thread, including during
+/// panic handling. It must only enqueue bounded diagnostic data without
+/// blocking or performing I/O. Copy any record data needed after returning.
+/// Errors and warnings from `report_error!` bypass local filters. Other warnings
+/// follow the local logger's metadata filters to preserve noisy dependency
+/// suppression. Reentrant records retain normal local output but are not sent
+/// to the observer again.
+///
+/// Install before [`init`] to observe application startup. Returns false if an
+/// observer has already been installed; the existing observer is preserved.
+pub fn set_diagnostic_log_sink(sink: fn(&log::Record<'_>)) -> bool {
+    DIAGNOSTIC_LOG_SINK.set(sink).is_ok()
+}
+
+/// Routes panics through the process's logger, including backtraces.
+///
+/// Call after installing a logger. IPC worker processes may use this with
+/// their forwarding logger instead of the native application logger.
+pub fn init_panic_logging() {
+    PANIC_LOGGING_INIT.call_once(log_panics::init);
+}
+
+struct DiagnosticLogger {
+    inner: env_logger::Logger,
+}
+
+impl Log for DiagnosticLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Warn || self.inner.enabled(metadata)
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        // env_logger retains its own filters, formatting, and destinations.
+        self.inner.log(record);
+        let observe = record.level() == log::Level::Error
+            || (record.level() == log::Level::Warn
+                && (record.target() == galaxy_core::errors::LOG_TARGET
+                    || self.inner.enabled(record.metadata())));
+        if !observe {
+            return;
+        }
+        let Some(sink) = DIAGNOSTIC_LOG_SINK.get() else {
+            return;
+        };
+        let _ = IN_DIAGNOSTIC_LOG_SINK.try_with(|in_sink| {
+            if in_sink.replace(true) {
+                return;
+            }
+            struct ResetOnDrop<'a>(&'a Cell<bool>);
+            impl Drop for ResetOnDrop<'_> {
+                fn drop(&mut self) {
+                    self.0.set(false);
+                }
+            }
+            // Reset during unwinding too; observer panics retain their normal
+            // behavior rather than being swallowed by the logging layer.
+            let _reset = ResetOnDrop(in_sink);
+            sink(record);
+        });
+    }
+
+    fn flush(&self) {
+        self.inner.flush();
+    }
+}
+
+fn install_logger(inner: env_logger::Logger) {
+    let max_level = inner.filter().max(LevelFilter::Warn);
+    log::set_boxed_logger(Box::new(DiagnosticLogger { inner }))
+        .expect("Logging should only be initialized once");
+    log::set_max_level(max_level);
+}
 
 struct TeeWriter<Primary, Session> {
     primary: Primary,
@@ -697,13 +779,8 @@ fn init_internal(
         base_logger.format(format_for_terminal_output);
     }
 
-    base_logger.init();
-
-    // If we're logging to a file, initialize the `log_panics` crate, which
-    // will install a panic hook that writes out panics using `log::error`.
-    if use_logfile || session_log_path.is_some() {
-        log_panics::init();
-    }
+    install_logger(base_logger.build());
+    init_panic_logging();
 
     LOG_STATE
         .set(LogState {
@@ -713,7 +790,7 @@ fn init_internal(
             session_log_path: session_log_path.clone(),
         })
         .expect("Logging already initialized");
-    // We can .expect here because .init would have already panicked if we initialized logging twice.
+    // Installing the logger would have already panicked if initialized twice.
 
     if let Some(path) = session_log_path {
         log::info!("Full session logging enabled at {}", path.display());

@@ -44,3 +44,5 @@ pub use imp::{
     init_for_crash_recovery_process, init_logging_for_unit_tests, on_crash_recovery_process_killed,
     on_parent_process_crash,
 };
+#[cfg(not(target_family = "wasm"))]
+pub use imp::{init_panic_logging, set_diagnostic_log_sink};

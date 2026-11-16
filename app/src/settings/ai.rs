@@ -1782,7 +1782,7 @@ define_settings_group!(AISettings, settings: [
         toml_path: "ai.providers",
         description: "Multiple OpenAI-compatible provider endpoints.",
     }
-    // Whether to send opt-in AI diagnostics to a remote logging endpoint.
+    // Whether to send opt-in application errors, warnings, and AI diagnostics.
     remote_logging_enabled: RemoteLoggingEnabled {
         type: bool,
         default: false,
@@ -1790,9 +1790,9 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.remote_logging.enabled",
-        description: "Whether to send opt-in AI diagnostics to the configured remote logger.",
+        description: "Whether to send opt-in application errors, warnings, and AI diagnostics to the configured remote logger.",
     }
-    // Endpoint for opt-in AI diagnostics. May be either the logger base URL or the full /api/logs URL.
+    // Endpoint for opt-in diagnostics. May be the logger base URL or full /api/logs URL.
     remote_logging_endpoint: RemoteLoggingEndpoint {
         type: String,
         default: default_remote_logging_endpoint(),
@@ -1800,9 +1800,9 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.remote_logging.endpoint",
-        description: "Remote logging endpoint for opt-in AI diagnostics.",
+        description: "Remote logging endpoint for opt-in application and AI diagnostics.",
     }
-    // API key used to write opt-in AI diagnostics to the remote logger. Kept local only.
+    // API key used to write opt-in diagnostics to the remote logger. Kept local only.
     remote_logging_api_key: RemoteLoggingApiKey {
         type: String,
         default: String::new(),
@@ -1810,7 +1810,7 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.remote_logging.api_key",
-        description: "API key used to write opt-in AI diagnostics to the remote logger.",
+        description: "API key used to write opt-in application and AI diagnostics to the remote logger.",
     }
     // Whether to include raw model request and response payloads in opt-in AI diagnostics.
     // This can include prompts, model output, tool arguments, and file contents.

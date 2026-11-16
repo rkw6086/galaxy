@@ -141,6 +141,7 @@ impl EventLoop {
         log::set_boxed_logger(Box::new(logging::RemoteLogger::new(send_socket_fd.clone())))
             .expect("should not fail to set logger");
         log::set_max_level(log::LevelFilter::Info);
+        galaxy_logging::init_panic_logging();
 
         log::info!("Running terminal server...");
 

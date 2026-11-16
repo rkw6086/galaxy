@@ -94,6 +94,19 @@ zsh -lc '
   conclusions about retries or repeated discovery.
 - Inspect `context.app.source_commit` and `source_modified` to identify the running
   build. Remote events may come from another machine or an older build.
+- The existing `ai.remote_logging` opt-in also captures native application warnings
+  and errors, including terminal/plugin worker logs, tracing errors, and error toasts.
+  These use `context.event=application_log`, with log target/source, thread,
+  process/instance identity, OS, and sanitized error text. The red shell-start
+  banner additionally emits `terminal_pty_spawn_failed` with terminal/session/
+  conversation identifiers and both split-state flags. Generic application logs
+  do not guess a conversation when the reporting source has no owning session.
+- Generic application log uploads use a separate worker and HTTP client with a bounded
+  256-record / 1 MiB queue, no retries, and explicit dropped-record/failed-upload
+  totals. Disabling or changing the remote connection clears queued records;
+  already-started requests may finish. Normal exit and panic delivery are bounded
+  best-effort; forced termination or failures before logging setup can still be
+  unavailable remotely. Raw model payload capture remains a separate opt-in.
 - Terminal `provider_run_finished` events include `model_failure_diagnostics`:
   the last eight sanitized model failures observed in the current process, with
   an observed count and explicit truncation. A recovered run can complete with

@@ -668,7 +668,16 @@ pub fn run() -> Result<()> {
         galaxy_cli::local_control::run_and_exit(args);
     }
 
-    run_app_or_cli()
+    let result = run_app_or_cli();
+    if let Err(error) = &result {
+        #[cfg(not(target_family = "wasm"))]
+        ai::remote_logging::report_application_exit_error(error);
+        #[cfg(target_family = "wasm")]
+        log::error!(target: "galaxy::startup", "Galaxy stopped with an error: {error:#}");
+    }
+    #[cfg(not(target_family = "wasm"))]
+    ai::remote_logging::flush_application_logging(std::time::Duration::from_secs(2));
+    result
 }
 
 /// Runs normal app and command-line modes after the telemetry-neutral Galaxy
@@ -938,6 +947,9 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
     let log_destination = launch_mode.log_destination();
     let is_cli = log_destination.is_some();
 
+    #[cfg(not(target_family = "wasm"))]
+    ai::remote_logging::initialize_application_logging(prefs_for_public_settings);
+
     cfg_if::cfg_if! {
         if #[cfg(enable_crash_recovery)] {
             if crash_recovery::is_crash_recovery_process(launch_mode.args().as_ref()) {
@@ -959,6 +971,9 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
             })?;
         }
     }
+
+    #[cfg(not(target_family = "wasm"))]
+    ai::remote_logging::install_application_panic_flush();
 
     if let Some(initialization) = tracing_initialization.as_mut() {
         initialization.log_initialization_warning();
@@ -1265,6 +1280,8 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|_ctx| SettingsManager::default());
 
     let user_defaults_on_startup = settings::init(startup_toml_parse_error, ctx);
+    #[cfg(not(target_family = "wasm"))]
+    ai::remote_logging::register_application_logging(ctx);
     timer.mark_interval_end("READ_USER_DEFAULTS_AND_INITIALIZE_SETTINGS");
 
     if FeatureFlag::UIZoom.is_enabled() {
