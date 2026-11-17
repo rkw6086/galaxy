@@ -1,6 +1,6 @@
 # Galaxy macOS releases
 
-[The macOS release workflow](../.gitea/workflows/macos-release.yml) adapts Solar's signed release jobs to Galaxy's native Rust bundle. A pushed bare version tag, such as `3.1.0`, builds Galaxy on the existing `macos-arm64` runner and publishes an Apple Silicon DMG at [Gitea Releases](https://git.ryserve.net/public/galaxy/releases).
+[The macOS release workflow](../.gitea/workflows/macos-release.yml) adapts Solar's signed release jobs to Galaxy's native Rust bundle. A pushed bare version tag, such as `3.1.1`, builds Galaxy on the existing `macos-arm64` runner and publishes an Apple Silicon DMG at [Gitea Releases](https://git.ryserve.net/public/galaxy/releases).
 
 The build and signing steps are separate. The build receives no Apple secrets. Packaging signs nested native code before the app, notarizes and staples the app, creates a DMG containing `Galaxy.app` and an Applications shortcut, and then signs, notarizes, staples, and verifies the DMG. The verified DMG and `SHA256SUMS` are uploaded as an Actions artifact before a separate Linux job publishes them.
 
@@ -26,24 +26,18 @@ The names match Solar's secrets. The same Apple identity can sign both apps; the
 
 ## Version and publish
 
-The tag is the packaged version: `3.1.0`, with no `v` prefix. Only stable `MAJOR.MINOR.PATCH` versions are supported. About Galaxy displays that packaged version without commit details.
+The tag is the packaged version: `3.1.1`, with no `v` prefix. Only stable `MAJOR.MINOR.PATCH` versions are supported. About Galaxy displays that packaged version without commit details.
 
 Prepare a version and its release notes, then check the files:
 
 ```sh
-node script/release.mjs prepare 3.1.0
+node script/release.mjs prepare 3.1.1
 node script/release.mjs check
 ```
 
-Keep a nonempty `## [3.1.0]` section in `CHANGELOG.md`. Complete the required local `cargo build`, commit the release changes, and push `master` to both configured remotes. Create and push the annotated tag with `node script/release.mjs tag 3.1.0 --push` after both remote branches contain that commit. The push to Gitea (`origin`) starts the signed release workflow; the Samsung remote retains the same source and tag.
+Keep a nonempty `## [3.1.1]` section in `CHANGELOG.md`. Complete the required local `cargo build`, commit the release changes, and push `master` to both configured remotes. Create and push the annotated tag with `node script/release.mjs tag 3.1.1 --push` after both remote branches contain that commit. The push to Gitea (`origin`) starts the signed release workflow; the Samsung remote retains the same source and tag.
 
 Branch pushes and pull requests only check release metadata and script syntax, without Apple credentials. Before creating a release tag, manually run the **Release checks** workflow on `master` for a native macOS preflight. That manual job builds and verifies the complete unsigned bundle using the same pinned tools and resources as the release, then removes its temporary files. It has no Apple secrets, signing, publication, or app launch. A manual run on another branch cannot start the macOS job. The normal signing job requires a pushed version tag whose packaged version matches, whose commit is in `master`, and whose local, triggering, and remote tag commits agree. It checks previous Actions history for a reused tag pointing to another commit. Existing published versions skip signing. Treat release tags as permanent and protect them in Gitea; corrections belong in a new version.
-
-### Recover the unpublished 3.1.0 build
-
-The manual **Recover Galaxy 3.1.0 macOS release** workflow repairs the signing recipe for the unpublished `3.1.0` release while preserving its original tag. Run it from trusted `master` in Gitea Actions. It accepts only the original `3.1.0` source commit and requires that no published release exists. It rejects changes to application code, dependencies, resources, entitlements, or certificates between that tag and the current recipe.
-
-Recovery builds a clean, detached copy of the tagged source with the corrected recipe. Both the build and signing scripts validate the separate source and recipe identities before proceeding. The release records the original application commit and the recovery recipe commit. The same artifact and checksum checks apply before publication, and existing published releases remain immutable.
 
 ## Artifacts and recovery
 

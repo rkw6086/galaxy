@@ -33,8 +33,6 @@ class Config:
     commit: str
     token: str = field(repr=False)
     notes: str | None = None
-    recipe_commit: str | None = None
-    run_url: str | None = None
 
     @classmethod
     def from_env(cls, env):
@@ -60,16 +58,7 @@ class Config:
         directory = env.get("GALAXY_RELEASE_DIR", "")
         if not directory or not Path(directory).is_dir():
             raise PublishError("GALAXY_RELEASE_DIR must contain the verified release files.")
-        recipe = env.get("GALAXY_RELEASE_RECIPE_SHA")
-        run_url = env.get("GALAXY_RELEASE_RUN_URL")
-        if recipe is not None or run_url is not None:
-            if (server != "https://git.ryserve.net" or repository != "public/galaxy"
-                    or version != "3.1.0" or commit != "64466167bde523e40f2b4807bd11947718a21a69"
-                    or not re.fullmatch(r"[0-9a-f]{40}", recipe or "")
-                    or not re.fullmatch(re.escape(server + "/" + repository) + r"/actions/runs/[0-9]+", run_url or "")):
-                raise PublishError("Recovery provenance must identify the original 3.1.0 source and its recipe run.")
-        return cls(version, version, Path(directory), server, repository, commit, token,
-                   recipe_commit=recipe, run_url=run_url)
+        return cls(version, version, Path(directory), server, repository, commit, token)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -192,18 +181,6 @@ def notes_from_changelog(version, path):
 
 def publish(config, client=None):
     files = release_files(config)
-    if config.recipe_commit is not None:
-        provenance = config.directory / "release-provenance.json"
-        if provenance.is_symlink() or not provenance.is_file() or provenance.stat().st_size > 4096:
-            raise PublishError("Recovery artifact is missing its verified provenance record.")
-        try:
-            recorded = json.loads(provenance.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            raise PublishError("Recovery artifact provenance is unreadable.") from None
-        expected = {"schema": 1, "version": config.version, "sourceSha": config.commit,
-                    "recipeSha": config.recipe_commit, "runUrl": config.run_url}
-        if recorded != expected:
-            raise PublishError("Recovery artifact provenance differs from the validated source and recipe run.")
     notes = config.notes if config.notes is not None else notes_from_changelog(
         config.version, Path(__file__).resolve().parents[2] / "CHANGELOG.md"
     )
@@ -213,9 +190,6 @@ def publish(config, client=None):
     tag_path = "/tags/" + urllib.parse.quote(config.tag, safe="")
     release_path = "/releases/tags/" + urllib.parse.quote(config.tag, safe="")
     marker = f"<!-- galaxy-release:v1 tag={config.tag} commit={config.commit} -->"
-    recipe_marker = f"<!-- galaxy-recipe:v1 commit={config.recipe_commit} -->" if config.recipe_commit else ""
-    provenance_notes = (f"Packaging recipe: `{config.recipe_commit}`. [Verified build run]({config.run_url}).\n\n"
-                        f"{recipe_marker}\n\n") if config.recipe_commit else ""
 
     def check_tag():
         tag = client.request("GET", tag_path)
@@ -224,9 +198,7 @@ def publish(config, client=None):
 
     def check_owned(release):
         if (release.get("tag_name") != config.tag or release.get("target_commitish") != config.commit
-                or marker not in release.get("body", "") or release.get("prerelease")
-                or (recipe_marker and recipe_marker not in release.get("body", ""))
-                or (config.run_url and f"]({config.run_url})" not in release.get("body", ""))):
+                or marker not in release.get("body", "") or release.get("prerelease")):
             raise PublishError("Existing release does not match this generated release; left unchanged.")
 
     def assets(release):
@@ -253,7 +225,7 @@ def publish(config, client=None):
             "name": "Galaxy " + config.version, "draft": True, "prerelease": False,
             "body": f"{notes.strip()}\n\n"
                     "Download the DMG below. Its SHA-256 checksum is supplied in SHA256SUMS.\n\n"
-                    f"Source commit: `{config.commit}`\n\n{provenance_notes}{marker}",
+                    f"Source commit: `{config.commit}`\n\n{marker}",
         })
     check_owned(release)
     current = assets(release)

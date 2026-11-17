@@ -1,6 +1,13 @@
 # Galaxy changelog
 
+## [3.1.1]
+
+- Fix macOS signing order so bundled plug-ins are signed before the main app.
+- Publish the signed and notarized macOS release with the automated build workflow.
+
 ## [3.1.0]
+
+Unpublished; superseded by 3.1.1 after the initial signing failure.
 
 - Add signed and notarized Apple Silicon macOS releases, published automatically from version tags.
 - Show the release version in About Galaxy and remove the commit ID row.

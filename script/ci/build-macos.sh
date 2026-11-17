@@ -3,16 +3,7 @@
 set -euo pipefail
 
 fail() { echo "Galaxy macOS build: $*" >&2; exit 1; }
-recipe_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-release_recovery=false
-if [[ ${GALAXY_RELEASE_RECOVERY_MANIFEST+x} ]]; then
-  # Validate the manual recovery recipe and immutable source before selecting
-  # any build inputs. The helper writes only the verified source root to stdout.
-  root=$(node "$recipe_root/script/ci/recovery-source.mjs")
-  release_recovery=true
-else
-  root=$recipe_root
-fi
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$root"
 [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || fail 'Use a native Apple Silicon macOS runner.'
 [[ -n ${CARGO_TARGET_DIR:-} && $CARGO_TARGET_DIR == /* && -n ${GALAXY_RELEASE_DIR:-} && $GALAXY_RELEASE_DIR == /* ]] || fail 'Set absolute job-specific CARGO_TARGET_DIR and GALAXY_RELEASE_DIR.'
@@ -24,11 +15,7 @@ for tool in clang metal metallib actool notarytool stapler; do xcrun --find "$to
 
 version=${GALAXY_RELEASE_VERSION:-}
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail 'A validated stable version is required.'
-if [[ $release_recovery == true ]]; then
-  # recovery-source.mjs has already validated the manual master event, recipe
-  # commit, source tag/commit, job-owned manifest, and clean source worktree.
-  :
-elif [[ ${GALAXY_UNSIGNED_PREFLIGHT:-} == 1 ]]; then
+if [[ ${GALAXY_UNSIGNED_PREFLIGHT:-} == 1 ]]; then
   [[ ${GITHUB_EVENT_NAME:-} == workflow_dispatch && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Unsigned preflight is restricted to manual builds of master.'
 else
   [[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == "refs/tags/$version" ]] || fail "Release builds require a pushed $version tag."
