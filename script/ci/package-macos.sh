@@ -5,11 +5,24 @@ set -euo pipefail
 umask 077
 
 fail() { echo "Galaxy macOS package: $*" >&2; exit 1; }
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+recipe_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+release_recovery=false
+if [[ ${GALAXY_RELEASE_RECOVERY_MANIFEST+x} ]]; then
+  # Revalidate recipe/source identity before selecting the source checkout or
+  # reading Apple credentials. Signing inputs remain in that immutable source.
+  root=$(node "$recipe_root/script/ci/recovery-source.mjs")
+  release_recovery=true
+else
+  root=$recipe_root
+fi
 cd "$root"
 [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || fail 'Use the native macos-arm64 runner.'
-[[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == refs/tags/* ]] || fail 'Signing requires a pushed version tag.'
-version=${GITHUB_REF#refs/tags/}
+if [[ $release_recovery == true ]]; then
+  version=${GALAXY_RELEASE_VERSION:-}
+else
+  [[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == refs/tags/* ]] || fail 'Signing requires a pushed version tag.'
+  version=${GITHUB_REF#refs/tags/}
+fi
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail 'Use a bare stable version tag such as 3.1.0.'
 [[ ${GALAXY_RELEASE_VERSION:-} == "$version" ]] || fail 'Validated release version is missing or does not match the tag.'
 [[ $(git rev-parse HEAD) == "${GALAXY_RELEASE_SHA:-}" && -z $(git status --porcelain) ]] || fail 'Checkout no longer matches the validated release.'
