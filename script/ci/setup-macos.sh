@@ -26,7 +26,12 @@ tools="$RUNNER_TEMP/galaxy-tools-$GALAXY_JOB_ID"
 [[ ! -e "$tools" && ! -L "$tools" ]]
 mkdir "$tools"
 export RUSTUP_TOOLCHAIN=1.97.1
-cargo install --locked --root "$tools" --git https://github.com/burtonageo/cargo-bundle --rev 787d710686480cea32960bcd4d9f762c2f9bbd53 cargo-bundle
+# Keep compiler intermediates inside the same job-owned cleanup boundary as tools.
+export CARGO_TARGET_DIR="$tools/build"
+# 0.11.0 has the required Cargo target-directory and named-binary support without
+# 0.12.0's mandatory Sigstore dependency, which fails to compile on this toolchain.
+# Apple signing is performed separately by package-macos.sh.
+cargo install --locked --root "$tools" --git https://github.com/burtonageo/cargo-bundle --rev 739f92c37c789b5511a448a389cbc76fcebd99df cargo-bundle
 cargo install --locked --root "$tools" cargo-about@0.8.4
 echo "$tools/bin" >> "$GITHUB_PATH"
 echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
