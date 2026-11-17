@@ -7,15 +7,13 @@
 use std::collections::HashMap;
 
 use galaxyui::{Entity, ModelContext, SingletonEntity};
-use settings::Setting;
 
 use super::prompt;
 use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::llms::LLMPreferences;
+use crate::ai::blocklist::ResponseStream;
 use crate::ai::openai::client::{OpenAIClient, OpenAIClientConfig};
 use crate::ai::provider::ProviderConfig;
 use crate::settings::OpenAIProviderKind;
-use crate::AISettings;
 
 /// Maximum default iterations if the setting is somehow zero.
 const FALLBACK_MAX_ITERATIONS: u32 = 3;
@@ -162,47 +160,16 @@ impl CrosscheckReviewer {
 
     /// Resolves the provider configuration for the reviewer model.
     ///
-    /// Checks OpenAI-compatible routing first, then falls back to Bedrock.
+    /// Uses the same enabled-model routing rules as foreground requests.
     fn resolve_reviewer_provider_config(
         model_id: &str,
         ctx: &ModelContext<Self>,
     ) -> ProviderConfig {
-        let settings = AISettings::as_ref(ctx);
-
-        // Check if this model has an OpenAI-compatible routing entry
-        let llm_prefs = LLMPreferences::as_ref(ctx);
-        if let Some(client_config) = llm_prefs.openai_client_config_for_model(model_id) {
-            return ProviderConfig::OpenAI(OpenAIClientConfig {
-                kind: client_config.kind,
-                connection_identity: client_config.connection_identity.clone(),
-                base_url: client_config.base_url.clone(),
-                api_key: client_config.api_key.clone(),
-                project_id: client_config.project_id.clone(),
-                location: client_config.location.clone(),
-                model: client_config
-                    .model
-                    .clone()
-                    .or_else(|| Some(model_id.to_string())),
-                reasoning_effort: client_config.reasoning_effort.clone(),
-                max_input_tokens: client_config.max_input_tokens,
-                max_output_tokens: Some(REVIEWER_MAX_OUTPUT_TOKENS),
-                supports_system_messages: client_config.supports_system_messages,
-            });
+        let mut provider_config = ResponseStream::resolve_provider_config(model_id, ctx);
+        if let ProviderConfig::OpenAI(config) = &mut provider_config {
+            config.max_output_tokens = Some(REVIEWER_MAX_OUTPUT_TOKENS);
         }
-
-        // Fall back to Bedrock via external config
-        if *settings.bedrock_enabled.value() {
-            let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
-            let config = crate::ai::provider::client::BedrockClientConfig::from_settings(settings)
-                .with_model_route(model_id, settings.bedrock_models.value())
-                .with_managed_credentials(
-                    &api_key_manager.aws_credentials_refresh_strategy(),
-                    api_key_manager.aws_credentials_state(),
-                );
-            return ProviderConfig::Bedrock(config);
-        }
-
-        ProviderConfig::None
+        provider_config
     }
 
     /// Invokes the reviewer LLM with the given agent output.

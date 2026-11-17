@@ -107,7 +107,7 @@ fn propagate_parent_agent_settings(
         .into_iter()
         .chain(preferences.get_base_llm_choices_for_agent_mode(ctx))
         .find(|model| {
-            model.disable_reason.is_none()
+            model.is_usable_selection()
                 && preferences.profile_allows_orchestration_model(
                     model,
                     Some(child_terminal_view_id),

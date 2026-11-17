@@ -6207,6 +6207,26 @@ impl BlocklistAIController {
             self.fail_restored_provider_run(conversation_id, error, ctx);
             return;
         }
+        // Validate every restored role before constructing a runtime: Bedrock
+        // runtime construction itself resolves AWS credentials.
+        for (profile, request) in [
+            (BASE_PROVIDER_PROFILE, Some(&snapshot.base_request)),
+            (
+                CLI_MONITOR_PROVIDER_PROFILE,
+                snapshot.cli_monitor_request.as_ref(),
+            ),
+            (
+                COMPUTER_USE_PROVIDER_PROFILE,
+                snapshot.computer_use_request.as_ref(),
+            ),
+        ] {
+            if let Some(error) = request.and_then(|request| {
+                self.child_model_request_error(conversation_id, profile, request, false, ctx)
+            }) {
+                self.fail_restored_provider_run(conversation_id, error, ctx);
+                return;
+            }
+        }
         let provider_configs = (|| {
             let resolve = |request: &TurnRequest| {
                 restore_provider_config(request, |model| {
@@ -6925,6 +6945,43 @@ impl BlocklistAIController {
             request_params.computer_use_model.as_str(),
             ctx,
         );
+        // Check child permissions before preparing even unused auxiliary
+        // runtimes, which may otherwise contact an excluded provider for auth.
+        for (profile, model_id, provider_config) in [
+            (
+                BASE_PROVIDER_PROFILE,
+                request_params.model.as_str(),
+                &base_provider_config,
+            ),
+            (
+                CLI_MONITOR_PROVIDER_PROFILE,
+                request_params.cli_agent_model.as_str(),
+                &cli_provider_config,
+            ),
+            (
+                COMPUTER_USE_PROVIDER_PROFILE,
+                request_params.computer_use_model.as_str(),
+                &computer_use_provider_config,
+            ),
+        ] {
+            // Unconfigured auxiliary roles use the validated base provider.
+            if profile != BASE_PROVIDER_PROFILE
+                && matches!(provider_config, crate::ai::provider::ProviderConfig::None)
+            {
+                continue;
+            }
+            if let Some(error) =
+                self.child_model_selection_error(conversation_id, profile, model_id, false, ctx)
+            {
+                self.handle_prepared_provider_run(
+                    conversation_id,
+                    stream_id,
+                    Err(anyhow!(error)),
+                    ctx,
+                );
+                return;
+            }
+        }
         let _ = ctx.spawn(
             async move {
                 prepare_provider_run(
@@ -6947,7 +7004,7 @@ impl BlocklistAIController {
         preferences
             .get_base_llm_choices_for_agent_mode(ctx)
             .filter(|model| {
-                model.disable_reason.is_none()
+                model.is_usable_selection()
                     && preferences.profile_allows_orchestration_model(
                         model,
                         Some(self.terminal_surface_id),
@@ -6983,7 +7040,7 @@ impl BlocklistAIController {
         }
         let profile = run.coordinator.run().profile().as_str();
         let request = run.coordinator.profile_request(profile)?;
-        self.child_model_request_error(conversation_id, profile, request, ctx)
+        self.child_model_request_error(conversation_id, profile, request, true, ctx)
     }
 
     fn child_model_request_error(
@@ -6991,22 +7048,9 @@ impl BlocklistAIController {
         conversation_id: AIConversationId,
         profile: &str,
         request: &galaxy_agent_core::TurnRequest,
+        check_vision: bool,
         ctx: &AppContext,
     ) -> Option<String> {
-        if !BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&conversation_id)
-            .is_some_and(|conversation| conversation.is_child_agent_conversation())
-        {
-            return None;
-        }
-        if crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx)
-            .active_profile(Some(self.terminal_surface_id), ctx)
-            .data()
-            .orchestration_providers
-            .is_none()
-        {
-            return None;
-        }
         // The durable routing identity retains connection and reasoning
         // selection even when its wire model name is different.
         let model_id = request
@@ -7015,16 +7059,35 @@ impl BlocklistAIController {
             .and_then(|selection| selection.get("model_id"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or(request.model.as_str());
+        self.child_model_selection_error(conversation_id, profile, model_id, check_vision, ctx)
+    }
+
+    fn child_model_selection_error(
+        &self,
+        conversation_id: AIConversationId,
+        profile: &str,
+        model_id: &str,
+        check_vision: bool,
+        ctx: &AppContext,
+    ) -> Option<String> {
+        if !BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .is_some_and(|conversation| conversation.is_child_agent_conversation())
+        {
+            return None;
+        }
         let preferences = LLMPreferences::as_ref(ctx);
         let model = preferences.get_llm_info(&LLMId::from(model_id));
         if model.is_some_and(|model| {
-            model.disable_reason.is_none()
+            model.is_usable_direct_model()
                 && preferences.profile_allows_orchestration_model(
                     model,
                     Some(self.terminal_surface_id),
                     ctx,
                 )
-                && (profile != COMPUTER_USE_PROVIDER_PROFILE || model.vision_supported)
+                && (!check_vision
+                    || profile != COMPUTER_USE_PROVIDER_PROFILE
+                    || model.vision_supported)
         }) {
             return None;
         }
@@ -8159,14 +8222,20 @@ impl BlocklistAIController {
             });
         #[cfg(not(target_family = "wasm"))]
         if catalog_changed {
-            remote_logging::log_model_event(
-                ctx,
-                RemoteLogRecord {
-                    level: RemoteLogLevel::Info,
-                    message: "Orchestration model catalog updated".to_string(),
-                    context: serde_json::json!({
+            let context = {
+                let preferences = LLMPreferences::as_ref(ctx);
+                let profile = crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx)
+                    .active_profile(Some(self.terminal_surface_id), ctx);
+                serde_json::json!({
                         "event": "orchestration_model_catalog",
                         "conversation_id": conversation_id,
+                        "profile_id": profile.id().to_string(),
+                        "provider_allowlist": profile.data().orchestration_providers.as_ref().map(|providers| {
+                            providers.iter().take(128).map(remote_logging::sanitize_error).collect::<Vec<_>>()
+                        }),
+                        "provider_allowlist_truncated": profile.data().orchestration_providers.as_ref().is_some_and(|providers| providers.len() > 128),
+                        "active_base_model_id": remote_logging::sanitize_error(preferences.get_active_base_model(ctx, Some(self.terminal_surface_id)).id.as_str()),
+                        "active_cli_model_id": remote_logging::sanitize_error(preferences.get_active_cli_agent_model(ctx, Some(self.terminal_surface_id)).id.as_str()),
                         "model_count": orchestration_models.len(),
                         "models": orchestration_models.iter().take(128).map(|model| {
                             serde_json::json!({
@@ -8175,7 +8244,14 @@ impl BlocklistAIController {
                             })
                         }).collect::<Vec<_>>(),
                         "models_truncated": orchestration_models.len() > 128,
-                    }),
+                    })
+            };
+            remote_logging::log_model_event(
+                ctx,
+                RemoteLogRecord {
+                    level: RemoteLogLevel::Info,
+                    message: "Orchestration model catalog updated".to_string(),
+                    context,
                 },
             );
         }
@@ -8570,7 +8646,7 @@ impl BlocklistAIController {
                         _ => None,
                     };
                     if let Some(error) = request.and_then(|request| {
-                        self.child_model_request_error(conversation_id, profile, request, ctx)
+                        self.child_model_request_error(conversation_id, profile, request, true, ctx)
                     }) {
                         let _ = acknowledgement.send(Err(error));
                         return;

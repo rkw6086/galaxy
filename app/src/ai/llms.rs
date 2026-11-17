@@ -322,6 +322,30 @@ pub fn dedupe_model_display_names<'a>(
 }
 
 impl LLMInfo {
+    fn is_placeholder(&self) -> bool {
+        let id = self.id.as_str().trim();
+        id.is_empty() || id.eq_ignore_ascii_case("placeholder") || id.eq_ignore_ascii_case("none")
+    }
+
+    /// ACP models and recognized custom routers retain their existing selection paths.
+    pub(crate) fn is_usable_selection(&self) -> bool {
+        !self.is_placeholder()
+            && self.disable_reason.is_none()
+            && (self.provider != LLMProvider::Unknown
+                || custom_model_routers::is_custom_router_id(self.id.as_str()))
+    }
+
+    /// A native call needs a concrete provider rather than a separate agent or router.
+    pub(crate) fn is_usable_direct_model(&self) -> bool {
+        self.is_usable_selection()
+            && !matches!(self.provider, LLMProvider::Unknown | LLMProvider::Acp)
+    }
+
+    fn is_usable_default(&self) -> bool {
+        self.is_usable_selection()
+            || (self.id.as_str() == "computer-use-agent-auto" && self.disable_reason.is_none())
+    }
+
     /// Returns the display name for the LLM, to be used in the LLM selector menu.
     pub fn menu_display_name(&self) -> String {
         // Custom model routers carry a routing/source description that belongs in
@@ -433,28 +457,32 @@ impl AvailableLLMs {
     ///
     /// If choices is empty, returns an error.
     ///
-    /// If default_id is not a valid ID present in `choices`, takes the first choice in `choices
-    /// and uses it as the default.
+    /// If default_id is unavailable, prefer the first usable choice. With no
+    /// usable choices, selection resolves to the disabled no-provider fallback.
     pub fn new<T: Into<LLMInfo>>(
         mut default_id: LLMId,
         choices: impl IntoIterator<Item = T>,
         preferred_codex_model_id: Option<LLMId>,
     ) -> Result<Self, anyhow::Error> {
-        let choices: Vec<LLMInfo> = choices.into_iter().map(Into::into).collect();
+        let mut choices: Vec<LLMInfo> = choices.into_iter().map(Into::into).collect();
+        for info in &mut choices {
+            if info.is_placeholder() {
+                info.disable_reason = Some(DisableReason::Unavailable);
+            }
+        }
         if choices.is_empty() {
             return Err(anyhow::anyhow!(
                 "Tried to create AvailableLLMs with empty`choices`.",
             ));
-        } else if !choices.iter().any(|info| info.id == default_id) {
-            let fallback_default = choices
-                .first()
-                .ok_or_else(|| anyhow::anyhow!("Choices should not be empty"))?;
-            log::error!(
-                "Default LLM ID {} not present in choices, falling back to first choice {}",
-                default_id,
-                fallback_default.display_name
-            );
-            default_id = fallback_default.id.clone();
+        } else if !choices
+            .iter()
+            .any(|info| info.id == default_id && info.is_usable_default())
+        {
+            default_id = choices
+                .iter()
+                .find(|info| info.is_usable_default())
+                .map(|info| info.id.clone())
+                .unwrap_or_else(|| "none".into());
         }
 
         Ok(Self {
@@ -477,9 +505,11 @@ impl AvailableLLMs {
     fn usable_info_for_id(&self, id: &LLMId, app: &AppContext) -> Option<&LLMInfo> {
         self.info_for_id(id).filter(|info| {
             let has_byok_key = is_using_api_key_for_provider(&info.provider, app);
-            info.disable_reason
-                .as_ref()
-                .is_none_or(|reason| !reason.should_clear_preference(has_byok_key))
+            !info.is_placeholder()
+                && info
+                    .disable_reason
+                    .as_ref()
+                    .is_none_or(|reason| !reason.should_clear_preference(has_byok_key))
         })
     }
 
@@ -506,7 +536,8 @@ impl AvailableLLMs {
             });
 
         self.info_for_id(&self.default_id)
-            .or_else(|| self.choices.first())
+            .filter(|info| info.is_usable_default())
+            .or_else(|| self.choices.iter().find(|info| info.is_usable_default()))
             .unwrap_or(&NO_PROVIDER_FALLBACK)
     }
 
@@ -586,8 +617,7 @@ fn default_computer_use_llms() -> AvailableLLMs {
 impl Default for ModelsByFeature {
     /// Returns a minimal placeholder. The real model list is populated exclusively
     /// by `inject_bedrock_models` and `inject_openai_models` based on local settings.
-    /// The placeholder entry uses `LLMProvider::Unknown` so it gets stripped by
-    /// `inject_bedrock_models` once real models are loaded.
+    /// Placeholder entries are disabled and removed during provider injection.
     fn default() -> Self {
         let placeholder = || AvailableLLMs {
             legacy_reasoning_aliases: HashMap::new(),
@@ -603,7 +633,7 @@ impl Default for ModelsByFeature {
                     credit_multiplier: None,
                 },
                 description: Some("Enable an AI runtime in Models settings".to_string()),
-                disable_reason: None,
+                disable_reason: Some(DisableReason::Unavailable),
                 vision_supported: false,
                 spec: None,
                 provider: LLMProvider::Unknown,
@@ -1009,13 +1039,13 @@ impl LLMPreferences {
         self.models_by_feature
             .agent_mode
             .choices
-            .retain(|m| m.provider != LLMProvider::Bedrock);
+            .retain(|m| m.provider != LLMProvider::Bedrock && !m.is_placeholder());
         self.models_by_feature
             .coding
             .choices
-            .retain(|m| m.provider != LLMProvider::Bedrock);
+            .retain(|m| m.provider != LLMProvider::Bedrock && !m.is_placeholder());
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            cli.choices.retain(|m| m.provider != LLMProvider::Bedrock);
+            cli.choices.retain(|m| m.provider != LLMProvider::Bedrock && !m.is_placeholder());
         }
 
         let settings = AISettings::as_ref(ctx);
@@ -1185,13 +1215,13 @@ impl LLMPreferences {
         self.models_by_feature
             .agent_mode
             .choices
-            .retain(|m| m.provider != LLMProvider::LiteLLM);
+            .retain(|m| m.provider != LLMProvider::LiteLLM && !m.is_placeholder());
         self.models_by_feature
             .coding
             .choices
-            .retain(|m| m.provider != LLMProvider::LiteLLM);
+            .retain(|m| m.provider != LLMProvider::LiteLLM && !m.is_placeholder());
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            cli.choices.retain(|m| m.provider != LLMProvider::LiteLLM);
+            cli.choices.retain(|m| m.provider != LLMProvider::LiteLLM && !m.is_placeholder());
         }
         self.openai_provider_routing.clear();
         self.models_by_feature.agent_mode.legacy_reasoning_aliases.clear();
@@ -1203,6 +1233,7 @@ impl LLMPreferences {
         let settings = AISettings::as_ref(ctx);
         self.inject_acp_models(ctx);
         if !settings.is_openai_provider_enabled() {
+            self.ensure_default_model_present();
             return;
         }
 
@@ -1304,6 +1335,7 @@ impl LLMPreferences {
         }
 
         if provider_entries.is_empty() {
+            self.ensure_default_model_present();
             return;
         }
 
@@ -1444,13 +1476,14 @@ impl LLMPreferences {
             cli.legacy_reasoning_aliases = legacy_reasoning_aliases;
         }
         log::info!("[openai/litellm] Injected {total_injected} model(s) into available choices");
+        self.ensure_default_model_present();
     }
 
     #[cfg(not(target_family = "wasm"))]
     fn inject_acp_models(&mut self, ctx: &AppContext) {
         let previous_acp_model_ids = self.acp_selections.keys().cloned().collect::<HashSet<_>>();
         let remove_previous_acp_models = |choices: &mut Vec<LLMInfo>| {
-            choices.retain(|model| !previous_acp_model_ids.contains(&model.id));
+            choices.retain(|model| !previous_acp_model_ids.contains(&model.id) && !model.is_placeholder());
         };
         remove_previous_acp_models(&mut self.models_by_feature.agent_mode.choices);
         remove_previous_acp_models(&mut self.models_by_feature.coding.choices);
@@ -1662,18 +1695,23 @@ impl LLMPreferences {
         })
     }
 
-    /// Ensures the default model ID in each feature's choices still points to
-    /// an existing entry. If the default was removed (e.g. provider disabled),
-    /// switch to the first remaining choice.
+    /// Keep defaults on usable models, never a startup placeholder or disabled entry.
     #[cfg(not(target_family = "wasm"))]
     fn ensure_default_model_present(&mut self) {
         fn fix_default(feature: &mut AvailableLLMs) {
-            if feature.choices.is_empty() {
+            let default_is_usable = feature
+                .info_for_id(&feature.default_id)
+                .is_some_and(LLMInfo::is_usable_default);
+            if default_is_usable {
                 return;
             }
-            let default_exists = feature.choices.iter().any(|m| m.id == feature.default_id);
-            if !default_exists {
-                let new_default = feature.choices[0].id.clone();
+            let new_default = feature
+                .choices
+                .iter()
+                .find(|model| model.is_usable_default())
+                .map(|model| model.id.clone())
+                .unwrap_or_else(|| "none".into());
+            if feature.default_id != new_default {
                 log::info!(
                     "[llm] Default model {:?} no longer available, switching to {:?}",
                     feature.default_id,
@@ -2264,7 +2302,7 @@ impl LLMPreferences {
             return Some(preferred);
         }
         let permitted = |model: &&LLMInfo| {
-            model.disable_reason.is_none()
+            model.is_usable_selection()
                 && (!requires_vision || model.vision_supported)
                 && self.profile_allows_orchestration_model(model, terminal_view_id, app)
         };
@@ -2326,7 +2364,9 @@ impl LLMPreferences {
                     .info_for_id(&id)
                     .or_else(|| self.custom_llm_info_for_id_if_enabled(&id, app))
             })
-            .unwrap_or_else(|| available.default_llm_info());
+            // An unconfigured terminal-use role follows this terminal's active
+            // model, including its per-chat override, rather than a global default.
+            .unwrap_or_else(|| self.get_active_base_model(app, terminal_view_id));
         self.orchestration_child_role_model(preferred, terminal_view_id, app, false)
             .unwrap_or_else(|| unavailable_orchestration_role_model())
     }
@@ -2710,10 +2750,17 @@ impl LLMPreferences {
         terminal_view_id: EntityId,
         ctx: &mut ModelContext<Self>,
     ) {
-        let canonical_id = self
+        let Some(model) = self
             .get_llm_info(preferred_llm_id)
-            .map(|info| info.id.clone())
-            .unwrap_or_else(|| preferred_llm_id.clone());
+            .filter(|model| {
+                model.is_usable_selection()
+                    && self.profile_allows_orchestration_model(model, Some(terminal_view_id), ctx)
+            })
+        else {
+            log::warn!("[orchestration] Refusing an unavailable or excluded child model selection");
+            return;
+        };
+        let canonical_id = model.id.clone();
         self.update_preferred_agent_mode_llm(&canonical_id, terminal_view_id, ctx);
     }
 

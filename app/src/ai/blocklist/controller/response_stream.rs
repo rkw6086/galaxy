@@ -34,7 +34,7 @@ use crate::ai::agent::AIAgentInput;
 use crate::ai::agent::{AIIdentifiers, CancellationReason};
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::blocklist::BlocklistAIPermissions;
-use crate::ai::llms::{LLMId, LLMPreferences};
+use crate::ai::llms::{LLMId, LLMPreferences, LLMProvider};
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::provider::client::BedrockClientConfig;
 use crate::ai::provider::ProviderConfig;
@@ -162,11 +162,18 @@ impl ResponseStream {
 
     pub(crate) fn resolve_provider_config(model_id: &str, ctx: &AppContext) -> ProviderConfig {
         let settings = AISettings::as_ref(ctx);
+        let llm_prefs = LLMPreferences::as_ref(ctx);
+        let Some(model) = llm_prefs
+            .get_llm_info(&LLMId::from(model_id))
+            .filter(|model| model.is_usable_direct_model())
+        else {
+            return ProviderConfig::None;
+        };
+        let model_id = model.id.as_str();
 
         // Check if this specific model has an OpenAI-compatible routing entry.
         // This allows OpenAI/LiteLLM models to coexist with Bedrock models —
         // only models fetched from the OpenAI endpoint route through it.
-        let llm_prefs = LLMPreferences::as_ref(ctx);
         if let Some(client_config) = llm_prefs.openai_client_config_for_model(model_id) {
             return ProviderConfig::OpenAI(OpenAIClientConfig {
                 kind: client_config.kind,
@@ -186,15 +193,38 @@ impl ResponseStream {
             });
         }
 
-        // Fall back to Bedrock
-        if *settings.bedrock_enabled.value() {
+        // Missing routes must never select another provider. Bedrock requires an
+        // enabled model verified for the current connection, including the exact
+        // catalog entry behind any cross-region selection ID.
+        if model.provider == LLMProvider::Bedrock && *settings.bedrock_enabled.value() {
+            let configured_model = settings.bedrock_models.value().iter().find(|configured| {
+                if !configured.enabled
+                    || !llm_prefs.bedrock_model_is_verified(&configured.model_id, ctx)
+                {
+                    return false;
+                }
+                let selection_id = if *settings.bedrock_cross_region_inference.value()
+                    && !settings.bedrock_region.value().is_empty()
+                {
+                    crate::ai::provider::models::apply_cross_region_prefix(
+                        &configured.model_id,
+                        settings.bedrock_region.value(),
+                    )
+                } else {
+                    configured.model_id.clone()
+                };
+                selection_id == model_id
+            });
+            let Some(configured_model) = configured_model else {
+                return ProviderConfig::None;
+            };
             let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
             let config = BedrockClientConfig::from_settings(settings)
-                .with_model_route(model_id, settings.bedrock_models.value())
+                .with_model_route(model_id, std::slice::from_ref(configured_model))
                 .with_managed_credentials(
-                &api_key_manager.aws_credentials_refresh_strategy(),
-                api_key_manager.aws_credentials_state(),
-            );
+                    &api_key_manager.aws_credentials_refresh_strategy(),
+                    api_key_manager.aws_credentials_state(),
+                );
             return ProviderConfig::Bedrock(config);
         }
 

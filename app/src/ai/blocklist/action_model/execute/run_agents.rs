@@ -12,8 +12,8 @@ use ai::agent::action_result::{
 };
 use ai::agent::orchestration_config::OrchestrationConfig;
 use ai::skills::SkillReference;
+use futures::future::{join_all, BoxFuture};
 use futures::FutureExt;
-use futures::future::{BoxFuture, join_all};
 use galaxy_core::execution_mode::AppExecutionMode;
 use settings::Setting;
 use warp_cli::agent::Harness;
@@ -24,8 +24,8 @@ use super::start_agent::{
     StartAgentRequestId, StartAgentWaitPolicy,
 };
 use super::{
-    ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput,
-    child_agent_delegation_denial_reason,
+    child_agent_delegation_denial_reason, ActionExecution, AnyActionExecution, ExecuteActionInput,
+    PreprocessActionInput,
 };
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
@@ -103,9 +103,9 @@ impl Entity for RunAgentsExecutor {
 }
 
 impl RunAgentsExecutor {
-    /// Freeze the exact model that a restricted profile authorizes before any
-    /// publication or child launch. An omitted override normally inherits the
-    /// terminal-use model, rather than the parent's base conversation model.
+    /// Freeze a usable, exact Galaxy model before any publication or child launch.
+    /// An omitted override normally inherits the terminal-use model, rather than
+    /// the parent's base conversation model. External harnesses own their models.
     fn normalize_profile_models(
         &self,
         request: &mut RunAgentsRequest,
@@ -114,16 +114,17 @@ impl RunAgentsExecutor {
         let profile =
             crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx)
                 .active_profile(Some(self.terminal_view_id), ctx);
-        if profile.data().orchestration_providers.is_none() {
-            return Ok(());
-        }
         if !request.harness_type.trim().is_empty()
             && !matches!(
                 Harness::parse_orchestration_harness(&request.harness_type),
                 Some(Harness::Oz)
             )
         {
-            return Err("This profile restricts orchestration to selected Galaxy model providers. External harnesses cannot bypass that selection.".to_string());
+            return if profile.data().orchestration_providers.is_some() {
+                Err("This profile restricts orchestration to selected Galaxy model providers. External harnesses cannot bypass that selection.".to_string())
+            } else {
+                Ok(())
+            };
         }
         let prefs = LLMPreferences::as_ref(ctx);
         let mut resolved = Vec::with_capacity(request.agent_run_configs.len());
@@ -139,7 +140,7 @@ impl RunAgentsExecutor {
             } else {
                 self.allowed_default_model(ctx).ok_or_else(|| {
                     format!(
-                        "Neither the configured terminal-use model nor the active conversation model is available from this profile's orchestration providers. {}",
+                        "Neither the configured terminal-use model nor the active conversation model is an enabled Galaxy model permitted for orchestration. {}",
                         self.allowed_model_choices(ctx),
                     )
                 })?
@@ -149,6 +150,13 @@ impl RunAgentsExecutor {
                     "Model {} from provider {} is unavailable ({reason:?}). {}",
                     diagnostic_model_label(model.id.as_str()),
                     diagnostic_model_label(prefs.orchestration_provider_name(model)),
+                    self.allowed_model_choices(ctx),
+                ));
+            }
+            if !model.is_usable_selection() {
+                return Err(format!(
+                    "Model {} does not identify a configured Galaxy model provider. {}",
+                    diagnostic_model_label(model.id.as_str()),
                     self.allowed_model_choices(ctx),
                 ));
             }
@@ -177,7 +185,7 @@ impl RunAgentsExecutor {
         ]
         .into_iter()
         .find(|model| {
-            model.disable_reason.is_none()
+            model.is_usable_selection()
                 && prefs.profile_allows_orchestration_model(model, Some(self.terminal_view_id), ctx)
         })
     }
@@ -187,7 +195,7 @@ impl RunAgentsExecutor {
         let choices = prefs
             .get_base_llm_choices_for_agent_mode(ctx)
             .filter(|model| {
-                model.disable_reason.is_none()
+                model.is_usable_selection()
                     && prefs.profile_allows_orchestration_model(
                         model,
                         Some(self.terminal_view_id),
@@ -260,6 +268,7 @@ impl RunAgentsExecutor {
                     "effective_model_id": model.map(|model| remote_logging::sanitize_error(model.id.as_str())),
                     "selected_provider": model.map(|model| remote_logging::sanitize_error(prefs.orchestration_provider_name(model))),
                     "disable_reason": model.and_then(|model| model.disable_reason.as_ref()),
+                    "model_selection_usable": model.map(LLMInfo::is_usable_selection),
                     "profile_allowed": model.map(|model| prefs.profile_allows_orchestration_model(model, Some(self.terminal_view_id), ctx)),
                 })
             })
@@ -278,6 +287,7 @@ impl RunAgentsExecutor {
             "inherited_terminal_model_id": remote_logging::sanitize_error(inherited.id.as_str()),
             "inherited_terminal_provider": remote_logging::sanitize_error(prefs.orchestration_provider_name(inherited)),
             "inherited_terminal_disable_reason": inherited.disable_reason,
+            "inherited_terminal_model_selection_usable": inherited.is_usable_selection(),
             "models": models,
             "models_truncated": request.agent_run_configs.len() > MAX_DIAGNOSTIC_MODELS,
         });

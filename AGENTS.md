@@ -289,6 +289,10 @@ Key invariants:
   orchestration provider selection without changing the parent profile. A role
   with no eligible model remains unavailable; a pending child model call must
   fail explicitly rather than invoke an excluded or disabled provider.
+- Placeholder, unavailable, disabled, and unknown model selections must never
+  route to Bedrock. AWS routing requires an enabled model verified for the current
+  connection. Validate child roles before runtime construction or restoration,
+  because constructing a Bedrock runtime can resolve credentials before a call.
 
 ### Platform Setup
 - `./script/bootstrap` - Platform-specific setup plus common agent skill installation from `skills-lock.json`; prompts for project/global when an install or update is needed unless a target flag or environment override is provided.
