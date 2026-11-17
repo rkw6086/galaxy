@@ -148,6 +148,10 @@ PY
 # sealing Galaxy.app. Linux Wormhole .tar.gz files are opaque data resources.
 # --deep is reserved for verification, never used to choose signing order.
 while IFS= read -r -d '' executable; do
+  # codesign recognizes this executable as Galaxy.app and validates its nested
+  # code. Defer it until the DockTile plug-in and other helpers are signed; the
+  # final app signature below also signs the main executable with entitlements.
+  [[ $executable != "$app/Contents/MacOS/galaxy-oss" ]] || continue
   kind=$(/usr/bin/file -b "$executable")
   [[ $kind == *Mach-O* ]] || continue
   signing_args=(--force --timestamp --options runtime --keychain "$keychain" --sign "$APPLE_SIGNING_IDENTITY")
