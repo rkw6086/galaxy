@@ -106,19 +106,11 @@ impl SettingsWidget for AboutPageWidget {
         )
         .with_color(appearance.theme().nonactive_ui_text_color().into())
         .finish();
-        let commit = Text::new(
-            format!("Commit {}", crate::build_info::source_revision_label()),
-            appearance.ui_font_family(),
-            12.,
-        )
-        .with_color(appearance.theme().nonactive_ui_text_color().into())
-        .finish();
         let build_details = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_spacing(4.)
             .with_child(version)
             .with_child(build)
-            .with_child(commit)
             .finish();
         let description = FormattedTextElement::from_str(
             "Galaxy is a local-first terminal and AI workspace built for developers. Your settings, terminal data, conversations, and Galaxy Drive content stay on this machine in your Galaxy directory. Galaxy sends request data only to the AI providers you configure.",

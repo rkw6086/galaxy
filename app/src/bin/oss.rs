@@ -40,7 +40,7 @@ fn main() -> Result<()> {
 }
 
 #[cfg(all(not(feature = "extern_plist"), target_os = "macos"))]
-embed_plist::embed_info_plist_bytes!(r#"
+embed_plist::embed_info_plist_bytes!(concat!(r#"
     <?xml version="1.0" encoding="UTF-8"?>
     <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
     <plist version="1.0">
@@ -60,7 +60,7 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>"#, env!("CARGO_PKG_VERSION"), r#"</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.developer-tools</string>
     <key>NSHighResolutionCapable</key>
@@ -75,4 +75,4 @@ embed_plist::embed_info_plist_bytes!(r#"
     <string>GalaxyDockTilePlugin.docktileplugin</string>
     </dict>
     </plist>
-"#.as_bytes());
+"#).as_bytes());

@@ -1,0 +1,129 @@
+name: macOS release
+
+on:
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+
+jobs:
+  macos:
+    # This is a native Apple Silicon host runner, registered as macos-arm64:host.
+    runs-on: macos-arm64
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && github.event.after != '0000000000000000000000000000000000000000'
+    timeout-minutes: 300
+    permissions:
+      code: read
+      actions: read
+      releases: read
+    outputs:
+      release: ${{ steps.release.outputs.release }}
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+    env:
+      CI: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      GALAXY_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      GITEA_SERVER_URL: ${{ github.server_url }}
+      GITEA_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Check out trusted release source
+        uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.17.0'
+
+      - name: Validate a new version tag
+        id: release
+        shell: bash
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: node script/ci/check-release-tag.mjs
+
+      - name: Set up pinned build tools
+        if: steps.release.outputs.release == 'true'
+        shell: bash
+        run: bash script/ci/setup-macos.sh
+
+      - name: Build Galaxy without signing credentials
+        if: steps.release.outputs.release == 'true'
+        shell: bash
+        run: |
+          export PATH="$GALAXY_TOOLS_DIR/bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+          bash script/ci/build-macos.sh
+
+      - name: Sign, notarize, staple, and create DMG
+        if: steps.release.outputs.release == 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: bash script/ci/package-macos.sh
+
+      - name: Upload verified DMG and checksums
+        if: steps.release.outputs.release == 'true'
+        # Gitea's artifact action; upstream upload-artifact rejects GHES.
+        uses: https://gitea.com/actions/gitea-upload-artifact@81f940d004763f986ba3582c007fd842dd5cb0d7 # v4
+        with:
+          name: Galaxy-${{ steps.release.outputs.version }}-macos-arm64
+          path: ${{ env.GALAXY_RELEASE_DIR }}/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Remove job build files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # package-macos.sh restores keychains and removes signing keys in its trap.
+          # Delete only this job's exact temporary paths, never global runner caches.
+          for kind in build artifacts tools; do
+            candidate="$RUNNER_TEMP/galaxy-$kind-$GALAXY_JOB_ID"
+            [[ "$RUNNER_TEMP" == /* && "$GALAXY_JOB_ID" =~ ^[0-9]+-[0-9]*$ ]]
+            rm -rf -- "$candidate"
+          done
+
+  publish:
+    needs: macos
+    if: needs.macos.result == 'success' && needs.macos.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      code: read
+      actions: read
+      releases: write
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GITEA_SERVER_URL: ${{ github.server_url }}
+      GITEA_REPOSITORY: ${{ github.repository }}
+      GALAXY_RELEASE_VERSION: ${{ needs.macos.outputs.version }}
+      RELEASE_TAG: ${{ needs.macos.outputs.version }}
+      GALAXY_RELEASE_SHA: ${{ needs.macos.outputs.sha }}
+    steps:
+      - name: Check out release publisher
+        uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Download verified release files
+        # Pinned Gitea-compatible v4 download action.
+        uses: https://github.com/christopherHX/gitea-download-artifact@75635f32b4c1c41c4b3d64e8f85210112ed4c9c7 # v4
+        with:
+          name: Galaxy-${{ needs.macos.outputs.version }}-macos-arm64
+          path: ${{ runner.temp }}/galaxy-release
+      - name: Publish signed release to Gitea
+        shell: bash
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: |
+          export GALAXY_RELEASE_DIR="$RUNNER_TEMP/galaxy-release"
+          python3 script/ci/publish-release.py

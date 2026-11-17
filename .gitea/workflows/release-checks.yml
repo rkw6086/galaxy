@@ -1,0 +1,86 @@
+name: Release checks
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      code: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Check out source
+        uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.17.0'
+      - name: Validate release metadata and scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node script/release.mjs check
+          node --check script/ci/check-release-tag.mjs
+          bash -n script/ci/setup-macos.sh script/ci/build-macos.sh script/ci/package-macos.sh
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          ast.parse(Path('script/ci/publish-release.py').read_text())
+          PY
+
+  macos-preflight:
+    # Manual, unsigned validation catches native build issues before tagging.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+    runs-on: macos-arm64
+    timeout-minutes: 120
+    permissions:
+      code: read
+    env:
+      CI: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      GALAXY_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      GALAXY_UNSIGNED_PREFLIGHT: '1'
+    steps:
+      - name: Check out preflight source
+        uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node
+        uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.17.0'
+      - name: Validate unsigned master preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/master ]]
+          version=$(node --input-type=module -e "import { checkVersions } from './script/release.mjs'; console.log(checkVersions());")
+          node script/release.mjs check "$version"
+          echo "GALAXY_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "GALAXY_RELEASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Set up pinned build tools
+        shell: bash
+        run: bash script/ci/setup-macos.sh
+      - name: Build complete unsigned macOS bundle
+        shell: bash
+        run: |
+          export PATH="$GALAXY_TOOLS_DIR/bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+          bash script/ci/build-macos.sh
+      - name: Remove preflight build files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          for kind in build artifacts tools; do
+            [[ "$RUNNER_TEMP" == /* && "$GALAXY_JOB_ID" =~ ^[0-9]+-[0-9]*$ ]]
+            rm -rf -- "$RUNNER_TEMP/galaxy-$kind-$GALAXY_JOB_ID"
+          done

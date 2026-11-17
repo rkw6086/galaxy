@@ -1,0 +1,37 @@
+#!/bin/bash
+# Install unsigned build tools shared by release tags and manual macOS preflight.
+set -euo pipefail
+
+: "${RUNNER_TEMP:?Missing Actions temporary directory}"
+: "${GALAXY_JOB_ID:?Missing Actions job identity}"
+: "${GITHUB_PATH:?Missing Actions path output}"
+: "${GITHUB_ENV:?Missing Actions environment output}"
+[[ "$RUNNER_TEMP" == /* && "$GALAXY_JOB_ID" =~ ^[0-9]+-[0-9]*$ ]]
+test "$(uname -s)" = Darwin
+test "$(uname -m)" = arm64
+export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+command -v rustup >/dev/null || { echo 'Install rustup for the runner user first.' >&2; exit 1; }
+command -v brew >/dev/null || { echo 'Install Homebrew for the runner user first.' >&2; exit 1; }
+rustup toolchain install 1.97.1 --profile minimal --component rustfmt --target aarch64-apple-darwin
+if ! xcrun -sdk macosx metal --version >/dev/null 2>&1; then
+  xcodebuild -downloadComponent MetalToolchain
+fi
+xcrun -sdk macosx metal --version
+xcrun -sdk macosx --find metallib
+for package in cmake pkgconf llvm; do
+  brew list --versions "$package" >/dev/null 2>&1 || brew install "$package"
+done
+[[ "$RUNNER_TEMP" == /* && "$GALAXY_JOB_ID" =~ ^[0-9]+-[0-9]*$ ]]
+tools="$RUNNER_TEMP/galaxy-tools-$GALAXY_JOB_ID"
+[[ ! -e "$tools" && ! -L "$tools" ]]
+mkdir "$tools"
+export RUSTUP_TOOLCHAIN=1.97.1
+cargo install --locked --root "$tools" --git https://github.com/burtonageo/cargo-bundle --rev 787d710686480cea32960bcd4d9f762c2f9bbd53 cargo-bundle
+cargo install --locked --root "$tools" cargo-about@0.8.4
+echo "$tools/bin" >> "$GITHUB_PATH"
+echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+echo '/opt/homebrew/bin' >> "$GITHUB_PATH"
+echo 'RUSTUP_TOOLCHAIN=1.97.1' >> "$GITHUB_ENV"
+echo "GALAXY_TOOLS_DIR=$tools" >> "$GITHUB_ENV"
+echo "CARGO_TARGET_DIR=$RUNNER_TEMP/galaxy-build-$GALAXY_JOB_ID" >> "$GITHUB_ENV"
+echo "GALAXY_RELEASE_DIR=$RUNNER_TEMP/galaxy-artifacts-$GALAXY_JOB_ID" >> "$GITHUB_ENV"
