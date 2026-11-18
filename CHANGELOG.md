@@ -1,5 +1,11 @@
 # Galaxy changelog
 
+## [3.1.2]
+
+- Prevent unavailable or placeholder worker models from falling back to AWS Bedrock and requesting AWS credentials.
+- Make unconfigured worker models follow the active chat model, and validate provider restrictions before worker startup and recovery.
+- Improve diagnostics for worker model lists and profile provider selections.
+
 ## [3.1.1]
 
 - Fix macOS signing order so bundled plug-ins are signed before the main app.
