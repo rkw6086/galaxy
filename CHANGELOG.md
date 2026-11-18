@@ -1,5 +1,9 @@
 # Galaxy changelog
 
+## [3.1.3]
+
+- Fix a crash when opening Bedrock settings and other provider pages that display saved models in a scrollable table.
+
 ## [3.1.2]
 
 - Prevent unavailable or placeholder worker models from falling back to AWS Bedrock and requesting AWS credentials.
