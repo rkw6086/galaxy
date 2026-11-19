@@ -12,18 +12,21 @@ channel=${GALAXY_BUILD_CHANNEL:-release}
 version=${GALAXY_RELEASE_VERSION:-}
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail 'A validated stable package version is required.'
 if [[ $channel == beta ]]; then
-  [[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Beta signing requires a push to master.'
-  [[ ${GALAXY_RELEASE_SHA:-} =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && ${GITHUB_SHA:-} == "$GALAXY_RELEASE_SHA" && ${GALAXY_BETA_ID:-} == "$GALAXY_RELEASE_SHA" ]] || fail 'Beta identity must match the validated triggering commit.'
+  [[ ( ${GITHUB_EVENT_NAME:-} == schedule || ${GITHUB_EVENT_NAME:-} == workflow_dispatch ) && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Beta signing requires a scheduled or manual master run.'
+  [[ ${GALAXY_RELEASE_SHA:-} =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && ${GALAXY_BETA_ID:-} == "$GALAXY_RELEASE_SHA" ]] || fail 'Beta identity must match the validated master commit.'
+  [[ -z $(git status --porcelain) ]] || fail 'Beta signing requires an unchanged source checkout.'
   artifact_version="beta_$GALAXY_BETA_ID"
   volume_name='Galaxy Beta'
 elif [[ $channel == release ]]; then
   [[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == "refs/tags/$version" ]] || fail 'Signing requires a matching pushed version tag.'
+  [[ ${GALAXY_VERSION_STAGED:-} == 1 ]] || fail 'Tagged releases require controlled CI version staging.'
+  node script/release.mjs verify-staged "$version" "$GALAXY_RELEASE_SHA"
   artifact_version=$version
   volume_name=Galaxy
 else
   fail 'Build channel must be release or beta.'
 fi
-[[ $(git rev-parse HEAD) == "${GALAXY_RELEASE_SHA:-}" && -z $(git status --porcelain) ]] || fail 'Checkout no longer matches the validated release.'
+[[ $(git rev-parse HEAD) == "${GALAXY_RELEASE_SHA:-}" ]] || fail 'Checkout no longer matches the validated source commit.'
 for variable in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_P8 CARGO_TARGET_DIR GALAXY_RELEASE_DIR; do
   [[ -n ${!variable:-} ]] || fail "Missing Gitea secret or job variable: $variable"
 done

@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-- Build signed and notarized Apple Silicon beta DMGs for every push to master, with the source commit in About Galaxy. Tagged releases continue to display their version.
+- Keep one rolling beta and one latest stable download, replacing older release assets and removing redundant native build archives after successful verification.
+- Build betas nightly at 3 a.m. Central when master changes or manually on demand, with notes since the previous beta. Set tagged app versions automatically from the new tag.
+- Sign and notarize Apple Silicon beta DMGs, with the source commit in About Galaxy. Tagged releases continue to display their version.
 
 ## [3.1.3]
 

@@ -1,29 +1,33 @@
 name: macOS beta
 
 on:
-  push:
-    branches: [master]
+  schedule:
+    - cron: 'CRON_TZ=America/Chicago 0 3 * * *'
+  workflow_dispatch:
 
 jobs:
   macos-beta:
-    # The same single-capacity native runner as releases. Keep each master build;
-    # never cancel a signing/notarization job to replace it with a newer push.
+    # The single-capacity native runner serializes publication with stable jobs.
     runs-on: macos-arm64
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && github.event.after != '0000000000000000000000000000000000000000'
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master'
     timeout-minutes: 300
     permissions:
-      code: read
-      actions: read
+      code: write # Only rolling beta/staging tag refs are mutable.
+      actions: write # Remove superseded native-build artifact duplicates.
+      releases: write
     env:
       CI: 'true'
       PYTHONDONTWRITEBYTECODE: '1'
       GALAXY_BUILD_CHANNEL: beta
       GALAXY_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      GITEA_SERVER_URL: ${{ github.server_url }}
+      GITEA_REPOSITORY: ${{ github.repository }}
     steps:
-      - name: Check out the triggering master commit
+      - name: Check out current master
         uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.sha }}
+          # Scheduled context SHAs can be stale; preflight validates the live head.
+          ref: master
           fetch-depth: 0
           persist-credentials: false
 
@@ -32,22 +36,27 @@ jobs:
         with:
           node-version: '24.17.0'
 
-      - name: Validate the master beta source
+      - name: Check master and changes since the published beta
         id: beta
         shell: bash
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
         run: node script/ci/check-beta-build.mjs
 
       - name: Set up pinned build tools
+        if: steps.beta.outputs.build == 'true'
         shell: bash
         run: bash script/ci/setup-macos.sh
 
       - name: Build Galaxy without signing credentials
+        if: steps.beta.outputs.build == 'true'
         shell: bash
         run: |
           export PATH="$GALAXY_TOOLS_DIR/bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
           bash script/ci/build-macos.sh
 
       - name: Sign, notarize, staple, and create beta DMG
+        if: steps.beta.outputs.build == 'true'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -59,14 +68,12 @@ jobs:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: bash script/ci/package-macos.sh
 
-      - name: Upload verified beta DMG and checksums
-        uses: https://gitea.com/actions/gitea-upload-artifact@81f940d004763f986ba3582c007fd842dd5cb0d7 # v4
-        with:
-          name: Galaxy-beta-${{ steps.beta.outputs.sha }}-${{ github.run_attempt }}-macos-arm64
-          path: ${{ env.GALAXY_RELEASE_DIR }}/
-          if-no-files-found: error
-          retention-days: 30
-          compression-level: 0
+      - name: Replace the beta release and prune superseded downloads
+        if: steps.beta.outputs.build == 'true'
+        shell: bash
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: python3 script/ci/publish-release.py
 
       - name: Remove job build files
         if: always()
@@ -74,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           # Signing restores the runner keychains in package-macos.sh's trap.
-          for kind in build artifacts tools; do
+          for kind in build artifacts tools notes; do
             [[ "$RUNNER_TEMP" == /* && "$GALAXY_JOB_ID" =~ ^[0-9]+-[0-9]*$ ]]
             rm -rf -- "$RUNNER_TEMP/galaxy-$kind-$GALAXY_JOB_ID"
           done

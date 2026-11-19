@@ -21,14 +21,22 @@ if [[ ${GALAXY_UNSIGNED_PREFLIGHT:-} == 1 ]]; then
   [[ $GALAXY_BUILD_CHANNEL == release ]] || fail 'Unsigned preflight cannot produce a beta build.'
   [[ ${GITHUB_EVENT_NAME:-} == workflow_dispatch && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Unsigned preflight is restricted to manual builds of master.'
 elif [[ $GALAXY_BUILD_CHANNEL == beta ]]; then
-  [[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Beta builds require a push to master.'
-  [[ ${GALAXY_RELEASE_SHA:-} =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && ${GITHUB_SHA:-} == "$GALAXY_RELEASE_SHA" && ${GALAXY_BETA_ID:-} == "$GALAXY_RELEASE_SHA" ]] || fail 'Beta identity must match the validated triggering commit.'
+  [[ ( ${GITHUB_EVENT_NAME:-} == schedule || ${GITHUB_EVENT_NAME:-} == workflow_dispatch ) && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Beta builds require a scheduled or manual master run.'
+  [[ ${GALAXY_RELEASE_SHA:-} =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && ${GALAXY_BETA_ID:-} == "$GALAXY_RELEASE_SHA" ]] || fail 'Beta identity must match the validated master commit.'
 else
   [[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == "refs/tags/$version" ]] || fail "Release builds require a pushed $version tag."
 fi
-node script/release.mjs check "$version"
-[[ -z $(git status --porcelain) ]] || fail 'Build requires a clean checkout.'
 [[ $(git rev-parse HEAD) == "${GALAXY_RELEASE_SHA:-}" ]] || fail 'Checkout does not match the validated release commit.'
+verify_source() {
+  if [[ $GALAXY_BUILD_CHANNEL == release && ${GALAXY_UNSIGNED_PREFLIGHT:-} != 1 ]]; then
+    [[ ${GALAXY_VERSION_STAGED:-} == 1 ]] || fail 'Tagged releases require controlled CI version staging.'
+    node script/release.mjs verify-staged "$version" "$GALAXY_RELEASE_SHA"
+  else
+    node script/release.mjs check "$version"
+    [[ -z $(git status --porcelain) ]] || fail 'Build requires an unchanged source checkout.'
+  fi
+}
+verify_source
 export GIT_RELEASE_TAG="$version"
 export GALAXY_GIT_COMMIT="$GALAXY_RELEASE_SHA"
 export GALAXY_GIT_DIRTY=false
@@ -157,6 +165,5 @@ for binary in app.rglob('*'):
         if not any(candidate.exists() and (candidate.resolve() == app or app in candidate.resolve().parents) for candidate in candidates):
             raise SystemExit(f'Unbundled macOS dependency in {binary.relative_to(app)}: {value}')
 PY
-node script/release.mjs check "$version"
-[[ -z $(git status --porcelain) ]] || fail 'Checkout changed during the unsigned build.'
+verify_source
 echo 'Unsigned Galaxy app, DockTile plug-in, resources, and Wormhole archives verified; ready for signing.'

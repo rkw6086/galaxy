@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { checkVersions, changelog } from '../release.mjs';
+import { checkVersions, compareVersions, stageVersion } from '../release.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
@@ -31,9 +31,10 @@ export function checkHistory(runs, version, sha) {
 async function main() {
   const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
   const version = tagVersion(process.env.GITHUB_EVENT_NAME, process.env.GITHUB_REF, event.after);
-  if (checkVersions() !== version) throw new Error('The tag does not match the packaged Galaxy version.');
-  changelog(version);
+  const sourceVersion = checkVersions();
+  if (compareVersions(version, sourceVersion) < 0) throw new Error('Release tags cannot lower the source package version.');
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+  if (git('status', '--porcelain', '--untracked-files=all')) throw new Error('Release validation requires a clean source checkout.');
   const sha = git('rev-parse', 'HEAD');
   if (git('rev-parse', `refs/tags/${version}^{commit}`) !== sha) throw new Error('Checkout does not match the version tag.');
   if (process.env.GITHUB_SHA && git('rev-parse', `${process.env.GITHUB_SHA}^{commit}`) !== sha) {
@@ -75,8 +76,31 @@ async function main() {
     console.log(`Galaxy ${version} is already released. Signing is skipped.`);
     return;
   }
+  // Release assets may be pruned, but immutable version tags preserve history.
+  for (const name of git('tag', '--list').split('\n')) {
+    if (name === version) continue;
+    const previous = name.startsWith('v') ? name.slice(1) : name;
+    if (VERSION.test(previous) && compareVersions(version, previous) <= 0) {
+      throw new Error(`Use a version newer than existing tag ${name}.`);
+    }
+  }
+  for (let page = 1; page <= 100; page += 1) {
+    const releases = await api(`/releases?limit=100&page=${page}`);
+    if (!Array.isArray(releases)) throw new Error('Cannot verify published release versions.');
+    for (const release of releases) {
+      const previous = release.tag_name;
+      if (!release.draft && !release.prerelease && VERSION.test(previous ?? '')
+          && compareVersions(version, previous) <= 0) {
+        throw new Error(`Use a version newer than published release ${previous}.`);
+      }
+    }
+    if (releases.length < 100) break;
+    if (page === 100) throw new Error('Published release history exceeds the safe preflight limit.');
+  }
+  // The tag selects the bundle version; source history and the tag stay intact.
+  stageVersion(version, sha);
   fs.appendFileSync(process.env.GITHUB_OUTPUT, `release=true\nversion=${version}\nsha=${sha}\n`);
-  fs.appendFileSync(process.env.GITHUB_ENV, `GALAXY_RELEASE_VERSION=${version}\nGALAXY_RELEASE_SHA=${sha}\nRELEASE_TAG=${version}\n`);
+  fs.appendFileSync(process.env.GITHUB_ENV, `GALAXY_RELEASE_VERSION=${version}\nGALAXY_RELEASE_SHA=${sha}\nRELEASE_TAG=${version}\nGALAXY_VERSION_STAGED=1\n`);
   console.log(`Validated new Galaxy ${version} release at ${sha}.`);
 }
 
