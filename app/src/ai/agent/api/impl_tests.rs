@@ -116,7 +116,10 @@ fn computer_use_never_expands_explicit_tool_overrides_or_read_only_permissions()
     assert!(cli.is_empty());
 
     params.permission_mode = crate::ai::execution_profiles::PermissionMode::ReadOnly;
-    params.supported_tools_override = Some(vec![api::ToolType::RequestComputerUse, api::ToolType::UseComputer]);
+    params.supported_tools_override = Some(vec![
+        api::ToolType::RequestComputerUse,
+        api::ToolType::UseComputer,
+    ]);
     let (normal, cli) = super::prepare_direct_provider_params(&mut params);
     assert!(normal.is_empty());
     assert!(cli.is_empty());
@@ -287,6 +290,44 @@ fn read_only_mode_filters_even_explicit_tool_overrides() {
     let (base, cli) = super::prepare_direct_provider_params(&mut params);
     assert_eq!(base, vec![api::ToolType::Grep, api::ToolType::ReadFiles]);
     assert_eq!(cli, base);
+}
+
+#[test]
+fn local_policy_omits_tools_it_cannot_authorize_even_from_overrides() {
+    let mut params = request_params_with_ask_user_question_enabled(true);
+    params.permission_mode = crate::ai::execution_profiles::PermissionMode::GalaxyDecides;
+    params.supported_tools_override = Some(vec![
+        api::ToolType::Grep,
+        api::ToolType::ReadFiles,
+        api::ToolType::RunShellCommand,
+        api::ToolType::ApplyFileDiffs,
+        api::ToolType::CallMcpTool,
+        api::ToolType::ReadMcpResource,
+        api::ToolType::RunAgents,
+        api::ToolType::CreateDocuments,
+        api::ToolType::EditDocuments,
+        api::ToolType::RequestComputerUse,
+    ]);
+    let (base, cli) = super::prepare_direct_provider_params(&mut params);
+    assert_eq!(
+        base,
+        vec![
+            api::ToolType::Grep,
+            api::ToolType::ReadFiles,
+            api::ToolType::RunShellCommand,
+            api::ToolType::ApplyFileDiffs,
+        ]
+    );
+    assert_eq!(cli, base);
+}
+
+#[test]
+fn local_policy_omits_remote_file_mutations() {
+    let mut params = request_params_for_remote(Some(HostId::new("remote-host".to_owned())));
+    params.permission_mode = crate::ai::execution_profiles::PermissionMode::GalaxyDecides;
+    let (base, cli) = super::prepare_direct_provider_params(&mut params);
+    assert!(!base.contains(&api::ToolType::ApplyFileDiffs));
+    assert!(!cli.contains(&api::ToolType::ApplyFileDiffs));
 }
 
 #[test]

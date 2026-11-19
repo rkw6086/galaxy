@@ -321,7 +321,11 @@ fn prepare_rig_turn_for_provider(
         RigRequestMode::Normal | RigRequestMode::Plan | RigRequestMode::Orchestrate => {}
     }
     if matches!(mode, RigRequestMode::Normal | RigRequestMode::Orchestrate)
-        && permission_mode != crate::ai::execution_profiles::PermissionMode::ReadOnly
+        && matches!(
+            permission_mode,
+            crate::ai::execution_profiles::PermissionMode::AskFirst
+                | crate::ai::execution_profiles::PermissionMode::AllowAll
+        )
         && available_tools.contains(&ToolType::ApplyFileDiffs)
     {
         tools.push(create_skill_tool());
@@ -337,7 +341,7 @@ fn prepare_rig_turn_for_provider(
         crate::ai::execution_profiles::PermissionMode::AllowAll => "\n## Permission Mode: Allow All\nTools run without permission review. Explicit denylists and workspace restrictions remain binding; never work around a denial.\n",
         crate::ai::execution_profiles::PermissionMode::ReadOnly => "\n## Permission Mode: Read Only\nOnly inspection and search tools are available. Describe proposed changes without executing commands, editing, delegating, or invoking MCP/computer use.\n",
         crate::ai::execution_profiles::PermissionMode::AskFirst => "\n## Permission Mode: Ask First\nGalaxy asks for approval before actions and remembers exact approved commands in their working directory. Do not request blanket permission in prose; submit the concrete tool action for the approval pane.\n",
-        crate::ai::execution_profiles::PermissionMode::GalaxyDecides => "\n## Permission Mode: Galaxy Decides\nGalaxy's independent terminal-use model resolves tool permissions without asking the user. Treat denials as binding. Revise the action scope or provide concrete missing justification addressing the stated risk, or use a safer approach. Never repeat an unchanged denied request, seek user approval to override it, or claim a denied action ran. Work autonomously and report concrete blockers when no authorized approach remains. For routine inspection, prefer the permission fast path: pwd, simple ls commands, git --version, git --no-pager -c core.fsmonitor=false status --short, or git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --stat (optionally --cached). Shell expansions, chaining, redirects and other command forms still require model review.\n",
+        crate::ai::execution_profiles::PermissionMode::GalaxyDecides => "\n## Permission Mode: Galaxy Decides\nGalaxy applies deterministic local permission rules without another model call or asking the user. The profile permits known inspections and bounded edit/create operations within the verified local working directory, subject to user restrictions and protected paths. Arbitrary shell commands, external effects and unrecognized actions are denied unless an explicit command allowlist grants the exact operation. A rationale cannot change a local rule. Treat denials as binding: use a supported inspection tool, narrow a project edit, or report the concrete blocker. Never repeat an unchanged denied request, seek approval to override it, or claim a denied action ran. For shell inspection use pwd, simple ls commands, git --version, git --no-pager -c core.fsmonitor=false status --short, or git --no-pager -c core.fsmonitor=false diff --no-ext-diff --no-textconv --stat (optionally --cached). Expansions, chaining, redirects and unknown command forms are not automatically authorized.\n",
     });
 
     if !command_allowlist.is_empty() {
@@ -1079,8 +1083,11 @@ fn build_system_prompt(
     }
     match mode {
         RigRequestMode::Normal => prompt.push_str(IMPLEMENTATION_PROGRESS_GUIDANCE),
-        RigRequestMode::Plan => prompt.push_str(
+        RigRequestMode::Plan if tools.iter().any(|tool| tool.name == "create_plan") => prompt.push_str(
             "## Plan Mode\nInspect and produce an implementation-ready plan. Do not edit files or perform state-changing actions. Research as needed, then finish by calling `create_plan` to write the plan with the built-in planning tools. For multi-step implementation work, include a concise `## Tasks` section in the document with short, specific `- [ ]` items. If a plan document already exists for this task, call `edit_plan` instead. Do not return the plan only as prose, and do not claim completion until the plan tool succeeds. Once the plan is created, avoid asking follow-up questions unless you are genuinely blocked or materially uncertain about the next step.\n\n",
+        ),
+        RigRequestMode::Plan => prompt.push_str(
+            "## Plan Mode\nInspect and produce an implementation-ready plan. Do not edit files or perform state-changing actions. The current permission mode does not expose plan-document creation, so present the plan in your response and report that it was not saved as a document. Do not call unavailable planning tools or claim a document was created.\n\n",
         ),
         RigRequestMode::Orchestrate => prompt.push_str(
             "## Orchestration Mode\nDelegate only independent, bounded work where parallelism materially helps, then synthesize the results.\n\n",

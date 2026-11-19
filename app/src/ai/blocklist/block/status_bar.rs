@@ -168,6 +168,20 @@ impl BlocklistAIStatusBar {
                 return;
             }
             match event {
+                BlocklistAIHistoryEvent::UpdatedStreamingExchange {
+                    exchange_id,
+                    conversation_id,
+                    ..
+                } => {
+                    if let Some(model) = me.active_exchange_model.as_ref() {
+                        if model.exchange_id(ctx) == Some(*exchange_id) {
+                            me.on_updated_active_exchange_output(ctx);
+                        } else if model.conversation_id(ctx) == Some(*conversation_id) {
+                            ctx.notify();
+                        }
+                    }
+                }
+                BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated { .. } => ctx.notify(),
                 BlocklistAIHistoryEvent::AppendedExchange {
                     response_stream_id,
                     exchange_id,
@@ -586,13 +600,7 @@ impl BlocklistAIStatusBar {
                     )
                     .ok()
                 })
-                .map(|model| {
-                    model.on_updated_output(
-                        Box::new(|me, ctx| me.on_updated_active_exchange_output(ctx)),
-                        ctx,
-                    );
-                    Box::new(model) as Box<dyn AIBlockModel<View = BlocklistAIStatusBar>>
-                });
+                .map(|model| Box::new(model) as Box<dyn AIBlockModel<View = BlocklistAIStatusBar>>);
             self.is_summarization_cancel_dialog_open = false;
             self.stop_summarization_timer();
             if conversation_is_in_progress {

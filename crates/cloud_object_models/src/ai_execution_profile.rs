@@ -38,7 +38,9 @@ impl PermissionMode {
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::AllowAll => "Run tools without approval or model review. Explicit denylists and workspace restrictions still apply.",
+            Self::AllowAll => {
+                "Run tools without approval. Explicit denylists and workspace restrictions still apply."
+            }
             Self::ReadOnly => {
                 "Only file reads, code searches, grep, and file discovery are available. Commands, edits, MCP, computer use, and agents are disabled, except explicitly allowlisted shell commands."
             }
@@ -46,7 +48,11 @@ impl PermissionMode {
                 "Ask before taking action. Approved commands are remembered for this profile and working directory; changed commands require approval again."
             }
             Self::GalaxyDecides => {
-                "Your terminal-use model reviews actions. Safe actions run automatically; risky or unassessable actions are denied without asking you. The agent can revise its request or choose a safer approach."
+                if cfg!(unix) {
+                    "Local checks approve known inspections and bounded workspace edits. Commands require a known inspection form or an explicit allowlist. Uncertain actions are denied with a reason, without another model call or approval prompt."
+                } else {
+                    "Local checks approve known inspections and guarded file creation. Automatic existing-file edits are unavailable on this platform; use Ask First or Allow All for those edits. Uncertain actions are denied without another model call or approval prompt."
+                }
             }
         }
     }
@@ -65,7 +71,7 @@ impl PermissionMode {
 pub enum ActionPermission {
     AlwaysAllow,
     AlwaysAsk,
-    /// Independently assess each action before allowing execution.
+    /// Apply deterministic local policy before allowing execution.
     #[serde(alias = "AgentDecides")]
     GalaxyDecides,
     // This is intended to catch deserialization errors whenever we add new variants to this enum. Say we
@@ -79,7 +85,7 @@ impl ActionPermission {
     pub fn description(&self) -> &'static str {
         match self {
             ActionPermission::GalaxyDecides => {
-                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 is denied without asking you."
+                "Local checks approve known bounded actions. Unrecognized or restricted actions are denied with a reason, without a reviewer model or approval prompt."
             }
             ActionPermission::Unknown => "Unknown setting.",
             ActionPermission::AlwaysAllow => {
@@ -108,7 +114,7 @@ pub enum WriteToPtyPermission {
     #[default]
     AlwaysAsk,
     AskOnFirstWrite,
-    /// Independently assess each action before allowing execution.
+    /// Apply deterministic local policy before allowing execution.
     GalaxyDecides,
     // This is intended to catch deserialization errors whenever we add new variants to this enum.
     #[serde(other)]
@@ -119,7 +125,7 @@ impl WriteToPtyPermission {
     pub fn description(&self) -> &'static str {
         match self {
             WriteToPtyPermission::GalaxyDecides => {
-                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 is denied without asking you."
+                "Local checks approve known bounded actions. Unrecognized or restricted actions are denied with a reason, without a reviewer model or approval prompt."
             }
             WriteToPtyPermission::AlwaysAllow => ActionPermission::AlwaysAllow.description(),
             WriteToPtyPermission::AskOnFirstWrite => {
@@ -143,7 +149,7 @@ pub enum ComputerUsePermission {
     Never,
     AlwaysAsk,
     AlwaysAllow,
-    /// Independently assess each action before allowing execution.
+    /// Apply deterministic local policy before allowing execution.
     GalaxyDecides,
     // This is intended to catch deserialization errors whenever we add new variants to this enum.
     #[serde(other)]
@@ -154,7 +160,7 @@ impl ComputerUsePermission {
     pub fn description(&self) -> &'static str {
         match self {
             ComputerUsePermission::GalaxyDecides => {
-                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 is denied without asking you."
+                "Local checks approve known bounded actions. Unrecognized or restricted actions are denied with a reason, without a reviewer model or approval prompt."
             }
             ComputerUsePermission::Never => {
                 "Computer use tools are disabled and will not be available to the Agent."
@@ -185,7 +191,7 @@ pub enum RunAgentsPermission {
     #[default]
     AlwaysAsk,
 
-    /// Independently assess each action before allowing execution.
+    /// Apply deterministic local policy before allowing execution.
     GalaxyDecides,
     // This is intended to catch deserialization errors whenever we add new variants to this enum.
     #[serde(other)]
@@ -196,7 +202,7 @@ impl RunAgentsPermission {
     pub fn description(&self) -> &'static str {
         match self {
             RunAgentsPermission::GalaxyDecides => {
-                "Galaxy reviews each action with your terminal-use model. Risk 0–3 runs automatically; risk 4–5 is denied without asking you."
+                "Local checks approve known bounded actions. Unrecognized or restricted actions are denied with a reason, without a reviewer model or approval prompt."
             }
             RunAgentsPermission::NeverAllow => {
                 "The Agent cannot run child agents and the run_agents tool will not be available."
@@ -630,7 +636,9 @@ impl Default for AIExecutionProfile {
 
 impl AIExecutionProfile {
     pub fn includes_orchestration_provider(&self, name: &str) -> bool {
-        self.orchestration_providers.as_ref().is_none_or(|providers| providers.iter().any(|provider| provider == name))
+        self.orchestration_providers
+            .as_ref()
+            .is_none_or(|providers| providers.iter().any(|provider| provider == name))
     }
 
     /// Adapter for legacy providers that still consume per-tool permission fields.

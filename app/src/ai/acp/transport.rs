@@ -120,13 +120,15 @@ pub(crate) async fn acp_output_stream(
     let events = match runtime.start_turn(request, control).await {
         Ok(events) => events,
         Err(error) => {
-            model_output_logging::log(serde_json::json!({
-                "event": "model_error",
-                "source": "acp",
-                "conversation_id": conversation_id,
-                "runtime_id": runtime_id,
-                "payload": &error,
-            }));
+            model_output_logging::log(|| {
+                serde_json::json!({
+                    "event": "model_error",
+                    "source": "acp",
+                    "conversation_id": conversation_id,
+                    "runtime_id": runtime_id,
+                    "payload": &error,
+                })
+            });
             return translated_startup_error_stream(translator, &error.to_string());
         }
     };
@@ -150,7 +152,7 @@ pub(crate) async fn acp_output_stream(
                     let event = match event {
                         Ok(event) => event,
                         Err(error) => {
-                            model_output_logging::log(serde_json::json!({
+                            model_output_logging::log(|| serde_json::json!({
                                 "event": "model_error",
                                 "source": "acp",
                                 "conversation_id": conversation_id,
@@ -164,7 +166,7 @@ pub(crate) async fn acp_output_stream(
                             break;
                         }
                     };
-                    model_output_logging::log(serde_json::json!({
+                    model_output_logging::log(|| serde_json::json!({
                         "event": "model_output",
                         "source": "acp",
                         "conversation_id": conversation_id,

@@ -3,7 +3,7 @@ mod diff_application;
 mod telemetry;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use ai::diff_validation::AIRequestedCodeDiff;
 use apply_diff_model::ApplyDiffModel;
@@ -21,6 +21,7 @@ pub use telemetry::{
     EditReceivedEvent, EditResolvedEvent, EditStats, RequestFileEditsFormatKind,
     RequestFileEditsTelemetryEvent,
 };
+use uuid::Uuid;
 use vec1::{vec1, Vec1};
 use warp_util::file::FileSaveError;
 use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity as _, ViewHandle};
@@ -43,35 +44,120 @@ use crate::{safe_warn, BlocklistAIHistoryModel};
 const APPLY_DIFF_RESULT_CONTEXT_LINES: usize = 10;
 
 type AppliedDiffs = (Vec<FileDiff>, DiffSessionType);
+type FileEditExecutionKey = (AIConversationId, AIAgentActionId);
+
+struct PreparedFileEdits {
+    action: AIAgentAction,
+    token: Uuid,
+    working_directory: Option<String>,
+    ready: bool,
+    applied_diffs: Option<AppliedDiffs>,
+}
+
+/// Called on a worker before preprocessing or permission review. The queued action is replaced
+/// with this exact proposal so the save-time guard and the reviewed fields cannot diverge.
+pub(crate) fn normalize_local_creations(
+    mut action: AIAgentAction,
+    working_directory: Option<String>,
+    native_local: bool,
+) -> Result<AIAgentAction, &'static str> {
+    if !native_local {
+        return Err("Guarded creation requires a verified native local session.");
+    }
+    let directory = working_directory
+        .as_deref()
+        .map(Path::new)
+        .filter(|path| path.is_absolute())
+        .ok_or("Guarded creation requires an absolute working directory.")?;
+    let scope = directory
+        .canonicalize()
+        .map_err(|_| "The creation scope could not be resolved safely.")?;
+    if !scope.is_dir() {
+        return Err("The creation scope is not a directory.");
+    }
+    let AIAgentActionType::RequestFileEdits { file_edits, .. } = &mut action.action else {
+        return Err("Guarded creation requires a file-edit action.");
+    };
+    for edit in file_edits {
+        let FileEdit::Create {
+            file,
+            creation_scope,
+            ..
+        } = edit
+        else {
+            continue;
+        };
+        let path = file
+            .as_deref()
+            .filter(|path| !path.is_empty())
+            .ok_or("Every guarded creation must name a file.")?;
+        if path.trim() != path
+            || path.starts_with('~')
+            || path.chars().any(char::is_control)
+            || Path::new(path)
+                .components()
+                .any(|part| matches!(part, Component::ParentDir))
+        {
+            return Err("Guarded creation requires a literal native project path.");
+        }
+        let path = if Path::new(path).is_absolute() {
+            PathBuf::from(path)
+        } else {
+            scope.join(path)
+        };
+        let existing_scope = match creation_scope.as_ref() {
+            Some(existing) => existing
+                .canonicalize()
+                .map_err(|_| "The existing creation scope could not be resolved safely.")?,
+            None => scope.clone(),
+        };
+        if !existing_scope.starts_with(&scope)
+            || path == existing_scope
+            || !path.starts_with(&existing_scope)
+        {
+            return Err(
+                "The file and its existing creation scope must remain inside the active project.",
+            );
+        }
+        *file = Some(
+            path.to_str()
+                .ok_or("The native creation path is not valid text.")?
+                .to_owned(),
+        );
+        *creation_scope = Some(existing_scope);
+    }
+    Ok(action)
+}
 
 #[derive(Default)]
 struct PendingAppliedDiffs {
-    by_action: HashMap<AIAgentActionId, AppliedDiffs>,
+    by_action: HashMap<FileEditExecutionKey, AppliedDiffs>,
 }
 
 impl PendingAppliedDiffs {
     fn buffer(
         &mut self,
-        action_id: AIAgentActionId,
+        key: FileEditExecutionKey,
         diffs: Vec<FileDiff>,
         diff_session_type: DiffSessionType,
     ) {
-        self.by_action.insert(action_id, (diffs, diff_session_type));
+        self.by_action.insert(key, (diffs, diff_session_type));
     }
 
-    fn take(&mut self, action_id: &AIAgentActionId) -> Option<AppliedDiffs> {
-        self.by_action.remove(action_id)
+    fn take(&mut self, key: &FileEditExecutionKey) -> Option<AppliedDiffs> {
+        self.by_action.remove(key)
     }
 }
 
 pub struct RequestFileEditsExecutor {
     active_session: ModelHandle<ActiveSession>,
     apply_diff_model: ModelHandle<ApplyDiffModel>,
-    diff_views: HashMap<AIAgentActionId, ViewHandle<CodeDiffView>>,
+    diff_views: HashMap<FileEditExecutionKey, ViewHandle<CodeDiffView>>,
+    prepared_proposals: HashMap<FileEditExecutionKey, PreparedFileEdits>,
     /// Successfully applied diffs that completed before their view was registered.
     pending_applied_diffs: PendingAppliedDiffs,
     /// Set of action IDs where diff application failed.
-    diff_application_failures: HashMap<AIAgentActionId, Vec1<DiffApplicationError>>,
+    diff_application_failures: HashMap<FileEditExecutionKey, Vec1<DiffApplicationError>>,
     terminal_view_id: EntityId,
 }
 
@@ -86,6 +172,7 @@ impl RequestFileEditsExecutor {
             active_session,
             apply_diff_model,
             diff_views: HashMap::new(),
+            prepared_proposals: HashMap::new(),
             pending_applied_diffs: PendingAppliedDiffs::default(),
             diff_application_failures: HashMap::new(),
             terminal_view_id,
@@ -132,7 +219,7 @@ impl RequestFileEditsExecutor {
         // without any possibility of recovery.
         if self
             .diff_application_failures
-            .contains_key(&input.action.id)
+            .contains_key(&(input.conversation_id, input.action.id.clone()))
         {
             return true;
         }
@@ -146,14 +233,48 @@ impl RequestFileEditsExecutor {
     /// finished preprocessing before the UI observed the action.
     pub fn register_requested_edits(
         &mut self,
+        conversation_id: AIConversationId,
         action_id: &AIAgentActionId,
         view: &ViewHandle<CodeDiffView>,
         ctx: &mut ModelContext<Self>,
     ) {
-        self.diff_views.insert(action_id.clone(), view.clone());
-        if let Some((diffs, diff_session_type)) = self.pending_applied_diffs.take(action_id) {
-            Self::apply_diffs_to_view(view, diffs, diff_session_type, ctx);
+        let key = (conversation_id, action_id.clone());
+        if self
+            .diff_views
+            .get(&key)
+            .is_some_and(|current| current.id() == view.id())
+        {
+            return;
         }
+        // A late historical view must never replace the current proposal with stale edits.
+        // Every new registration receives the exact current prepared snapshot, not whichever
+        // data that view retained. Views already showing another proposal are left untouched.
+        if !view.as_ref(ctx).is_pending_diffs_empty() {
+            return;
+        }
+        let prepared_diffs = self
+            .prepared_proposals
+            .get(&key)
+            .and_then(|prepared| prepared.applied_diffs.clone());
+        if let Some((diffs, session_type)) = prepared_diffs {
+            Self::apply_diffs_to_view(view, diffs, session_type, ctx);
+            self.pending_applied_diffs.take(&key);
+        } else if let Some((diffs, session_type)) = self.pending_applied_diffs.take(&key) {
+            Self::apply_diffs_to_view(view, diffs, session_type, ctx);
+        }
+        self.diff_views.insert(key.clone(), view.clone());
+    }
+
+    pub(crate) fn clear_prepared_action(
+        &mut self,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) {
+        let key = (conversation_id, action_id.clone());
+        self.prepared_proposals.remove(&key);
+        self.diff_views.remove(&key);
+        self.pending_applied_diffs.take(&key);
+        self.diff_application_failures.remove(&key);
     }
 
     pub(super) fn execute(
@@ -178,7 +299,32 @@ impl RequestFileEditsExecutor {
             id
         );
 
-        let Some(diff_view) = self.diff_views.get(id) else {
+        let key = (input.conversation_id, id.clone());
+        if BlocklistAIPermissions::as_ref(ctx).get_permission_mode(ctx, Some(self.terminal_view_id))
+            == crate::ai::execution_profiles::PermissionMode::GalaxyDecides
+        {
+            let Some(prepared) = self.prepared_proposals.get(&key) else {
+                return ActionExecution::NotReady;
+            };
+            if prepared.action != *input.action
+                || prepared.working_directory
+                    != self
+                        .active_session
+                        .as_ref(ctx)
+                        .current_working_directory()
+                        .cloned()
+            {
+                return ActionExecution::Sync(AIAgentActionResultType::RequestFileEdits(
+                    RequestFileEditsResult::DiffApplicationFailed {
+                        error: "The prepared file edits or working directory changed after permission review. Request a fresh file-edit action.".to_owned(),
+                    },
+                ));
+            }
+            if !prepared.ready {
+                return ActionExecution::NotReady;
+            }
+        }
+        let Some(diff_view) = self.diff_views.get(&key) else {
             crate::ai::tool_diagnostics::tool_debug!(
                 "RequestFileEditsExecutor: no diff view found for action_id={:?}",
                 id
@@ -187,7 +333,7 @@ impl RequestFileEditsExecutor {
         };
 
         // If diff application failed, early exit.
-        if let Some(errors) = self.diff_application_failures.remove(id) {
+        if let Some(errors) = self.diff_application_failures.remove(&key) {
             return ActionExecution::Sync(AIAgentActionResultType::RequestFileEdits(
                 RequestFileEditsResult::DiffApplicationFailed {
                     error: DiffApplicationError::error_for_conversation(&errors),
@@ -320,6 +466,27 @@ impl RequestFileEditsExecutor {
         );
 
         let (tx, rx) = oneshot::channel();
+        let key = (input.conversation_id, id.clone());
+        let token = Uuid::new_v4();
+        let previous = self.prepared_proposals.insert(
+            key.clone(),
+            PreparedFileEdits {
+                action: input.action.clone(),
+                token,
+                working_directory: self
+                    .active_session
+                    .as_ref(ctx)
+                    .current_working_directory()
+                    .cloned(),
+                ready: false,
+                applied_diffs: None,
+            },
+        );
+        if previous.is_some() {
+            self.diff_views.remove(&key);
+            self.pending_applied_diffs.take(&key);
+            self.diff_application_failures.remove(&key);
+        }
         let files = file_edits.clone();
         let creation_scopes = files
             .iter()
@@ -332,8 +499,6 @@ impl RequestFileEditsExecutor {
                 _ => None,
             })
             .collect::<HashMap<_, _>>();
-        let id = id.clone();
-
         let apply_future = self.apply_diff_model.update(ctx, |model, ctx| {
             model.apply_diffs(files, &ai_identifiers, passive_diff, ctx)
         });
@@ -341,10 +506,10 @@ impl RequestFileEditsExecutor {
         ctx.spawn(
             async move {
                 let applied_diffs = apply_future.await;
-                (applied_diffs, id, tx)
+                (applied_diffs, tx)
             },
-            |me, (diffs, id, tx), ctx| {
-                me.on_diffs_applied(diffs, id, tx, creation_scopes, ctx);
+            move |me, (diffs, tx), ctx| {
+                me.on_diffs_applied(diffs, key, token, tx, creation_scopes, ctx);
             },
         );
 
@@ -357,18 +522,24 @@ impl RequestFileEditsExecutor {
     fn on_diffs_applied(
         &mut self,
         applied_diffs: Result<Vec<AIRequestedCodeDiff>, Vec1<DiffApplicationError>>,
-        id: AIAgentActionId,
+        key: FileEditExecutionKey,
+        token: Uuid,
         tx: oneshot::Sender<()>,
         creation_scopes: HashMap<String, PathBuf>,
         ctx: &mut ModelContext<Self>,
     ) {
+        let Some(prepared) = self
+            .prepared_proposals
+            .get_mut(&key)
+            .filter(|prepared| prepared.token == token)
+        else {
+            let _ = tx.send(());
+            return;
+        };
+        prepared.ready = true;
+        let current_working_directory = prepared.working_directory.clone();
         match applied_diffs {
             Ok(applied_diffs) if !applied_diffs.is_empty() => {
-                let current_working_directory = self
-                    .active_session
-                    .as_ref(ctx)
-                    .current_working_directory()
-                    .cloned();
                 let shell_launch_data = self.active_session.as_ref(ctx).shell_launch_data(ctx);
                 let diffs = applied_diffs
                     .into_iter()
@@ -387,7 +558,7 @@ impl RequestFileEditsExecutor {
                         file_diff.creation_scope = creation_scopes.get(&diff.file_name).cloned();
                         file_diff
                     })
-                    .collect();
+                    .collect::<Vec<_>>();
                 let diff_session_type = match self.active_session.as_ref(ctx).session_type(ctx) {
                     Some(SessionType::WormholedRemote {
                         host_id: Some(host_id),
@@ -395,24 +566,35 @@ impl RequestFileEditsExecutor {
                     _ => DiffSessionType::Local,
                 };
 
-                if let Some(diff_view) = self.diff_views.get(&id).cloned() {
+                // Retain this snapshot until completion, including after the first view consumes
+                // it. Late registration must bind to these exact edits and save-time guards.
+                self.prepared_proposals.get_mut(&key).unwrap().applied_diffs =
+                    Some((diffs.clone(), diff_session_type.clone()));
+
+                if let Some(diff_view) = self
+                    .diff_views
+                    .get(&key)
+                    .cloned()
+                    .filter(|view| view.as_ref(ctx).is_pending_diffs_empty())
+                {
                     Self::apply_diffs_to_view(&diff_view, diffs, diff_session_type, ctx);
                 } else {
+                    self.diff_views.remove(&key);
                     self.pending_applied_diffs
-                        .buffer(id, diffs, diff_session_type);
+                        .buffer(key, diffs, diff_session_type);
                 }
             }
             Ok(_) => {
                 log::warn!("No diffs generated");
                 self.diff_application_failures
-                    .insert(id, vec1![DiffApplicationError::EmptyDiff]);
+                    .insert(key, vec1![DiffApplicationError::EmptyDiff]);
             }
             Err(err) => {
                 safe_warn!(
                     safe: ("Failed to generate diffs"),
                     full: ("Failed to generate diffs {err:?}")
                 );
-                self.diff_application_failures.insert(id, err);
+                self.diff_application_failures.insert(key, err);
             }
         }
 

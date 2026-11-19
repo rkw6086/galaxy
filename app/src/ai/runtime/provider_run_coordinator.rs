@@ -878,17 +878,17 @@ impl ProviderRunCoordinator {
             .fuse();
             futures::pin_mut!(command);
             futures::select_biased! {
-                result = start_future => break Some(result),
-                _ = timeout => {
-                    let _ = attempt_sender.send(TurnCommand::Cancel).await;
-                    break None;
-                }
                 command = command => match command {
                     Ok(command) => {
                         let _ = attempt_sender.send(command).await;
                     }
                     Err(_) => control_open = false,
                 },
+                result = start_future => break Some(result),
+                _ = timeout => {
+                    let _ = attempt_sender.send(TurnCommand::Cancel).await;
+                    break None;
+                }
             }
         };
         let stream = match start_result {
@@ -928,17 +928,17 @@ impl ProviderRunCoordinator {
                 .fuse();
                 futures::pin_mut!(command);
                 futures::select_biased! {
-                    event = next_event => break Some(event),
-                    _ = timeout => {
-                        let _ = attempt_sender.send(TurnCommand::Cancel).await;
-                        break None;
-                    }
                     command = command => match command {
                         Ok(command) => {
                             let _ = attempt_sender.send(command).await;
                         }
                         Err(_) => control_open = false,
                     },
+                    event = next_event => break Some(event),
+                    _ = timeout => {
+                        let _ = attempt_sender.send(TurnCommand::Cancel).await;
+                        break None;
+                    }
                 }
             };
             let event = match event_result {
@@ -964,17 +964,19 @@ impl ProviderRunCoordinator {
                 }
             };
             #[cfg(not(target_family = "wasm"))]
-            model_output_logging::log(serde_json::json!({
-                "event": "model_output",
-                "source": "direct_provider",
-                "provider_run_id": call.work_id.run_id.as_str(),
-                "provider_epoch": call.work_id.epoch.get(),
-                "profile": call.profile.as_str(),
-                "runtime_id": runtime_id,
-                "model_id": model_id,
-                "retry_attempt": call.retry_attempt,
-                "payload": &event,
-            }));
+            model_output_logging::log(|| {
+                serde_json::json!({
+                    "event": "model_output",
+                    "source": "direct_provider",
+                    "provider_run_id": call.work_id.run_id.as_str(),
+                    "provider_epoch": call.work_id.epoch.get(),
+                    "profile": call.profile.as_str(),
+                    "runtime_id": runtime_id,
+                    "model_id": model_id,
+                    "retry_attempt": call.retry_attempt,
+                    "payload": &event,
+                })
+            });
             match event {
                 AgentEvent::TurnStarted { runtime_request_id } => {
                     if buffer.started {
@@ -1306,17 +1308,19 @@ impl ProviderRunCoordinator {
             self.model_failure_diagnostics.record(identity, &error);
         }
         #[cfg(not(target_family = "wasm"))]
-        model_output_logging::log(serde_json::json!({
-            "event": "model_error",
-            "source": "direct_provider",
-            "provider_run_id": call.work_id.run_id.as_str(),
-            "provider_epoch": call.work_id.epoch.get(),
-            "profile": call.profile.as_str(),
-            "runtime_id": profile.runtime.descriptor().id,
-            "model_id": profile.request.model.as_str(),
-            "retry_attempt": call.retry_attempt,
-            "payload": &error,
-        }));
+        model_output_logging::log(|| {
+            serde_json::json!({
+                "event": "model_error",
+                "source": "direct_provider",
+                "provider_run_id": call.work_id.run_id.as_str(),
+                "provider_epoch": call.work_id.epoch.get(),
+                "profile": call.profile.as_str(),
+                "runtime_id": profile.runtime.descriptor().id,
+                "model_id": profile.request.model.as_str(),
+                "retry_attempt": call.retry_attempt,
+                "payload": &error,
+            })
+        });
         #[cfg(not(target_family = "wasm"))]
         if activity::is_recording() {
             let mut context = self.activity_context(call, profile);

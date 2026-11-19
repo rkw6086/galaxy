@@ -4,11 +4,11 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use anyhow::Result;
-use futures::stream::{AbortHandle, Abortable};
 use futures::FutureExt;
 use thiserror::Error;
 
 use crate::accessibility::AccessibilityContent;
+use crate::core::spawn::{downcast_entity, downcast_output, erase_output, SpawnCallbacks};
 use crate::core::{Observation, Subscription, SubscriptionKey, TaskCallback};
 use crate::r#async::{executor, SpawnableOutput, SpawnedFutureHandle, SpawnedLocalStream, Timer};
 use crate::windowing::WindowManager;
@@ -271,6 +271,7 @@ impl<'a, T: Entity> ModelContext<'a, T> {
     }
 
     // Only public in crate::core so it can be used by ui/src/core/mod_test.rs.
+    #[cfg(test)]
     pub(in crate::core) fn spawn_local<S, F, U>(
         &mut self,
         future: S,
@@ -397,12 +398,19 @@ impl<'a, T: Entity> ModelContext<'a, T> {
         F: 'static + FnOnce(&mut T, S::Output, &mut ModelContext<T>) -> U,
         U: 'static,
     {
-        self.spawn_abortable::<S, _, _>(
-            future,
-            |view, output, ctx| {
-                callback(view, output, ctx);
+        self.app.spawn_abortable_erased(
+            erase_output::<S::Output>(Box::pin(future)),
+            SpawnCallbacks::Model {
+                model_id: self.model_id,
+                on_resolve: Box::new(move |model, output, app, model_id| {
+                    callback(
+                        downcast_entity(model),
+                        downcast_output(output),
+                        &mut ModelContext::new(app, model_id),
+                    );
+                }),
+                on_abort: Box::new(|_, _, _| {}),
             },
-            |_, _| {},
         )
     }
 
@@ -436,41 +444,25 @@ impl<'a, T: Entity> ModelContext<'a, T> {
         F: 'static + FnOnce(&mut T, S::Output, &mut ModelContext<T>),
         A: 'static + FnOnce(&mut T, &mut ModelContext<T>),
     {
-        let (tx, rx) = futures::channel::oneshot::channel();
-
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        self.app
-            .background_executor()
-            .spawn_boxed(Box::pin(async move {
-                let abortable = Abortable::new(future, abort_registration);
-                let result = abortable.await;
-                if tx.send(result).is_err() {
-                    log::error!("Error sending background task result to main thread",);
-                }
-            }))
-            .detach();
-
-        let future = self.spawn_local(rx, |model, rx_result, ctx| {
-            let output = match rx_result {
-                Ok(output) => output,
-                Err(_) => {
-                    log::error!("sender unexpectedly dropped before receiver");
-                    on_abort(model, ctx);
-                    return;
-                }
-            };
-
-            // Call the appropriate callback based on the output of resolving the future. If the
-            // future returned `Ok`, the future was not aborted so we can call `on_resolve`. If
-            // the future returned `Err`--the future was aborted.
-            match output {
-                Ok(output) => on_resolve(model, output, ctx),
-                Err(_) => on_abort(model, ctx),
-            }
-        });
-
-        let future_id = self.app.register_spawned_future(future.boxed());
-        SpawnedFutureHandle::new(abort_handle, future_id)
+        self.app.spawn_abortable_erased(
+            erase_output::<S::Output>(Box::pin(future)),
+            SpawnCallbacks::Model {
+                model_id: self.model_id,
+                on_resolve: Box::new(move |model, output, app, model_id| {
+                    on_resolve(
+                        downcast_entity(model),
+                        downcast_output(output),
+                        &mut ModelContext::new(app, model_id),
+                    );
+                }),
+                on_abort: Box::new(move |model, app, model_id| {
+                    on_abort(
+                        downcast_entity(model),
+                        &mut ModelContext::new(app, model_id),
+                    );
+                }),
+            },
+        )
     }
 
     /// Creates a handle which background tasks can use to spawn work for this model. Spawned tasks

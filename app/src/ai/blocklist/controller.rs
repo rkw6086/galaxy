@@ -37,6 +37,7 @@ use persistence::model::ProviderConversationContext;
 use session_sharing_protocol::common::ParticipantId;
 use settings::Setting;
 pub use slash_command::*;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 use warp_multi_agent_api::{message, Task, ToolType};
 use warpui::r#async::{SpawnedFutureHandle, Timer};
@@ -2328,6 +2329,29 @@ fn provider_run_terminal_remote_log_record(
     }
 }
 
+#[derive(Default)]
+struct ProviderProjectionFailure {
+    message: Option<String>,
+    // Report once to fail the run, then allow its terminal checkpoint to persist.
+    // The retained message still suppresses any provisional output queued behind the failure.
+    reported: bool,
+}
+
+impl ProviderProjectionFailure {
+    fn record(&mut self, message: &str) {
+        self.message.get_or_insert_with(|| message.to_string());
+    }
+
+    fn take_unreported(&mut self) -> Option<String> {
+        if self.reported {
+            return None;
+        }
+        let message = self.message.clone()?;
+        self.reported = true;
+        Some(message)
+    }
+}
+
 enum ProviderDriveMessage {
     Projection {
         lifecycle: Box<Option<ProviderLlmLifecycle>>,
@@ -2335,17 +2359,48 @@ enum ProviderDriveMessage {
         latest_usage: Option<Usage>,
         tool_call_progress: ProviderToolCallProgressUpdate,
         events: Vec<warp_multi_agent_api::ResponseEvent>,
-        acknowledgement: oneshot::Sender<Result<(), String>>,
+        acknowledgement: Option<oneshot::Sender<Result<(), String>>>,
+        projection_failure: Arc<FairMutex<ProviderProjectionFailure>>,
+        display_permit: Option<OwnedSemaphorePermit>,
     },
     Checkpoint {
         checkpoint: Box<ActiveProviderRunCheckpoint>,
         acknowledgement: oneshot::Sender<Result<(), String>>,
+        projection_failure: Arc<FairMutex<ProviderProjectionFailure>>,
     },
     Blocked {
         run: Box<ActiveProviderRun>,
         result: Result<ProviderRunBlock, String>,
+        projection_failure: Arc<FairMutex<ProviderProjectionFailure>>,
     },
 }
+
+impl ProviderDriveMessage {
+    fn reject(self, message: &str) {
+        match self {
+            Self::Projection {
+                acknowledgement,
+                projection_failure,
+                ..
+            } => {
+                projection_failure.lock().record(message);
+                if let Some(acknowledgement) = acknowledgement {
+                    let _ = acknowledgement.send(Err(message.to_string()));
+                }
+            }
+            Self::Checkpoint {
+                acknowledgement, ..
+            } => {
+                let _ = acknowledgement.send(Err(message.to_string()));
+            }
+            Self::Blocked { .. } => {}
+        }
+    }
+}
+
+// Bound provisional UI output while allowing the provider to read ahead. Tool,
+// checkpoint and model lifecycle barriers still wait for the UI's acknowledgement.
+const PROVIDER_PROJECTION_QUEUE_CAPACITY: usize = 64;
 
 /// Controller for Blocklist AI.
 ///
@@ -8224,27 +8279,28 @@ impl BlocklistAIController {
         if catalog_changed {
             let context = {
                 let preferences = LLMPreferences::as_ref(ctx);
-                let profile = crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx)
-                    .active_profile(Some(self.terminal_surface_id), ctx);
+                let profile =
+                    crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx)
+                        .active_profile(Some(self.terminal_surface_id), ctx);
                 serde_json::json!({
-                        "event": "orchestration_model_catalog",
-                        "conversation_id": conversation_id,
-                        "profile_id": profile.id().to_string(),
-                        "provider_allowlist": profile.data().orchestration_providers.as_ref().map(|providers| {
-                            providers.iter().take(128).map(remote_logging::sanitize_error).collect::<Vec<_>>()
-                        }),
-                        "provider_allowlist_truncated": profile.data().orchestration_providers.as_ref().is_some_and(|providers| providers.len() > 128),
-                        "active_base_model_id": remote_logging::sanitize_error(preferences.get_active_base_model(ctx, Some(self.terminal_surface_id)).id.as_str()),
-                        "active_cli_model_id": remote_logging::sanitize_error(preferences.get_active_cli_agent_model(ctx, Some(self.terminal_surface_id)).id.as_str()),
-                        "model_count": orchestration_models.len(),
-                        "models": orchestration_models.iter().take(128).map(|model| {
-                            serde_json::json!({
-                                "id": remote_logging::sanitize_error(&model.id),
-                                "provider": remote_logging::sanitize_error(&model.provider),
-                            })
-                        }).collect::<Vec<_>>(),
-                        "models_truncated": orchestration_models.len() > 128,
-                    })
+                    "event": "orchestration_model_catalog",
+                    "conversation_id": conversation_id,
+                    "profile_id": profile.id().to_string(),
+                    "provider_allowlist": profile.data().orchestration_providers.as_ref().map(|providers| {
+                        providers.iter().take(128).map(remote_logging::sanitize_error).collect::<Vec<_>>()
+                    }),
+                    "provider_allowlist_truncated": profile.data().orchestration_providers.as_ref().is_some_and(|providers| providers.len() > 128),
+                    "active_base_model_id": remote_logging::sanitize_error(preferences.get_active_base_model(ctx, Some(self.terminal_surface_id)).id.as_str()),
+                    "active_cli_model_id": remote_logging::sanitize_error(preferences.get_active_cli_agent_model(ctx, Some(self.terminal_surface_id)).id.as_str()),
+                    "model_count": orchestration_models.len(),
+                    "models": orchestration_models.iter().take(128).map(|model| {
+                        serde_json::json!({
+                            "id": remote_logging::sanitize_error(&model.id),
+                            "provider": remote_logging::sanitize_error(&model.provider),
+                        })
+                    }).collect::<Vec<_>>(),
+                    "models_truncated": orchestration_models.len() > 128,
+                })
             };
             remote_logging::log_model_event(
                 ctx,
@@ -8363,7 +8419,7 @@ impl BlocklistAIController {
         }
         slot.turn_control = Some(turn_control_sender);
 
-        let (sender, receiver) = async_channel::unbounded();
+        let (sender, receiver) = async_channel::bounded(PROVIDER_PROJECTION_QUEUE_CAPACITY);
         ctx.spawn_stream_local(
             receiver,
             move |me, message, ctx| {
@@ -8375,11 +8431,26 @@ impl BlocklistAIController {
             async move {
                 let projection_sender = sender.clone();
                 let checkpoint_sender = sender.clone();
+                let projection_failure =
+                    Arc::new(FairMutex::new(ProviderProjectionFailure::default()));
+                let checkpoint_failure = projection_failure.clone();
+                // The UI stream bridge has its own relay queue. Hold a permit through the
+                // actual UI callback, so that relay cannot turn this into unbounded output.
+                let display_permits = Arc::new(Semaphore::new(PROVIDER_PROJECTION_QUEUE_CAPACITY));
                 let result = run
                     .coordinator
                     .drive_until_blocked_with_acknowledgements(
                         turn_control,
                         |projection| {
+                            let display_only = matches!(
+                                &projection,
+                                ProviderRunProjection::ModelEvent {
+                                    event: AgentEvent::TextDelta { .. }
+                                        | AgentEvent::ReasoningDelta { .. }
+                                        | AgentEvent::ToolCallProgress { .. },
+                                    ..
+                                }
+                            );
                             let lifecycle = provider_llm_lifecycle(&projection);
                             let context_usage = match &projection {
                                 ProviderRunProjection::ModelTurnRequested {
@@ -8403,9 +8474,26 @@ impl BlocklistAIController {
                             };
                             let events = run.projector.project(projection);
                             let projection_sender = projection_sender.clone();
+                            let projection_failure = projection_failure.clone();
+                            let display_permits = display_permits.clone();
                             Box::pin(async move {
+                                let display_permit = if display_only {
+                                    Some(display_permits.acquire_owned().await.map_err(|_| {
+                                        "provider display queue was closed".to_string()
+                                    })?)
+                                } else {
+                                    None
+                                };
+                                if let Some(message) = projection_failure.lock().take_unreported() {
+                                    return Err(message);
+                                }
                                 let events = events?;
-                                let (acknowledgement, receiver) = oneshot::channel();
+                                let (acknowledgement, receiver) = if display_only {
+                                    (None, None)
+                                } else {
+                                    let (sender, receiver) = oneshot::channel();
+                                    (Some(sender), Some(receiver))
+                                };
                                 projection_sender
                                     .send(ProviderDriveMessage::Projection {
                                         lifecycle: Box::new(lifecycle),
@@ -8414,25 +8502,33 @@ impl BlocklistAIController {
                                         tool_call_progress,
                                         events,
                                         acknowledgement,
+                                        projection_failure,
+                                        display_permit,
                                     })
                                     .await
                                     .map_err(|_| {
                                         "provider projection receiver was closed".to_string()
                                     })?;
-                                receiver.await.map_err(|_| {
-                                    "provider projection acknowledgement was dropped".to_string()
-                                })?
+                                match receiver {
+                                    Some(receiver) => receiver.await.map_err(|_| {
+                                        "provider projection acknowledgement was dropped"
+                                            .to_string()
+                                    })?,
+                                    None => Ok(()),
+                                }
                             })
                         },
                         move |provider_run| {
                             let checkpoint_sender = checkpoint_sender.clone();
                             let checkpoint = checkpoint_template.with_run(provider_run);
+                            let projection_failure = checkpoint_failure.clone();
                             Box::pin(async move {
                                 let (acknowledgement, receiver) = oneshot::channel();
                                 checkpoint_sender
                                     .send(ProviderDriveMessage::Checkpoint {
                                         checkpoint: Box::new(checkpoint),
                                         acknowledgement,
+                                        projection_failure,
                                     })
                                     .await
                                     .map_err(|_| {
@@ -8450,6 +8546,7 @@ impl BlocklistAIController {
                     .send(ProviderDriveMessage::Blocked {
                         run: Box::new(run),
                         result,
+                        projection_failure,
                     })
                     .await;
             },
@@ -8465,9 +8562,11 @@ impl BlocklistAIController {
         ctx: &mut ModelContext<Self>,
     ) {
         let Some(slot) = self.active_provider_runs.get(&conversation_id) else {
+            message.reject("provider run ended before its projection was applied");
             return;
         };
         if &slot.stream_id != stream_id {
+            message.reject("provider projection belongs to a superseded generation");
             return;
         }
         match message {
@@ -8478,7 +8577,17 @@ impl BlocklistAIController {
                 tool_call_progress,
                 events,
                 acknowledgement,
+                projection_failure,
+                display_permit: _display_permit,
             } => {
+                let previous_failure = projection_failure.lock().message.clone();
+                if let Some(message) = previous_failure {
+                    if let Some(acknowledgement) = acknowledgement {
+                        projection_failure.lock().take_unreported();
+                        let _ = acknowledgement.send(Err(message));
+                    }
+                    return;
+                }
                 let response_stream = slot.response_stream.clone();
                 let did_input_contain_user_query = slot.did_input_contain_user_query;
                 if let Some(usage) = context_usage {
@@ -8595,7 +8704,15 @@ impl BlocklistAIController {
                     matches!(lifecycle.phase, ProviderLlmLifecyclePhase::Requested)
                 });
                 let projection_succeeded = result.is_ok();
-                let acknowledged = acknowledgement.send(result).is_ok();
+                if let Err(message) = &result {
+                    let mut failure = projection_failure.lock();
+                    failure.record(message);
+                    if acknowledgement.is_some() {
+                        failure.take_unreported();
+                    }
+                }
+                let acknowledged = acknowledgement
+                    .is_some_and(|acknowledgement| acknowledgement.send(result).is_ok());
                 if model_turn_requested {
                     log::debug!(
                         "Provider model request projection: conversation={conversation_id:?} stream={stream_id:?} succeeded={projection_succeeded} acknowledged={acknowledged}"
@@ -8621,7 +8738,14 @@ impl BlocklistAIController {
             ProviderDriveMessage::Checkpoint {
                 checkpoint,
                 acknowledgement,
+                projection_failure,
             } => {
+                if !checkpoint.run.is_terminal() {
+                    if let Some(message) = projection_failure.lock().take_unreported() {
+                        let _ = acknowledgement.send(Err(message));
+                        return;
+                    }
+                }
                 if checkpoint.run.id() != &slot.run_id {
                     let _ = acknowledgement.send(Err(
                         "provider checkpoint run identity did not match".to_string(),
@@ -8662,7 +8786,25 @@ impl BlocklistAIController {
                 };
                 let _ = acknowledgement.send(result);
             }
-            ProviderDriveMessage::Blocked { run, result } => {
+            ProviderDriveMessage::Blocked {
+                run,
+                result,
+                projection_failure,
+            } => {
+                // This FIFO boundary also covers early transport/context exits which may not
+                // emit a ModelTurnFinished projection. Never recover/compact past a UI error.
+                let result = match projection_failure.lock().take_unreported() {
+                    Some(message) if !run.coordinator.run().is_terminal() => {
+                        Err(format!("provider output projection failed: {message}"))
+                    }
+                    Some(message) => {
+                        log::warn!(
+                            "Provider output projection failed before terminal cleanup: {message}"
+                        );
+                        result
+                    }
+                    None => result,
+                };
                 self.handle_provider_run_blocked(conversation_id, *run, result, ctx);
             }
         }

@@ -1,3 +1,5 @@
+use std::sync::{Arc, OnceLock};
+
 use async_trait::async_trait;
 use galaxy_agent_core::{
     AgentError, AgentErrorKind, AgentEventStream, AgentRuntime, RuntimeCapabilities,
@@ -25,6 +27,7 @@ pub struct OpenAICompatibleRuntime {
     config: OpenAICompatibleRuntimeConfig,
     descriptor: RuntimeDescriptor,
     reasoning_effort: Option<String>,
+    http_client: Arc<OnceLock<DiagnosticHttpClient>>,
 }
 
 impl OpenAICompatibleRuntime {
@@ -44,6 +47,7 @@ impl OpenAICompatibleRuntime {
             config,
             descriptor,
             reasoning_effort: None,
+            http_client: Arc::new(OnceLock::new()),
         }
     }
 }
@@ -64,7 +68,11 @@ impl AgentRuntime for OpenAICompatibleRuntime {
             // compatibility with unauthenticated local OpenAI-compatible servers.
             .api_key(self.config.api_key.as_deref().unwrap_or_default())
             .base_url(&self.config.base_url)
-            .http_client(DiagnosticHttpClient::new())
+            .http_client(
+                self.http_client
+                    .get_or_init(DiagnosticHttpClient::new)
+                    .clone(),
+            )
             .build()
             .map_err(|error| AgentError::new(AgentErrorKind::Configuration, error.to_string()))?;
         let model = client.completion_model(&self.config.model);

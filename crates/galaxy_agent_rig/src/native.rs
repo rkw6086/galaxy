@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use futures::future::BoxFuture;
 use futures::StreamExt;
+use futures::future::BoxFuture;
 use galaxy_agent_core::{
     AgentError, AgentErrorKind, AgentEventStream, AgentRuntime, RuntimeCapabilities,
     RuntimeDescriptor, RuntimeKind, TurnControl, TurnRequest,
@@ -12,7 +12,10 @@ use rig_core::client::{CompletionClient, ModelListingClient};
 use rig_core::http_client::{self, HttpClientExt};
 use rig_core::providers::gemini;
 
-use crate::anthropic_auth::{anthropic_client, prepare_subscription_request, restore_tool_names};
+use crate::anthropic_auth::{
+    anthropic_client, anthropic_client_with_http_client, prepare_subscription_request,
+    restore_tool_names,
+};
 use crate::http_client::DiagnosticHttpClient;
 use crate::request::build_completion_request;
 use crate::stream::{start_model_completion, start_model_turn};
@@ -62,7 +65,7 @@ pub async fn discover_anthropic_models(api_key: &str) -> Result<Vec<RigModelInfo
             Some(false) => return Ok(models),
             Some(true) => {}
             None => {
-                return Err("Anthropic models response is missing pagination state.".to_string())
+                return Err("Anthropic models response is missing pagination state.".to_string());
             }
         }
         let cursor = page["last_id"]
@@ -215,6 +218,7 @@ pub struct AnthropicRuntime {
     descriptor: RuntimeDescriptor,
     credential_resolver: Option<AnthropicCredentialResolver>,
     reasoning_effort: Option<String>,
+    http_client: Arc<OnceLock<DiagnosticHttpClient>>,
 }
 
 impl std::fmt::Debug for AnthropicRuntime {
@@ -240,6 +244,7 @@ impl AnthropicRuntime {
             descriptor,
             credential_resolver: None,
             reasoning_effort: None,
+            http_client: Arc::new(OnceLock::new()),
         }
     }
 
@@ -273,8 +278,13 @@ impl AgentRuntime for AnthropicRuntime {
                 "An Anthropic API key or Claude subscription token is required",
             ));
         }
-        let client = anthropic_client(&credential)
-            .map_err(|error| AgentError::new(AgentErrorKind::Configuration, error.to_string()))?;
+        let client = anthropic_client_with_http_client(
+            &credential,
+            self.http_client
+                .get_or_init(DiagnosticHttpClient::new)
+                .clone(),
+        )
+        .map_err(|error| AgentError::new(AgentErrorKind::Configuration, error.to_string()))?;
         let mut model = client.completion_model(&self.config.model);
         let max_output_tokens = request.max_output_tokens.or(self.config.max_output_tokens);
         let mut completion_request = build_completion_request(
@@ -319,6 +329,7 @@ pub struct GeminiRuntime {
     reasoning_effort: Option<String>,
     config: GeminiRuntimeConfig,
     descriptor: RuntimeDescriptor,
+    http_client: Arc<OnceLock<DiagnosticHttpClient>>,
 }
 
 impl GeminiRuntime {
@@ -333,6 +344,7 @@ impl GeminiRuntime {
             config,
             descriptor,
             reasoning_effort: None,
+            http_client: Arc::new(OnceLock::new()),
         }
     }
 }
@@ -356,7 +368,11 @@ impl AgentRuntime for GeminiRuntime {
         }
         let client = gemini::Client::builder()
             .api_key(self.config.api_key.as_str())
-            .http_client(DiagnosticHttpClient::new())
+            .http_client(
+                self.http_client
+                    .get_or_init(DiagnosticHttpClient::new)
+                    .clone(),
+            )
             .build()
             .map_err(|error| AgentError::new(AgentErrorKind::Configuration, error.to_string()))?;
         let model = client.completion_model(&self.config.model);

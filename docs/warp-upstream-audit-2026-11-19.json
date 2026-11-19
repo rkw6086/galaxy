@@ -1,0 +1,122 @@
+{
+  "upstream_url": "https://github.com/warpdotdev/Warp.git",
+  "branch": "master",
+  "head": "0356d03ba7b921b84b7fb6a06340c996c68d429a",
+  "merge_base": "b7b327510da7aba71001d994e86c27f69db980f3",
+  "since_utc": "2026-08-21",
+  "bootstrap_baseline": "2055f0f4878e32aad05eea8583179905c95b8f80",
+  "total_since_merge_base": 2677,
+  "recent_since_date_count": 554,
+  "candidate_count": 200,
+  "ending_cursor": "3741d2b74728c9ba13520e7ba476ec193e3dd86c",
+  "counts": {
+    "Skip": 187,
+    "Auto-adapt": 6,
+    "Already present/superseded": 5,
+    "Auto-port": 1,
+    "Hold": 1
+  },
+  "history_scope": "Latest 200 commits in a 90-day discovery window. Earlier history is an explicit bootstrap baseline, not reviewed coverage.",
+  "cursor_note": "Cursor stops before the unresolved broad menu refactor; all 200 candidates, including later commits, were classified.",
+  "selected": [
+    {
+      "sha": "24e80bea838421cb6523cd22423e05ea3862291b",
+      "date": "2026-10-12",
+      "subject": "Add keyboard shortcut to toggle Markdown rendered/raw view (#16413)",
+      "classification": "Auto-adapt",
+      "reason": "Markdown Cmd/Ctrl+E toggle using Galaxy existing Markdown-only controls and shared editable binding.",
+      "paths": [
+        "app/src/code/view.rs",
+        "app/src/notebooks/file/mod.rs",
+        "app/src/notebooks/file/mod_tests.rs",
+        "app/src/util/bindings_tests.rs",
+        "app/src/workspace/view_tests.rs"
+      ]
+    },
+    {
+      "sha": "063a7643a5e9669cbad80a0a8719ab19a7e2bbe9",
+      "date": "2026-10-17",
+      "subject": "Pin $BASH to the executed bash binary when bootstrapping bash sessions (#16520)",
+      "classification": "Auto-adapt",
+      "reason": "Pin BASH to the actual executed binary; adapt terminal crate move and reuse existing shell quoting.",
+      "paths": [
+        "crates/warp_terminal/src/local_tty/shell.rs",
+        "crates/warp_terminal/src/local_tty/shell_tests.rs"
+      ]
+    },
+    {
+      "sha": "eafc6d18d18bea8c6cf78dc21a4e0eab59f4c6c6",
+      "date": "2026-10-27",
+      "subject": "Fix status-bar history subscription accumulation (#16658)",
+      "classification": "Auto-adapt",
+      "reason": "Use one status-bar history subscription; preserve terminal/conversation filtering and usage refresh.",
+      "paths": [
+        "app/src/ai/blocklist/block/status_bar.rs",
+        "app/src/ai/blocklist/block/status_bar_tests.rs"
+      ]
+    },
+    {
+      "sha": "3c511541817bc825a0e6ecac9e2a32d4fb1631c3",
+      "date": "2026-10-28",
+      "subject": "Fix Tab key behavior always detected as user defined (#16529)",
+      "classification": "Auto-port",
+      "reason": "Compare formatted Tab binding with the correctly cased Tab label.",
+      "paths": [
+        "app/src/settings_view/features_page.rs"
+      ]
+    },
+    {
+      "sha": "03ceb39cf8a7acc638388ac4bf8828c3d22757e3",
+      "date": "2026-11-04",
+      "subject": "Exclude Codex and Claude auth commands from CLI session detection (#16723)",
+      "classification": "Auto-adapt",
+      "reason": "Exclude Claude auth and Codex login/logout from interactive CLI session detection; preserve existing Galaxy aliases and supported agents.",
+      "paths": [
+        "app/src/terminal/cli_agent.rs",
+        "app/src/terminal/cli_agent_tests.rs"
+      ]
+    },
+    {
+      "sha": "783bc3b0810ac79d9d802be1d8fd681beb24c3bc",
+      "date": "2026-11-12",
+      "subject": "Compile the warpui_core spawn path once instead of per entity and output type (#16789)",
+      "classification": "Auto-adapt",
+      "reason": "Share type-erased UI spawn plumbing across entity/output types; preserve existing cancellation/callback ordering and local error logs.",
+      "paths": [
+        "crates/warpui_core/src/core/mod.rs",
+        "crates/warpui_core/src/core/model/context.rs",
+        "crates/warpui_core/src/core/spawn.rs",
+        "crates/warpui_core/src/core/view/context.rs"
+      ]
+    },
+    {
+      "sha": "b65097e5da61a13470782d1d1dcde956f41861de",
+      "date": "2026-11-16",
+      "subject": "Compile the menu logic once instead of once per action type (#16850)",
+      "classification": "Hold",
+      "reason": "Broad menu type-erasure refactor changes more than 1,000 lines across all menus; preserve Galaxy custom menu behavior and review separately.",
+      "paths": [
+        "app/src/menu.rs",
+        "app/src/menu_tests.rs",
+        "app/src/notebooks/context_menu.rs",
+        "app/src/notebooks/file/mod_tests.rs"
+      ]
+    },
+    {
+      "sha": "5bacd2b611ef4fd0c6ad2b05630aefcf2d55c5d6",
+      "date": "2026-11-16",
+      "subject": "Send a User-Agent on MCP HTTP requests (#16866)",
+      "classification": "Auto-adapt",
+      "reason": "Send Galaxy-MCP-Client/1.0 on ordinary MCP HTTP/SSE clients; preserve user-provided header override.",
+      "paths": [
+        "crates/mcp/src/runtime.rs",
+        "crates/mcp/src/runtime_tests.rs"
+      ]
+    }
+  ],
+  "dependency_refresh": {
+    "resolver_changes": 255,
+    "rust_toolchain": "1.97.1",
+    "scope": "Latest compatible versions within manifest requirements; exact reviewed Git revisions retained."
+  }
+}

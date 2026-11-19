@@ -3614,7 +3614,12 @@ impl AIBlock {
             .as_ref(ctx)
             .request_file_edits_executor(ctx);
         executor.update(ctx, |executor, ctx| {
-            executor.register_requested_edits(action_id, &view, ctx);
+            executor.register_requested_edits(
+                self.client_ids.conversation_id,
+                action_id,
+                &view,
+                ctx,
+            );
         });
         self.action_model.update(ctx, |action_model, ctx| {
             action_model.retry_not_ready_action(action_id, self.client_ids.conversation_id, ctx);
@@ -4434,7 +4439,8 @@ impl AIBlock {
         }
 
         let ai_settings = AISettings::as_ref(ctx);
-        let login_command = crate::ai::provider::authentication::BedrockAuthConnection::current(ctx).command;
+        let login_command =
+            crate::ai::provider::authentication::BedrockAuthConnection::current(ctx).command;
         // Recreating a historical error view must not restart authentication.
         let auto_login_enabled = attempt_auto_login && *ai_settings.bedrock_auto_login.value();
 
@@ -5366,10 +5372,10 @@ impl AIBlock {
             // If there's a blocking MCP tool call, focus that.
             ctx.focus(&mcp_tool.view);
             did_focus_subview = true;
-        } else if let Some(ask_user_question_view) =
-            self.ask_user_question_view.as_ref().filter(|view| {
-                view.as_ref(ctx).is_waiting_on_user_answers(ctx)
-            })
+        } else if let Some(ask_user_question_view) = self
+            .ask_user_question_view
+            .as_ref()
+            .filter(|view| view.as_ref(ctx).is_waiting_on_user_answers(ctx))
         {
             ctx.focus(ask_user_question_view);
             did_focus_subview = true;

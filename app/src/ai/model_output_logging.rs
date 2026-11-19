@@ -6,12 +6,12 @@
 
 const MODEL_OUTPUT_LOG_TARGET: &str = "galaxy::ai::model_output";
 
-pub(crate) fn log(record: serde_json::Value) {
+pub(crate) fn log(record: impl FnOnce() -> serde_json::Value) {
     if !galaxy_logging::session_log_file_path().is_ok_and(|path| path.is_some()) {
         return;
     }
 
-    match serde_json::to_string(&record) {
+    match serde_json::to_string(&record()) {
         Ok(record) => log::info!(target: MODEL_OUTPUT_LOG_TARGET, "{record}"),
         Err(error) => {
             log::warn!(target: MODEL_OUTPUT_LOG_TARGET, "Failed to serialize model output: {error}")

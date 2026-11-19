@@ -69,11 +69,18 @@ impl ProviderBuilder for SubscriptionBuilder {
 pub(crate) fn anthropic_client(
     credential: &str,
 ) -> Result<anthropic::Client<DiagnosticHttpClient>, String> {
+    anthropic_client_with_http_client(credential, DiagnosticHttpClient::new())
+}
+
+pub(crate) fn anthropic_client_with_http_client(
+    credential: &str,
+    http_client: DiagnosticHttpClient,
+) -> Result<anthropic::Client<DiagnosticHttpClient>, String> {
     let credential = credential.trim();
     if !is_claude_subscription_token(credential) {
         return anthropic::Client::builder()
             .api_key(credential)
-            .http_client(DiagnosticHttpClient::new())
+            .http_client(http_client)
             .build()
             .map_err(|error| error.to_string());
     }
@@ -81,7 +88,7 @@ pub(crate) fn anthropic_client(
     Client::<SubscriptionProvider>::builder()
         .api_key(SubscriptionToken(credential.to_string()))
         .http_headers(headers)
-        .http_client(DiagnosticHttpClient::new())
+        .http_client(http_client)
         .build()
         // Never include a credential or raw header-validation error in diagnostics.
         .map_err(|_| "Could not configure Claude subscription authentication.".to_string())

@@ -12,9 +12,10 @@ use super::{
 #[test]
 fn applied_diffs_survive_until_delayed_view_registration() {
     let action_id = AIAgentActionId::from("file-edit".to_string());
+    let key = (super::AIConversationId::new(), action_id);
     let mut pending = PendingAppliedDiffs::default();
     pending.buffer(
-        action_id.clone(),
+        key.clone(),
         vec![FileDiff::new(
             "before".to_string(),
             "/workspace/src/main.rs".to_string(),
@@ -24,13 +25,13 @@ fn applied_diffs_survive_until_delayed_view_registration() {
     );
 
     let (diffs, session_type) = pending
-        .take(&action_id)
+        .take(&key)
         .expect("buffered diffs should remain available for registration");
     assert_eq!(diffs.len(), 1);
     assert_eq!(diffs[0].base.content, "before");
     assert_eq!(diffs[0].base.file_path, "/workspace/src/main.rs");
     assert!(matches!(session_type, DiffSessionType::Local));
-    assert!(pending.take(&action_id).is_none());
+    assert!(pending.take(&key).is_none());
 }
 
 #[test]

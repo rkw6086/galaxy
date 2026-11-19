@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use futures::future::BoxFuture;
 use futures::StreamExt;
+use futures::future::BoxFuture;
 use galaxy_agent_core::{
     AgentError, AgentErrorKind, AgentEvent, AgentEventStream, AgentRuntime, ConversationMessage,
     MessageContent, MessageRole, RuntimeCapabilities, RuntimeDescriptor, RuntimeKind, TurnControl,
@@ -25,7 +25,10 @@ impl std::fmt::Debug for ChatGPTSubscriptionCredentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChatGPTSubscriptionCredentials")
             .field("access_token", &"<redacted>")
-            .field("account_id", &self.account_id.as_ref().map(|_| "<redacted>"))
+            .field(
+                "account_id",
+                &self.account_id.as_ref().map(|_| "<redacted>"),
+            )
             .finish()
     }
 }
@@ -45,13 +48,17 @@ pub struct ChatGPTSubscriptionRuntime {
     config: ChatGPTSubscriptionRuntimeConfig,
     descriptor: RuntimeDescriptor,
     credential_resolver: Option<ChatGPTCredentialResolver>,
+    http_client: Arc<OnceLock<DiagnosticHttpClient>>,
 }
 
 impl std::fmt::Debug for ChatGPTSubscriptionRuntime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChatGPTSubscriptionRuntime")
             .field("config", &self.config)
-            .field("has_credential_resolver", &self.credential_resolver.is_some())
+            .field(
+                "has_credential_resolver",
+                &self.credential_resolver.is_some(),
+            )
             .finish()
     }
 }
@@ -73,7 +80,12 @@ impl ChatGPTSubscriptionRuntime {
             kind: RuntimeKind::Provider,
             capabilities: RuntimeCapabilities::provider(),
         };
-        Self { config, descriptor, credential_resolver: None }
+        Self {
+            config,
+            descriptor,
+            credential_resolver: None,
+            http_client: Arc::new(OnceLock::new()),
+        }
     }
 
     pub fn with_credential_resolver(mut self, resolver: ChatGPTCredentialResolver) -> Self {
@@ -83,9 +95,13 @@ impl ChatGPTSubscriptionRuntime {
 
     async fn resolve_auth(&self) -> Result<ChatGPTAuth, AgentError> {
         let resolver = self.credential_resolver.as_ref().ok_or_else(|| {
-            AgentError::new(AgentErrorKind::Authentication, "ChatGPT sign-in required. Reconnect ChatGPT in Providers.")
+            AgentError::new(
+                AgentErrorKind::Authentication,
+                "ChatGPT sign-in required. Reconnect ChatGPT in Providers.",
+            )
         })?;
-        let credentials = resolver().await
+        let credentials = resolver()
+            .await
             .map_err(|message| AgentError::new(AgentErrorKind::Authentication, message))?;
         Ok(ChatGPTAuth::AccessToken {
             access_token: credentials.access_token,
@@ -156,7 +172,11 @@ impl AgentRuntime for ChatGPTSubscriptionRuntime {
             .api_key(auth)
             .allow_device_flow(false)
             .originator("galaxy")
-            .http_client(DiagnosticHttpClient::new())
+            .http_client(
+                self.http_client
+                    .get_or_init(DiagnosticHttpClient::new)
+                    .clone(),
+            )
             .build()
             .map_err(|error| AgentError::new(AgentErrorKind::Configuration, error.to_string()))?;
         let model = client.completion_model(&self.config.model);

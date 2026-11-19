@@ -1217,7 +1217,7 @@ fn skill_creation_requires_file_mutation_capability_and_an_implementation_turn()
             PermissionMode::GalaxyDecides,
             RigRequestMode::Orchestrate,
             vec![ToolType::ApplyFileDiffs],
-            true,
+            false,
         ),
         (
             PermissionMode::ReadOnly,
@@ -1264,4 +1264,11 @@ fn skill_creation_requires_file_mutation_capability_and_an_implementation_turn()
             expected
         );
     }
+}
+
+#[test]
+fn plan_mode_without_document_tools_does_not_request_unavailable_creation() {
+    let prompt = super::build_system_prompt(&[], &[], &[], RigRequestMode::Plan);
+    assert!(prompt.contains("not saved as a document"));
+    assert!(!prompt.contains("finish by calling `create_plan`"));
 }

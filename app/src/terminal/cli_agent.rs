@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use ai::skills::SkillProvider;
 use enum_iterator::Sequence;
 use galaxy_cli::agent::Harness;
-use galaxy_completer::parsers::simple::top_level_command;
+use galaxy_completer::parsers::simple::{all_parsed_commands, top_level_command};
 use galaxy_editor::content::buffer::Buffer;
 use galaxy_editor::content::markdown::MarkdownStyle;
 use galaxy_util::path::EscapeChar;
@@ -381,6 +381,31 @@ impl CLIAgent {
             .unwrap_or(Cow::Borrowed(trimmed));
 
         let resolved_first_word = Self::extract_first_command(&resolved_command, escape_char)?;
+
+        // Authentication commands do not start an interactive agent session. Treating them as
+        // sessions can route a follow-up prompt into their shell instead of the agent transport.
+        let non_session_subcommands: &[&str] = match resolved_first_word.as_str() {
+            "claude" => &["auth"],
+            "codex" => &["login", "logout"],
+            _ => &[],
+        };
+        let is_non_session_command = match escape_char {
+            Some(esc) => all_parsed_commands(&resolved_command, esc)
+                .next()
+                .is_some_and(|command| {
+                    command
+                        .parts
+                        .get(1)
+                        .is_some_and(|part| non_session_subcommands.contains(&part.item.as_str()))
+                }),
+            None => resolved_command
+                .split_whitespace()
+                .nth(1)
+                .is_some_and(|part| non_session_subcommands.contains(&part)),
+        };
+        if is_non_session_command {
+            return None;
+        }
 
         // Check if resolved command matches any known CLI agent.
         // Also matches `aifx agent run claude` as Claude for Uber employees,

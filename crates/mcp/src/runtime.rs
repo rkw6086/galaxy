@@ -76,6 +76,9 @@ fn build_header_map(headers: &HashMap<String, String>) -> reqwest::header::Heade
     headers.try_into().unwrap_or_default()
 }
 
+/// Identifies Galaxy to MCP servers that reject requests without a user agent.
+const MCP_USER_AGENT: &str = "Galaxy-MCP-Client/1.0";
+
 /// Builds a reqwest client with custom headers for MCP HTTP/SSE connections.
 #[allow(clippy::result_large_err)]
 pub fn build_client_with_headers(
@@ -84,6 +87,8 @@ pub fn build_client_with_headers(
     let header_map = build_header_map(headers);
 
     reqwest::Client::builder()
+        // User-configured headers take precedence over the default identity.
+        .user_agent(MCP_USER_AGENT)
         .default_headers(header_map)
         .build()
         .map_err(|e| {
@@ -237,19 +242,12 @@ pub async fn spawn_server(
                 }
                 Ok(Transport::Http(None)) => {
                     logger.log("[info] MCP: Using Streaming HTTP transport".to_string());
-                    let transport = if headers.is_empty() {
-                        rmcp::transport::StreamableHttpClientTransport::from_uri(
+                    let transport = rmcp::transport::StreamableHttpClientTransport::with_client(
+                        build_client_with_headers(&headers)?,
+                        rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(
                             sse_server.url.clone(),
-                        )
-                    } else {
-                        let client = build_client_with_headers(&headers)?;
-                        rmcp::transport::StreamableHttpClientTransport::with_client(
-                            client,
-                            rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(
-                                sse_server.url.clone(),
-                            ),
-                        )
-                    };
+                        ),
+                    );
                     let transport = TransportLoggingWrapper {
                         transport,
                         logger: logger.clone(),
@@ -277,24 +275,15 @@ pub async fn spawn_server(
                 }
                 Ok(Transport::Sse(None)) => {
                     logger.log("[info] MCP: Using (legacy) SSE transport (due to preflight failing with a 404)".to_string());
-                    let transport = if headers.is_empty() {
-                        crate::sse_transport::SseClientTransport::start(sse_server.url.clone())
-                            .await
-                            .map_err(|e| {
-                                rmcp::RmcpError::transport_creation::<ReqwestSseTransport>(e)
-                            })?
-                    } else {
-                        let client = build_client_with_headers(&headers)?;
-                        crate::sse_transport::SseClientTransport::start_with_client(
-                            client,
-                            crate::sse_transport::SseClientConfig {
-                                sse_endpoint: sse_server.url.clone().into(),
-                                ..Default::default()
-                            },
-                        )
-                        .await
-                        .map_err(rmcp::RmcpError::transport_creation::<ReqwestSseTransport>)?
-                    };
+                    let transport = crate::sse_transport::SseClientTransport::start_with_client(
+                        build_client_with_headers(&headers)?,
+                        crate::sse_transport::SseClientConfig {
+                            sse_endpoint: sse_server.url.clone().into(),
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .map_err(rmcp::RmcpError::transport_creation::<ReqwestSseTransport>)?;
                     let transport = TransportLoggingWrapper {
                         transport,
                         logger: logger.clone(),

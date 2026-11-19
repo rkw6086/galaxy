@@ -4,9 +4,9 @@
 //! Notably, this model manages the "action queue", which is used to support receiving multiple
 //! actions in a single AI response.
 //!
-//! Actions are executed, one by one, either initiated by the user or auto-executed, if the user's
-//! AI permissions permit. Action execution is handled by `BlocklistAIActionExecutor`, which
-//! consumes the action to be executed and emits an event when execution is complete.
+//! Independent context observations can auto-execute in bounded parallel phases when the user's
+//! permissions and session permit. Other actions retain their ordered execution barriers.
+//! `BlocklistAIActionExecutor` consumes each action and emits an event when execution is complete.
 //!
 //! Action state also has indirect implications for various parts of the terminal UI -- for
 //! example, the input should be hidden if there is a pending AI requested command that requires
@@ -45,6 +45,7 @@ use preprocess::{PendingPreprocessedActions, PreprocessId};
 pub(crate) use risk_review::{ReviewDisplay, ReviewDisplayState};
 
 use self::execute::ask_user_question::AskUserQuestionExecutor;
+use self::execute::request_file_edits::normalize_local_creations;
 use self::execute::search_codebase::SearchCodebaseExecutor;
 use self::execute::{
     BlocklistAIActionExecutor, BlocklistAIActionExecutorEvent, NotExecutedReason,
@@ -77,8 +78,11 @@ use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::ai::runtime::ProviderToolExecutionRef;
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model_events::ModelEventDispatcher;
-use crate::terminal::TerminalModel;
+use crate::terminal::{ShellLaunchData, TerminalModel};
 use crate::{send_telemetry_from_ctx, TelemetryEvent};
+
+// Per conversation; mutation and agent-launch policies remain owned by their existing phases.
+const MAX_PARALLEL_OBSERVATIONS: usize = 4;
 
 /// The status of an action from an AI output.
 #[derive(Clone, Debug)]
@@ -302,6 +306,31 @@ fn can_start_action_with_current_phase(
             next_phase == RunningActionPhase::Parallel(group) && can_autoexecute
         }
     }
+}
+
+fn is_parallel_observation(action: &AIAgentActionType) -> bool {
+    matches!(
+        action,
+        AIAgentActionType::ReadFiles(_)
+            | AIAgentActionType::SearchCodebase(_)
+            | AIAgentActionType::ReadSkill(_)
+            | AIAgentActionType::Grep { .. }
+            | AIAgentActionType::FileGlob { .. }
+            | AIAgentActionType::FileGlobV2 { .. }
+    )
+}
+
+fn has_noop_observation_preprocessing(action: &AIAgentActionType) -> bool {
+    // These executors have no preprocessing work. SearchCodebase is deliberately excluded:
+    // its preprocessor caches repository state and must still run through the normal path.
+    matches!(
+        action,
+        AIAgentActionType::ReadFiles(_)
+            | AIAgentActionType::ReadSkill(_)
+            | AIAgentActionType::Grep { .. }
+            | AIAgentActionType::FileGlob { .. }
+            | AIAgentActionType::FileGlobV2 { .. }
+    )
 }
 
 fn permission_request_id(action_id: &AIAgentActionId) -> String {
@@ -1731,6 +1760,14 @@ impl BlocklistAIActionModel {
         // (for example, whether the active session can run shell commands in parallel) are applied
         // using the latest runtime state.
         let next_phase = self.action_phase_for_action(action, ctx);
+        if is_parallel_observation(&action.action)
+            && self
+                .running_actions
+                .get(&conversation_id)
+                .is_some_and(|running| running.action_ids.len() >= MAX_PARALLEL_OBSERVATIONS)
+        {
+            return false;
+        }
         let can_autoexecute = self.executor.update(ctx, |executor, ctx| {
             executor.can_autoexecute_action(action, conversation_id, ctx)
         });
@@ -1777,6 +1814,84 @@ impl BlocklistAIActionModel {
         {
             let candidate = self.pending_actions[&conversation_id][idx].clone();
             self.review_pending_action(&candidate, conversation_id, is_user_initiated, ctx)?;
+        }
+        if self.deferred_provider_preprocessing.get(&key) == Some(&false)
+            && has_noop_observation_preprocessing(
+                &self.pending_actions[&conversation_id][idx].action,
+            )
+        {
+            // Avoid a UI callback for each no-op preprocessor so a batch of independent reads
+            // can fill its available slots together. Never poll arbitrary preprocessing here.
+            self.deferred_provider_preprocessing.remove(&key);
+        }
+        if self.deferred_provider_preprocessing.get(&key) == Some(&false)
+            && BlocklistAIPermissions::as_ref(ctx)
+                .get_permission_mode(ctx, Some(self.terminal_view_id))
+                == crate::ai::execution_profiles::PermissionMode::GalaxyDecides
+            && matches!(&self.pending_actions[&conversation_id][idx].action,
+                AIAgentActionType::RequestFileEdits { file_edits, .. }
+                    if file_edits.iter().any(|edit| matches!(edit,
+                        crate::ai::agent::FileEdit::Create { creation_scope: None, .. })))
+        {
+            // Bind generic creations to the exact native project scope before producing a diff
+            // view or asking local policy to assess it. Filesystem resolution stays off the UI.
+            *self.deferred_provider_preprocessing.get_mut(&key).unwrap() = true;
+            let action = self.pending_actions[&conversation_id][idx].clone();
+            let execution_ref = self.provider_tool_execution_ref(conversation_id, action_id);
+            let session = self.active_session.as_ref(ctx);
+            let working_directory = session.current_working_directory().cloned();
+            let expected_directory = working_directory.clone();
+            let native_local = matches!(
+                session.session_type(ctx),
+                Some(crate::terminal::model::session::SessionType::Local)
+            ) && matches!(
+                session.shell_launch_data(ctx),
+                Some(ShellLaunchData::Executable { .. })
+            );
+            let proposed = action.clone();
+            ctx.spawn(
+                async move { normalize_local_creations(proposed, working_directory, native_local) },
+                move |me, normalized, ctx| {
+                    if me.provider_tool_execution_ref(conversation_id, &action.id) != execution_ref
+                    {
+                        return;
+                    }
+                    let environment_matches = me
+                        .active_session
+                        .as_ref(ctx)
+                        .current_working_directory()
+                        .cloned()
+                        == expected_directory
+                        && BlocklistAIPermissions::as_ref(ctx)
+                            .get_permission_mode(ctx, Some(me.terminal_view_id))
+                            == crate::ai::execution_profiles::PermissionMode::GalaxyDecides;
+                    let pending =
+                        me.pending_actions
+                            .get_mut(&conversation_id)
+                            .and_then(|actions| {
+                                actions.iter_mut().find(|pending| pending.id == action.id)
+                            });
+                    let Some(pending) = pending else { return };
+                    if !environment_matches || *pending != action {
+                        me.deferred_provider_preprocessing
+                            .insert(key.clone(), false);
+                    } else if let Ok(normalized) = normalized {
+                        *pending = normalized;
+                        me.deferred_provider_preprocessing
+                            .insert(key.clone(), false);
+                    } else {
+                        // No view was produced. The unguarded original reaches the deny-only
+                        // policy instead of retrying normalization or saving an unscoped diff.
+                        me.deferred_provider_preprocessing.remove(&key);
+                    }
+                    if is_user_initiated {
+                        me.execute_action(&action.id, conversation_id, ctx);
+                    } else {
+                        me.try_to_execute_available_actions(conversation_id, ctx);
+                    }
+                },
+            );
+            return None;
         }
         if let Some(in_flight) = self.deferred_provider_preprocessing.get_mut(&key) {
             if *in_flight {
@@ -2579,6 +2694,18 @@ impl BlocklistAIActionModel {
         );
         self.not_ready_actions
             .clear(conversation_id, &action_result.id);
+        if matches!(
+            &action_result.result,
+            AIAgentActionResultType::RequestFileEdits(_)
+        ) {
+            self.executor
+                .as_ref(ctx)
+                .request_file_edits_executor()
+                .clone()
+                .update(ctx, |executor, _| {
+                    executor.clear_prepared_action(conversation_id, &action_result.id);
+                });
+        }
         let should_remove_entry =
             self.running_actions
                 .get_mut(&conversation_id)
@@ -2740,8 +2867,20 @@ impl BlocklistAIActionModel {
             .get(&conversation_id)
             .is_some_and(|running| !running.is_empty())
         {
-            // Wait until the entire phase drains before scheduling subsequent actions or deciding
-            // whether to send a follow-up request. In particular, don't emit `FinishedAction` yet:
+            // Refill freed observation slots without crossing a serial barrier or bypassing the
+            // normal permission/session checks. Defer to avoid re-entering denial/cancel callbacks.
+            if self
+                .pending_actions
+                .get(&conversation_id)
+                .and_then(|actions| actions.front())
+                .is_some_and(|action| is_parallel_observation(&action.action))
+            {
+                ctx.spawn(async {}, move |me, (), ctx| {
+                    me.try_to_execute_available_actions(conversation_id, ctx);
+                });
+            }
+            // Wait until the entire phase drains before deciding whether to send a follow-up
+            // request. In particular, don't emit `FinishedAction` yet:
             // the controller treats that event as the phase-complete signal and could otherwise
             // drain only a prefix of parallel tool results into the next LLM request.
             return;

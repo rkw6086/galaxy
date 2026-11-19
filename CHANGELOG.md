@@ -1,5 +1,13 @@
 # Galaxy changelog
 
+## [Unreleased]
+
+- Replace Galaxy Decides permission-review model calls with local checks for known inspections and bounded workspace edits; deny uncertain actions with a reason.
+- Run independent observation tools in up to four concurrent slots, reuse provider HTTP connections, and stream output without a UI round trip for every delta.
+- Avoid constructing model-output diagnostics when full-session logging is disabled.
+- Adapt seven local Warp improvements covering status-bar subscriptions, shared UI task plumbing, Bash startup, Tab settings, CLI authentication detection, Markdown shortcuts, and MCP client identification.
+- Refresh compatible Cargo dependencies while retaining the pinned Rust 1.97.1 toolchain and reviewed Git revisions.
+
 ## [3.1.3]
 
 - Fix a crash when opening Bedrock settings and other provider pages that display saved models in a scrollable table.
