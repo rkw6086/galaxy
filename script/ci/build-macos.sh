@@ -15,8 +15,14 @@ for tool in clang metal metallib actool notarytool stapler; do xcrun --find "$to
 
 version=${GALAXY_RELEASE_VERSION:-}
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail 'A validated stable version is required.'
+export GALAXY_BUILD_CHANNEL=${GALAXY_BUILD_CHANNEL:-release}
+[[ $GALAXY_BUILD_CHANNEL == release || $GALAXY_BUILD_CHANNEL == beta ]] || fail 'Build channel must be release or beta.'
 if [[ ${GALAXY_UNSIGNED_PREFLIGHT:-} == 1 ]]; then
+  [[ $GALAXY_BUILD_CHANNEL == release ]] || fail 'Unsigned preflight cannot produce a beta build.'
   [[ ${GITHUB_EVENT_NAME:-} == workflow_dispatch && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Unsigned preflight is restricted to manual builds of master.'
+elif [[ $GALAXY_BUILD_CHANNEL == beta ]]; then
+  [[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Beta builds require a push to master.'
+  [[ ${GALAXY_RELEASE_SHA:-} =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && ${GITHUB_SHA:-} == "$GALAXY_RELEASE_SHA" && ${GALAXY_BETA_ID:-} == "$GALAXY_RELEASE_SHA" ]] || fail 'Beta identity must match the validated triggering commit.'
 else
   [[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == "refs/tags/$version" ]] || fail "Release builds require a pushed $version tag."
 fi
@@ -64,14 +70,16 @@ ditto "$root/target/release/$plugin" "$app/Contents/PlugIns/$plugin"
 export WARP_SCHEME_NAME=galaxyoss
 export WARP_PLIST_PATH="$app/Contents/Info.plist"
 bash script/update_plist
-python3 - "$app" "$version" <<'PY'
+python3 - "$app" "$version" "$GALAXY_BUILD_CHANNEL" "$GALAXY_RELEASE_SHA" <<'PY'
 import pathlib, plistlib, sys
-app, version = pathlib.Path(sys.argv[1]), sys.argv[2]
+app = pathlib.Path(sys.argv[1])
+version, channel, commit = sys.argv[2:]
 path = app / 'Contents/Info.plist'
 with path.open('rb') as stream:
     data = plistlib.load(stream)
 data.update(CFBundleVersion=version, CFBundleShortVersionString=version,
             WarpVersion=version, LSBackgroundOnly=False,
+            GalaxyBuildChannel=channel, GalaxySourceCommit=commit,
             SUPPORTS_CHAT_GPT_WORK_WITH_APPS=True,
             NSDockTilePlugIn='GalaxyDockTilePlugin.docktileplugin')
 for key, value in list(data.items()):

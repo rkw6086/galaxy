@@ -8,10 +8,21 @@ fail() { echo "Galaxy macOS package: $*" >&2; exit 1; }
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$root"
 [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || fail 'Use the native macos-arm64 runner.'
-[[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == refs/tags/* ]] || fail 'Signing requires a pushed version tag.'
-version=${GITHUB_REF#refs/tags/}
-[[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail 'Use a bare stable version tag such as 3.1.0.'
-[[ ${GALAXY_RELEASE_VERSION:-} == "$version" ]] || fail 'Validated release version is missing or does not match the tag.'
+channel=${GALAXY_BUILD_CHANNEL:-release}
+version=${GALAXY_RELEASE_VERSION:-}
+[[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail 'A validated stable package version is required.'
+if [[ $channel == beta ]]; then
+  [[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Beta signing requires a push to master.'
+  [[ ${GALAXY_RELEASE_SHA:-} =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && ${GITHUB_SHA:-} == "$GALAXY_RELEASE_SHA" && ${GALAXY_BETA_ID:-} == "$GALAXY_RELEASE_SHA" ]] || fail 'Beta identity must match the validated triggering commit.'
+  artifact_version="beta_$GALAXY_BETA_ID"
+  volume_name='Galaxy Beta'
+elif [[ $channel == release ]]; then
+  [[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == "refs/tags/$version" ]] || fail 'Signing requires a matching pushed version tag.'
+  artifact_version=$version
+  volume_name=Galaxy
+else
+  fail 'Build channel must be release or beta.'
+fi
 [[ $(git rev-parse HEAD) == "${GALAXY_RELEASE_SHA:-}" && -z $(git status --porcelain) ]] || fail 'Checkout no longer matches the validated release.'
 for variable in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_P8 CARGO_TARGET_DIR GALAXY_RELEASE_DIR; do
   [[ -n ${!variable:-} ]] || fail "Missing Gitea secret or job variable: $variable"
@@ -27,7 +38,9 @@ done
 app="$CARGO_TARGET_DIR/aarch64-apple-darwin/release/bundle/osx/Galaxy.app"
 [[ -x "$app/Contents/MacOS/galaxy-oss" && -x "$app/Contents/PlugIns/GalaxyDockTilePlugin.docktileplugin/Contents/MacOS/GalaxyDockTilePlugin" ]] || fail 'Build the complete app first.'
 bundle_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
-[[ $bundle_version == "$version" ]] || fail 'App bundle version does not match the release tag.'
+bundle_channel=$(/usr/libexec/PlistBuddy -c 'Print :GalaxyBuildChannel' "$app/Contents/Info.plist")
+bundle_commit=$(/usr/libexec/PlistBuddy -c 'Print :GalaxySourceCommit' "$app/Contents/Info.plist")
+[[ $bundle_version == "$version" && $bundle_channel == "$channel" && $bundle_commit == "$GALAXY_RELEASE_SHA" ]] || fail 'App bundle version, channel, or source commit does not match the validated build.'
 # macOS's basic certificate-chain lookup must discover this keychain too.
 # Register it in the standard location before importing its certificates.
 work=$(mktemp -d "$HOME/Library/Keychains/galaxy-sign.XXXXXX")
@@ -186,8 +199,8 @@ stage="$work/dmg-root"
 mkdir "$stage"
 ditto "$app" "$stage/Galaxy.app"
 ln -s /Applications "$stage/Applications"
-dmg="$GALAXY_RELEASE_DIR/Galaxy_${version}_aarch64.dmg"
-hdiutil create -volname Galaxy -srcfolder "$stage" -format UDZO -ov "$dmg" >/dev/null
+dmg="$GALAXY_RELEASE_DIR/Galaxy_${artifact_version}_aarch64.dmg"
+hdiutil create -volname "$volume_name" -srcfolder "$stage" -format UDZO -ov "$dmg" >/dev/null
 /usr/bin/codesign --force --timestamp --keychain "$keychain" --sign "$APPLE_SIGNING_IDENTITY" --identifier com.galaxy.GalaxyOss.dmg "$dmg"
 /usr/bin/codesign --verify --strict --verbose=2 "$dmg"
 notarize "$dmg" dmg

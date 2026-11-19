@@ -148,6 +148,14 @@ fn emit_git_build_metadata() {
         println!("cargo:rerun-if-env-changed={variable}");
     }
     println!("cargo:rerun-if-env-changed=GALAXY_GIT_DIRTY");
+    println!("cargo:rerun-if-env-changed=GALAXY_BUILD_CHANNEL");
+
+    let build_channel = env::var("GALAXY_BUILD_CHANNEL").unwrap_or_else(|_| "release".to_owned());
+    assert!(
+        matches!(build_channel.as_str(), "beta" | "release"),
+        "GALAXY_BUILD_CHANNEL must be beta or release"
+    );
+    println!("cargo:rustc-env=GALAXY_BUILD_CHANNEL={build_channel}");
 
     // Keep local build metadata current when the checked-out commit changes. Watching the
     // package and workspace source directories also refreshes the dirty marker for normal

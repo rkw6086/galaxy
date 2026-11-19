@@ -1,5 +1,9 @@
 # Galaxy changelog
 
+## [Unreleased]
+
+- Build signed and notarized Apple Silicon beta DMGs for every push to master, with the source commit in About Galaxy. Tagged releases continue to display their version.
+
 ## [3.1.3]
 
 - Fix a crash when opening Bedrock settings and other provider pages that display saved models in a scrollable table.

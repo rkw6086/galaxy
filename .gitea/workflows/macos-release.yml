@@ -21,6 +21,7 @@ jobs:
       sha: ${{ steps.release.outputs.sha }}
     env:
       CI: 'true'
+      GALAXY_BUILD_CHANNEL: release
       PYTHONDONTWRITEBYTECODE: '1'
       GALAXY_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       GITEA_SERVER_URL: ${{ github.server_url }}

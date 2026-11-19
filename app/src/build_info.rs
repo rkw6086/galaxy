@@ -12,6 +12,14 @@ pub(crate) fn source_revision_label() -> String {
     }
 }
 
+pub(crate) fn about_version_label() -> String {
+    if env!("GALAXY_BUILD_CHANNEL") == "beta" {
+        format!("Beta · {}", source_revision_label())
+    } else {
+        format!("Version {}", env!("CARGO_PKG_VERSION"))
+    }
+}
+
 pub(crate) const fn profile() -> &'static str {
     if cfg!(debug_assertions) {
         "debug"

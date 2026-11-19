@@ -26,7 +26,7 @@ The names match Solar's secrets. The same Apple identity can sign both apps; the
 
 ## Version and publish
 
-The tag is the packaged version: `3.1.1`, with no `v` prefix. Only stable `MAJOR.MINOR.PATCH` versions are supported. About Galaxy displays that packaged version without commit details.
+The tag is the packaged version: `3.1.1`, with no `v` prefix. Only stable `MAJOR.MINOR.PATCH` versions are supported for releases. About Galaxy displays that packaged version without commit details.
 
 Prepare a version and its release notes, then check the files:
 
@@ -37,7 +37,17 @@ node script/release.mjs check
 
 Keep a nonempty `## [3.1.1]` section in `CHANGELOG.md`. Complete the required local `cargo build`, commit the release changes, and push `master` to both configured remotes. Create and push the annotated tag with `node script/release.mjs tag 3.1.1 --push` after both remote branches contain that commit. The push to Gitea (`origin`) starts the signed release workflow; the Samsung remote retains the same source and tag.
 
-Branch pushes and pull requests only check release metadata and script syntax, without Apple credentials. Before creating a release tag, manually run the **Release checks** workflow on `master` for a native macOS preflight. That manual job builds and verifies the complete unsigned bundle using the same pinned tools and resources as the release, then removes its temporary files. It has no Apple secrets, signing, publication, or app launch. A manual run on another branch cannot start the macOS job. The normal signing job requires a pushed version tag whose packaged version matches, whose commit is in `master`, and whose local, triggering, and remote tag commits agree. It checks previous Actions history for a reused tag pointing to another commit. Existing published versions skip signing. Treat release tags as permanent and protect them in Gitea; corrections belong in a new version.
+Pull requests check release metadata and script syntax without Apple credentials. Pushes to `master` also start the signed beta pipeline described below. Before creating a release tag, manually run the **Release checks** workflow on `master` for a native macOS preflight. That manual job builds and verifies the complete unsigned bundle using the same pinned tools and resources as the release, then removes its temporary files. It has no Apple secrets, signing, publication, or app launch. A manual run on another branch cannot start the macOS job. The normal release signing job requires a pushed version tag whose packaged version matches, whose commit is in `master`, and whose local, triggering, and remote tag commits agree. It checks previous Actions history for a reused tag pointing to another commit. Existing published versions skip signing. Treat release tags as permanent and protect them in Gitea; corrections belong in a new version.
+
+## Continuous master beta
+
+[The macOS beta workflow](../.gitea/workflows/macos-beta.yml) builds a signed and notarized Apple Silicon DMG for every push to `master` on Gitea. No version bump or tag is required. Each run checks out its triggering commit, validates the push and clean source, builds without Apple credentials, then uses the same signing, notarization, stapling, Gatekeeper, and bundled-resource checks as stable releases. Newer pushes queue behind the existing native runner rather than cancelling a build during signing.
+
+Download the `Galaxy-beta-COMMIT-ATTEMPT-macos-arm64` artifact from the matching **macOS beta** run in [Actions](https://git.ryserve.net/public/galaxy/actions). It contains `Galaxy_beta_COMMIT_aarch64.dmg` and `SHA256SUMS`, with the full source commit replacing `COMMIT`. The run attempt keeps rerun uploads distinct. Artifacts are retained for 30 days. Betas do not create or move tags, publish a release, or replace the latest stable release.
+
+About Galaxy displays `Beta · COMMIT` for these builds, and `Version X.Y.Z` for tagged releases. The channel is embedded at compile time with `GALAXY_BUILD_CHANNEL=beta|release` (default `release`); switching this input triggers a rebuild. The macOS bundle also records `GalaxyBuildChannel` and `GalaxySourceCommit`, which packaging verifies before signing. The standard numeric package version is retained for macOS compatibility, independently of the beta commit identity.
+
+The beta DMG contains the same `Galaxy.app` and uses the same app identifier and local data as the stable build. Installing it replaces the existing app; install a stable DMG again to return to a release. Only trusted pushes to `master` can enter the beta signing path; branch and pull-request builds do not receive Apple signing credentials.
 
 ## Artifacts and recovery
 
