@@ -535,9 +535,23 @@ def stable_notes(config, client):
     except (OSError, subprocess.SubprocessError):
         raise PublishError("Could not generate bounded release notes from the source commits.") from None
     lines = result.splitlines()
-    if len(lines) > 200 or len(result.encode("utf-8")) > 128 * 1024:
-        raise PublishError("Commit-derived release notes exceed the safe bound; supply a notes file.")
-    return "Changes since Galaxy " + baseline["tag_name"] + ":\n\n" + result if baseline else result
+    shown, used_bytes = [], 0
+    for line in lines[:200]:
+        size = len((line + "\n").encode("utf-8"))
+        if used_bytes + size > 96 * 1024:
+            break
+        shown.append(line)
+        used_bytes += size
+    introduction = "Changes since Galaxy " + baseline["tag_name"] + ":" if baseline else "Changes in this source commit:"
+    fallback = "- Commit subjects exceed the display limit." if lines else "- No source changes."
+    notes = introduction + "\n\n" + ("\n".join(shown) or fallback)
+    if len(lines) > len(shown):
+        notes += f"\n\nShowing the latest {len(shown)} commits within the release-note limit."
+    if baseline:
+        notes += f"\n\n[Compare changes]({config.server}/{config.repository}/compare/{baseline['tag_name']}...{config.commit})"
+    else:
+        notes += f"\n\n[Source commit]({config.server}/{config.repository}/commit/{config.commit})"
+    return notes
 
 
 def publish_stable(config, client, files, notes):
