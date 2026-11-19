@@ -893,6 +893,18 @@ pub enum WorkspaceAction {
     OpenNetworkLogPane,
     /// Opens the app-wide inspector for model, compaction, and tool activity.
     OpenAIActivity,
+    /// Begin a split-view divider drag.  Dispatched on `mouse_down` over a
+    /// divider between two adjacent slots.
+    StartSplitViewResize {
+        /// Stable identifier of the divider being dragged.
+        divider_id: EntityId,
+        /// Initial mouse X position in window coordinates.
+        start_x: f32,
+    },
+    /// Dispatched on every `mouse_dragged` event while a split-view divider is held.
+    SplitViewResizeMove(Vector2F),
+    /// Dispatched on `left_mouse_up` to finish a split-view divider drag.
+    EndSplitViewResize,
 }
 
 impl From<&WorkspaceAction> for LoginGatedFeature {
@@ -1217,7 +1229,10 @@ impl WorkspaceAction {
             | ShowCloudModeV2EnvironmentCreationModal
             | OpenCreateAuthSecretModal { .. }
             | OpenNetworkLogPane
-            | OpenAIActivity => false,
+            | OpenAIActivity
+            | StartSplitViewResize { .. }
+            | SplitViewResizeMove(_)
+            | EndSplitViewResize => false,
             #[cfg(debug_assertions)]
             ShowHoaOnboardingFlow => false,
             #[cfg(target_family = "wasm")]

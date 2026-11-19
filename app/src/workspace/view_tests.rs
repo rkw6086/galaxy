@@ -4845,8 +4845,570 @@ mod split_view_state_tests {
         assert!(s.contains(id_c));
         assert!(!s.contains(id_b));
     }
-}
 
+    // ── Resize weight tests ──────────────────────────────────────────────────
+
+    /// Default flex weights are 1.0 for every slot.
+    #[test]
+    fn default_slot_weights_are_equal() {
+        let (s, ids) = state_with(3);
+        for &id in &ids {
+            assert_eq!(s.slot_weight(id), 1.0, "all initial weights must be 1.0");
+        }
+    }
+
+    /// Unknown IDs fall back to 1.0.
+    #[test]
+    fn slot_weight_unknown_id_returns_one() {
+        let (s, _) = state_with(2);
+        assert_eq!(s.slot_weight(make_id()), 1.0);
+    }
+
+    /// Removing a slot also removes its weight entry.
+    /// **Proves cleanup removes a mutated weight, not just the initial 1.0.**
+    #[test]
+    fn weight_cleaned_up_on_remove() {
+        let (mut s, ids) = state_with(3);
+        // Mutate ids[1]'s weight via a drag so we can prove it was cleaned up.
+        let divider_id = s.dividers()[1].id; // right divider (between ids[1] and ids[2])
+        s.start_resize(divider_id, 0.0);
+        // Apply a drag so ids[1] weight differs from 1.0.
+        s.apply_resize_move(100.0, &ids, 1024.0);
+        // Now ids[1] weight should be != 1.0.
+        let mutated_weight = s.slot_weight(ids[1]);
+        assert_ne!(
+            mutated_weight, 1.0,
+            "weight must have been mutated by the drag"
+        );
+        s.end_resize();
+
+        // Remove ids[1] – its mutated weight entry must be purged.
+        s.remove(ids[1]);
+        assert_eq!(
+            s.slot_weight(ids[1]),
+            1.0,
+            "removed slot weight must be purged (falls back to 1.0); was {mutated_weight}"
+        );
+        // Other slots still hold their own weights.
+        assert!(s.slot_weight(ids[0]).is_finite());
+        assert!(s.slot_weight(ids[2]).is_finite());
+    }
+
+    /// `clear()` removes all weight entries, including mutated ones.
+    #[test]
+    fn weight_cleaned_up_on_clear() {
+        let (mut s, ids) = state_with(2);
+        // Mutate left slot weight so we can prove clear actually purges it.
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+        s.apply_resize_move(612.0, &ids, 1024.0);
+        s.end_resize();
+        // After the drag, ids[0] weight should be != 1.0.
+        assert_ne!(
+            s.slot_weight(ids[0]),
+            1.0,
+            "weight must have been mutated before testing clear"
+        );
+
+        s.clear();
+        for &id in &ids {
+            assert_eq!(
+                s.slot_weight(id),
+                1.0,
+                "clear must purge all weight entries (falls back to 1.0)"
+            );
+        }
+    }
+
+    /// Divider count equals `len - 1` after adding slots.
+    #[test]
+    fn divider_count_matches_gaps() {
+        let mut s = SplitViewState::default();
+        for n in 1..=SplitViewState::MAX_VISIBLE {
+            let id = make_id();
+            s.add(id);
+            let expected_dividers = n.saturating_sub(1);
+            assert_eq!(
+                s.dividers().len(),
+                expected_dividers,
+                "expected {expected_dividers} dividers for {n} slots"
+            );
+        }
+    }
+
+    /// Divider count is reduced when a slot is removed.
+    #[test]
+    fn divider_count_decreases_on_remove() {
+        let (mut s, ids) = state_with(3);
+        assert_eq!(s.dividers().len(), 2);
+        s.remove(ids[2]);
+        assert_eq!(s.dividers().len(), 1);
+        s.remove(ids[1]);
+        // 1 slot → 0 dividers.
+        assert_eq!(s.dividers().len(), 0);
+    }
+
+    /// Dividers are cleared when `clear()` is called.
+    #[test]
+    fn dividers_cleared_on_clear() {
+        let (mut s, _) = state_with(3);
+        s.clear();
+        assert_eq!(s.dividers().len(), 0);
+    }
+
+    /// Applying a resize move adjusts the two adjacent weights and preserves
+    /// their sum.  Uses `start_resize` → `apply_resize_move`.
+    #[test]
+    fn apply_resize_move_adjusts_adjacent_weights_preserving_sum() {
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+
+        // Start a drag at x = 512.0 (simulated center of a 1024px window).
+        s.start_resize(divider_id, 512.0);
+
+        let initial_left = s.slot_weight(ids[0]);
+        let initial_right = s.slot_weight(ids[1]);
+        let initial_sum = initial_left + initial_right;
+
+        // Drag 100 px to the right → left slot should grow, right should shrink.
+        let changed = s.apply_resize_move(612.0, &ids, 1024.0);
+        assert!(changed, "a 100px drag must result in a weight change");
+
+        let new_left = s.slot_weight(ids[0]);
+        let new_right = s.slot_weight(ids[1]);
+        assert!(
+            new_left > initial_left,
+            "left slot weight must increase after dragging right"
+        );
+        assert!(
+            new_right < initial_right,
+            "right slot weight must decrease after dragging right"
+        );
+        // Total weight is preserved (up to floating-point tolerance).
+        let new_sum = new_left + new_right;
+        assert!(
+            (new_sum - initial_sum).abs() < 1e-3,
+            "total weight of the two adjacent slots must be preserved; got {new_sum} vs {initial_sum}"
+        );
+    }
+
+    /// A zero delta produces no change.
+    #[test]
+    fn apply_resize_move_no_op_on_zero_delta() {
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+        // Send the same X value – delta == 0.
+        let changed = s.apply_resize_move(512.0, &ids, 1024.0);
+        assert!(!changed, "zero delta must not produce a weight change");
+    }
+
+    /// `apply_resize_move` is a no-op when no drag is active.
+    #[test]
+    fn apply_resize_move_no_op_without_active_drag() {
+        let (mut s, ids) = state_with(2);
+        // No start_resize called.
+        let changed = s.apply_resize_move(600.0, &ids, 1024.0);
+        assert!(!changed, "no drag → no change");
+    }
+
+    /// `end_resize` clears the drag state so subsequent move events are no-ops.
+    #[test]
+    fn end_resize_stops_drag() {
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+        // First move succeeds.
+        assert!(s.apply_resize_move(612.0, &ids, 1024.0));
+        s.end_resize();
+        // After end_resize, moves are no-ops.
+        assert!(!s.apply_resize_move(700.0, &ids, 1024.0));
+    }
+
+    /// Removing a slot while drag is active clears the drag state.
+    #[test]
+    fn remove_slot_while_dragging_clears_drag() {
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+        // Remove one slot while dragging.
+        s.remove(ids[1]);
+        // The drag state must have been cleared by remove().
+        // A subsequent move event must be a no-op.
+        let ids_after = vec![ids[0]];
+        assert!(!s.apply_resize_move(600.0, &ids_after, 1024.0));
+    }
+
+    // ── Bounds / nonfinite / exact-pixel coverage ──────────────────────────────────
+
+    /// NaN row_width is rejected (no fallback); returns false and weights unchanged.
+    #[test]
+    fn nan_row_width_rejected() {
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+        let w0_before = s.slot_weight(ids[0]);
+        let changed = s.apply_resize_move(612.0, &ids, f32::NAN);
+        assert!(!changed, "NaN row_width must be rejected (returns false)");
+        assert_eq!(
+            s.slot_weight(ids[0]),
+            w0_before,
+            "weights must be unchanged after NaN row_width"
+        );
+    }
+
+    /// Infinite row_width is rejected.
+    #[test]
+    fn infinite_row_width_rejected() {
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+        let w0_before = s.slot_weight(ids[0]);
+        let changed = s.apply_resize_move(612.0, &ids, f32::INFINITY);
+        assert!(!changed, "Infinite row_width must be rejected");
+        assert_eq!(s.slot_weight(ids[0]), w0_before);
+    }
+
+    /// Zero row_width is rejected.
+    #[test]
+    fn zero_row_width_rejected() {
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+        let w0_before = s.slot_weight(ids[0]);
+        let changed = s.apply_resize_move(612.0, &ids, 0.0);
+        assert!(!changed, "Zero row_width must be rejected");
+        assert_eq!(s.slot_weight(ids[0]), w0_before);
+    }
+
+    /// NaN new_x is rejected; `previous_x` must NOT be poisoned.
+    #[test]
+    fn nan_new_x_rejected() {
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+        // NaN must be rejected immediately without touching any state.
+        let changed = s.apply_resize_move(f32::NAN, &ids, 1024.0);
+        assert!(!changed, "NaN new_x must be rejected");
+        // A subsequent valid move from the same start must still work.
+        let changed2 = s.apply_resize_move(612.0, &ids, 1024.0);
+        assert!(
+            changed2,
+            "a valid drag after a NaN rejection must succeed (previous_x not poisoned)"
+        );
+        assert!(s.slot_weight(ids[0]).is_finite());
+        assert!(s.slot_weight(ids[1]).is_finite());
+    }
+
+    /// Nonfinite start_x is rejected; drag is not started.
+    #[test]
+    fn nonfinite_start_x_rejected() {
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        // start_resize now returns bool.
+        assert!(
+            !s.start_resize(divider_id, f32::NAN),
+            "NaN start_x must be rejected"
+        );
+        assert!(
+            !s.start_resize(divider_id, f32::INFINITY),
+            "Inf start_x must be rejected"
+        );
+        // No drag is active, so apply_resize_move is a no-op.
+        assert!(!s.apply_resize_move(600.0, &ids, 1024.0));
+    }
+
+    // ── Exact pixel assertions ─────────────────────────────────────────────────
+
+    /// Helper: given two equal-weight slots in a row of `row_width` px,
+    /// drag the divider `delta` px and return the resulting slot pixel widths.
+    ///
+    /// Slot px = weight / total_weight * (row_width - n_dividers * 1px).
+    /// With 2 equal-weight slots: each slot starts at (row_width - 1) / 2 px.
+    fn slot_px_after_drag(row_width: f32, delta: f32) -> (f32, f32) {
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        // Start at the midpoint of the row.
+        let start_x = row_width / 2.0;
+        s.start_resize(divider_id, start_x);
+        s.apply_resize_move(start_x + delta, &ids, row_width);
+        // Convert weights back to pixels.
+        let total_w = s.slot_weight(ids[0]) + s.slot_weight(ids[1]);
+        let slot_px = row_width - 1.0; // 1 divider
+        let left_px = s.slot_weight(ids[0]) / total_w * slot_px;
+        let right_px = s.slot_weight(ids[1]) / total_w * slot_px;
+        (left_px, right_px)
+    }
+
+    /// At 1024px with a 100px drag, each slot moves exactly 100px.
+    #[test]
+    fn exact_pixel_at_1024px_100px_drag() {
+        let row_width = 1024.0_f32;
+        // Starting widths: (1024-1)/2 = 511.5px each.
+        let start_w = (row_width - 1.0) / 2.0;
+        let (left_px, right_px) = slot_px_after_drag(row_width, 100.0);
+        assert!(
+            (left_px - (start_w + 100.0)).abs() < 0.5,
+            "left slot must grow by ~100px; got {left_px}"
+        );
+        assert!(
+            (right_px - (start_w - 100.0)).abs() < 0.5,
+            "right slot must shrink by ~100px; got {right_px}"
+        );
+    }
+
+    /// At 800px, the same 100px drag still moves 100px.
+    #[test]
+    fn exact_pixel_at_800px_100px_drag() {
+        let row_width = 800.0_f32;
+        let start_w = (row_width - 1.0) / 2.0;
+        let (left_px, right_px) = slot_px_after_drag(row_width, 100.0);
+        assert!(
+            (left_px - (start_w + 100.0)).abs() < 0.5,
+            "left at 800px: {left_px}"
+        );
+        assert!(
+            (right_px - (start_w - 100.0)).abs() < 0.5,
+            "right at 800px: {right_px}"
+        );
+    }
+
+    /// At 400px, a 100px drag moves 100px (even when slots are small).
+    #[test]
+    fn exact_pixel_at_400px_100px_drag() {
+        let row_width = 400.0_f32;
+        let start_w = (row_width - 1.0) / 2.0; // 199.5px each
+        let (left_px, right_px) = slot_px_after_drag(row_width, 100.0);
+        assert!(
+            (left_px - (start_w + 100.0)).abs() < 0.5,
+            "left at 400px: {left_px}"
+        );
+        assert!(
+            (right_px - (start_w - 100.0)).abs() < 0.5,
+            "right at 400px: {right_px}"
+        );
+    }
+
+    // ── Detached slot subset ─────────────────────────────────────────────────────
+
+    /// When one slot is detached (not in visible_ids), the flex conversion uses
+    /// only the visible slot weights so the drag distance is correct.
+    ///
+    /// Setup: 3 slots A, B, C all with weight 1.0.  Slot C is detached so
+    /// visible_ids = [A, B].  Row width is 1023px (2 visible slots = 1 divider).
+    /// Starting at the midpoint of the visible row (511px), drag 100px right.
+    /// Expected: left grows by 100px, right shrinks by 100px (using only A+B weights).
+    #[test]
+    fn detached_slot_excluded_from_flex_conversion() {
+        let (mut s, ids) = state_with(3); // ids = [A, B, C]
+        let divider_id = s.dividers()[0].id; // gap between A and B
+
+        // Simulate C being detached: pass only [A, B] as visible_ids.
+        let visible = &ids[..2];
+        let row_width = 1023.0_f32; // 2 visible slots, 1 divider = 1px
+                                    // Starting widths for A and B in this row:
+                                    // slot_px = (1023 - 1) / 2 = 511px each (using only visible weights A+B = 2.0).
+        let start_x = 511.0_f32; // midpoint of visible row
+        s.start_resize(divider_id, start_x);
+        let changed = s.apply_resize_move(start_x + 100.0, visible, row_width);
+        assert!(changed, "drag must succeed with detached slot excluded");
+
+        // Convert to pixel widths using the visible total weight only.
+        let total_visible_w = s.slot_weight(ids[0]) + s.slot_weight(ids[1]);
+        let slot_px = row_width - 1.0; // 1 divider
+        let a_px = s.slot_weight(ids[0]) / total_visible_w * slot_px;
+        let b_px = s.slot_weight(ids[1]) / total_visible_w * slot_px;
+        assert!(
+            (a_px - 611.0).abs() < 0.5,
+            "A must be ~611px after 100px drag; got {a_px}"
+        );
+        assert!(
+            (b_px - 411.0).abs() < 0.5,
+            "B must be ~411px after 100px drag; got {b_px}"
+        );
+        // C's weight is not affected.
+        assert_eq!(
+            s.slot_weight(ids[2]),
+            1.0,
+            "detached slot C weight must be unchanged"
+        );
+    }
+
+    // ── Clamping at minimum slot boundary ──────────────────────────────────────
+
+    /// Dragging hugely to the right clamps at right=50px rather than rejecting.
+    /// `previous_x` advances to the clamped position, not raw new_x.
+    #[test]
+    fn huge_drag_clamped_to_min_slot() {
+        let row_width = 1024.0_f32;
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        // Start at the midpoint (each slot ~511.5px).
+        s.start_resize(divider_id, 512.0);
+
+        // Drag far past the right boundary (right slot would go to 0).
+        let changed = s.apply_resize_move(2000.0, &ids, row_width);
+        assert!(
+            changed,
+            "huge drag must still produce a weight change (clamped)"
+        );
+
+        // Right slot must be pinned at MIN_SLOT_PX (50px), not zero/negative.
+        let total_w = s.slot_weight(ids[0]) + s.slot_weight(ids[1]);
+        let slot_px = row_width - 1.0;
+        let right_px = s.slot_weight(ids[1]) / total_w * slot_px;
+        assert!(
+            (right_px - 50.0).abs() < 1.0,
+            "right slot must be clamped to ~50px; got {right_px}"
+        );
+        assert!(
+            s.slot_weight(ids[0]) > s.slot_weight(ids[1]),
+            "left slot must be larger after rightward clamp drag"
+        );
+    }
+
+    /// Dragging into the boundary then further: second drag is a no-op because
+    /// previous_x tracks new_x, so the second drag delta is still rightward
+    /// and clamped to zero.
+    #[test]
+    fn drag_at_boundary_then_further_right_is_no_op() {
+        let row_width = 1024.0_f32;
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+
+        // First drag: clamp to right boundary.
+        let changed1 = s.apply_resize_move(2000.0, &ids, row_width);
+        assert!(changed1);
+        let w0_at_boundary = s.slot_weight(ids[0]);
+        let w1_at_boundary = s.slot_weight(ids[1]);
+
+        // Second drag: even further right.  right slot is already at min;
+        // delta = 3000 - 2000 = +1000 → clamped to 0 → no weight change.
+        let changed2 = s.apply_resize_move(3000.0, &ids, row_width);
+        assert!(!changed2, "drag past clamped boundary must be a no-op");
+        assert_eq!(s.slot_weight(ids[0]), w0_at_boundary);
+        assert_eq!(s.slot_weight(ids[1]), w1_at_boundary);
+    }
+
+    /// Dragging leftward from the right boundary retreats correctly (reversal).
+    /// previous_x = new_x, so after reaching x=2000, previous_x=2000.
+    /// Drag to boundary_x-100 = 873 gives delta = 873-2000 = -1127 → leftward.
+    #[test]
+    fn drag_reversal_after_clamp() {
+        let row_width = 1024.0_f32;
+        let boundary_x = row_width - 1.0 - 50.0; // 973
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+        // Clamp to boundary; previous_x = 2000.
+        s.apply_resize_move(2000.0, &ids, row_width);
+
+        // Drag leftward: new_x < previous_x (2000), delta is negative → reversal.
+        let changed = s.apply_resize_move(boundary_x - 100.0, &ids, row_width);
+        assert!(changed, "reversal drag must succeed after right clamp");
+
+        let total_w = s.slot_weight(ids[0]) + s.slot_weight(ids[1]);
+        let slot_px = row_width - 1.0;
+        let right_px = s.slot_weight(ids[1]) / total_w * slot_px;
+        assert!(
+            right_px > 50.0,
+            "right slot must grow above 50px on reversal; got {right_px}"
+        );
+    }
+
+    /// 2000→1999 must NOT be sticky: with previous_x tracking new_x, dragging
+    /// from x=2000 (clamped, previous_x=2000) to x=1999 gives delta=-1 which
+    /// is a valid leftward move producing a weight change immediately.
+    #[test]
+    fn reversal_one_px_from_clamp_is_not_sticky() {
+        let row_width = 1024.0_f32;
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+
+        // Reach the right boundary: previous_x becomes 2000.
+        s.apply_resize_move(2000.0, &ids, row_width);
+        let w1_at_boundary = s.slot_weight(ids[1]);
+
+        // Move back exactly 1px.  This must produce a weight change (not sticky).
+        let changed = s.apply_resize_move(1999.0, &ids, row_width);
+        assert!(
+            changed,
+            "2000→1999 must immediately produce a weight change (no sticky frame)"
+        );
+        // Right slot must have grown (divider moved left by 1px).
+        assert!(
+            s.slot_weight(ids[1]) > w1_at_boundary,
+            "right slot weight must increase when dragging left from boundary"
+        );
+    }
+
+    /// Outward drag past boundary then immediate reversal by 1px works.
+    /// Tests the full sequence: free move → boundary → 1px reversal.
+    #[test]
+    fn outward_then_1px_reversal_works() {
+        let row_width = 1024.0_f32;
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+
+        // Free move: 100px to the right.
+        let changed1 = s.apply_resize_move(612.0, &ids, row_width);
+        assert!(changed1, "free move must change weights");
+        let w0_mid = s.slot_weight(ids[0]);
+
+        // Large outward drag past boundary.
+        let changed2 = s.apply_resize_move(2000.0, &ids, row_width);
+        assert!(changed2, "outward drag must change weights (clamped)");
+        let w1_boundary = s.slot_weight(ids[1]);
+
+        // Reverse by 1px: must immediately change weights.
+        let changed3 = s.apply_resize_move(1999.0, &ids, row_width);
+        assert!(
+            changed3,
+            "1px reversal after outward clamp must change weights"
+        );
+        assert!(
+            s.slot_weight(ids[1]) > w1_boundary,
+            "right weight must grow on 1px reversal"
+        );
+        // Left slot must still be larger than its mid-drag weight (we're near the
+        // right boundary, left is large).
+        assert!(
+            s.slot_weight(ids[0]) > w0_mid,
+            "left weight must still exceed mid-drag value near boundary"
+        );
+    }
+
+    /// Adjacent weights remain finite and positive after many small drag steps.
+    #[test]
+    fn repeated_drags_stay_finite_and_positive() {
+        let (mut s, ids) = state_with(2);
+        let divider_id = s.dividers()[0].id;
+        s.start_resize(divider_id, 512.0);
+        let row_width = 1024.0_f32;
+        let mut x = 512.0_f32;
+        for _ in 0..20 {
+            x += 10.0;
+            s.apply_resize_move(x, &ids, row_width);
+        }
+        s.end_resize();
+        assert!(
+            s.slot_weight(ids[0]).is_finite() && s.slot_weight(ids[0]) > 0.0,
+            "left weight must remain finite and positive"
+        );
+        assert!(
+            s.slot_weight(ids[1]).is_finite() && s.slot_weight(ids[1]) > 0.0,
+            "right weight must remain finite and positive"
+        );
+        let pair_sum = s.slot_weight(ids[0]) + s.slot_weight(ids[1]);
+        assert!(
+            (pair_sum - 2.0).abs() < 1e-2,
+            "pair sum must stay close to 2.0; got {pair_sum}"
+        );
+    }
+} // end split_view_state_tests
 #[test]
 fn test_split_pane_focused_event_reconciles_tab_selection_and_header_membership() {
     App::test((), |mut app| async move {

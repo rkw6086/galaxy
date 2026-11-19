@@ -450,7 +450,14 @@ impl RequestParams {
             api_keys,
             custom_model_providers,
             custom_model_routers,
-            command_allowlist: crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(app).active_profile(terminal_view_id, app).data().command_allowlist.iter().map(ToString::to_string).collect(),
+            command_allowlist:
+                crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(app)
+                    .active_profile(terminal_view_id, app)
+                    .data()
+                    .command_allowlist
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
             permission_mode: BlocklistAIPermissions::as_ref(app)
                 .get_permission_mode(app, terminal_view_id),
             autonomy_level,

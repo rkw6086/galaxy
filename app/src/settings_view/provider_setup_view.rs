@@ -3,9 +3,9 @@ use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
     Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
     CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement, Hoverable, MainAxisAlignment,
-    MainAxisSize, MouseStateHandle, Padding, ParentElement, Radius, RowBackground, ScrollStateHandle,
-    Scrollable, ScrollableElement, ScrollbarWidth, Table, TableColumnWidth, TableConfig, TableHeader,
-    TableStateHandle, TableVerticalSizing, Text,
+    MainAxisSize, MouseStateHandle, Padding, ParentElement, Radius, RowBackground,
+    ScrollStateHandle, Scrollable, ScrollableElement, ScrollbarWidth, Table, TableColumnWidth,
+    TableConfig, TableHeader, TableStateHandle, TableVerticalSizing, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::platform::Cursor;
@@ -1182,7 +1182,9 @@ impl ProviderSetupView {
                 let requested_config = config.clone();
                 let generation = self.acp_discovery_generation;
                 let verification_generation = LLMPreferences::handle(ctx)
-                    .update(ctx, |preferences, _| preferences.begin_bedrock_verification());
+                    .update(ctx, |preferences, _| {
+                        preferences.begin_bedrock_verification()
+                    });
                 ctx.spawn(
                     async move {
                         crate::ai::provider::discovery::discover_available_models(config).await
@@ -1610,7 +1612,8 @@ impl ProviderSetupView {
             );
         }
 
-        let pending = matches!(state,
+        let pending = matches!(
+            state,
             ChatGPTAuthState::AwaitingBrowser | ChatGPTAuthState::ExchangingToken
         );
         {
@@ -1621,13 +1624,16 @@ impl ProviderSetupView {
                         ButtonVariant::Secondary,
                         self.chatgpt_connect_mouse_state.clone(),
                     )
-                    .with_text_label(if pending {
-                        "Cancel sign-in"
-                    } else if matches!(state, ChatGPTAuthState::Connected) {
-                        "Reconnect ChatGPT"
-                    } else {
-                        "Connect ChatGPT"
-                    }.to_owned())
+                    .with_text_label(
+                        if pending {
+                            "Cancel sign-in"
+                        } else if matches!(state, ChatGPTAuthState::Connected) {
+                            "Reconnect ChatGPT"
+                        } else {
+                            "Connect ChatGPT"
+                        }
+                        .to_owned(),
+                    )
                     .build()
                     .on_click(move |ctx, _, _| {
                         let action = if pending {
@@ -1892,7 +1898,11 @@ impl ProviderSetupView {
             .finish()
     }
 
-    fn render_discovery(&self, appearance: &Appearance, app: &AppContext) -> Box<dyn galaxyui::Element> {
+    fn render_discovery(
+        &self,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn galaxyui::Element> {
         let (message, color) = match &self.discovery_state {
             DiscoveryState::Idle | DiscoveryState::Loading => (
                 if self.provider_type == ProviderSetupProviderType::Acp
@@ -2529,7 +2539,8 @@ impl TypedActionView for ProviderSetupView {
                 if self.provider_type != *kind {
                     #[cfg(not(target_family = "wasm"))]
                     if self.provider_type == ProviderSetupProviderType::ChatGPTSubscription {
-                        ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.cancel_sign_in(ctx));
+                        ChatGPTAuthModel::handle(ctx)
+                            .update(ctx, |model, ctx| model.cancel_sign_in(ctx));
                     }
                     self.cancel_claude_signin();
                     self.draft_api_key = None;
@@ -2633,7 +2644,8 @@ impl TypedActionView for ProviderSetupView {
                 self.cancel_claude_signin();
                 #[cfg(not(target_family = "wasm"))]
                 if self.provider_type == ProviderSetupProviderType::ChatGPTSubscription {
-                    ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.cancel_sign_in(ctx));
+                    ChatGPTAuthModel::handle(ctx)
+                        .update(ctx, |model, ctx| model.cancel_sign_in(ctx));
                 }
                 self.discovery_state = DiscoveryState::Idle;
                 ctx.emit(ProviderSetupViewEvent::Close);

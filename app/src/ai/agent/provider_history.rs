@@ -8,10 +8,17 @@ use crate::ai::runtime::ProviderActionContext;
 
 const TOOL_PREFIX: &str = "galaxy:provider-tool:v1:";
 
-pub(crate) fn computer_use_tool(action: &super::AIAgentActionType) -> Option<api::message::tool_call::Tool> {
+pub(crate) fn computer_use_tool(
+    action: &super::AIAgentActionType,
+) -> Option<api::message::tool_call::Tool> {
     use api::message::tool_call::{self as tool, use_computer::action as action_api};
     use computer_use::{Action, Key, MouseButton, ScrollDirection, ScrollDistance};
-    let coordinates = |point: computer_use::Vector2I| Some(api::Coordinates { x: point.x(), y: point.y() });
+    let coordinates = |point: computer_use::Vector2I| {
+        Some(api::Coordinates {
+            x: point.x(),
+            y: point.y(),
+        })
+    };
     let button = |button: &MouseButton| match button {
         MouseButton::Left => action_api::MouseButton::Left as i32,
         MouseButton::Right => action_api::MouseButton::Right as i32,
@@ -19,67 +26,136 @@ pub(crate) fn computer_use_tool(action: &super::AIAgentActionType) -> Option<api
         MouseButton::Back => action_api::MouseButton::Back as i32,
         MouseButton::Forward => action_api::MouseButton::Forward as i32,
     };
-    let key = |key: &Key| Some(action_api::Key { data: Some(match key {
-        Key::Char(ch) => action_api::key::Data::Char(ch.to_string()),
-        Key::Keycode(code) => action_api::key::Data::Keycode(*code),
-    }) });
+    let key = |key: &Key| {
+        Some(action_api::Key {
+            data: Some(match key {
+                Key::Char(ch) => action_api::key::Data::Char(ch.to_string()),
+                Key::Keycode(code) => action_api::key::Data::Keycode(*code),
+            }),
+        })
+    };
     match action {
-        super::AIAgentActionType::RequestComputerUse(request) => Some(tool::Tool::RequestComputerUse(tool::RequestComputerUse {
-            task_summary: request.task_summary.clone(),
-            screenshot_params: request.screenshot_params.map(computer_screenshot),
-        })),
-        super::AIAgentActionType::UseComputer(request) => Some(tool::Tool::UseComputer(tool::UseComputer {
-            action_summary: request.action_summary.clone(),
-            post_actions_screenshot_params: request.screenshot_params.map(computer_screenshot),
-            actions: request.actions.iter().map(|targeted| tool::use_computer::Action {
-                target: computer_target(targeted.target),
-                r#type: Some(match &targeted.action {
-                    Action::MouseMove { to } => action_api::Type::MouseMove(action_api::MouseMove { to: coordinates(*to) }),
-                    Action::MouseDown { button: b, at } => action_api::Type::MouseDown(action_api::MouseDown { button: button(b), at: coordinates(*at) }),
-                    Action::MouseUp { button: b } => action_api::Type::MouseUp(action_api::MouseUp { button: button(b) }),
-                    Action::MouseWheel { at, direction, distance } => action_api::Type::MouseWheel(action_api::MouseWheel {
-                        at: coordinates(*at),
-                        direction: match direction {
-                            ScrollDirection::Up => action_api::mouse_wheel::Direction::Up as i32,
-                            ScrollDirection::Down => action_api::mouse_wheel::Direction::Down as i32,
-                            ScrollDirection::Left => action_api::mouse_wheel::Direction::Left as i32,
-                            ScrollDirection::Right => action_api::mouse_wheel::Direction::Right as i32,
-                        },
-                        distance: Some(match distance {
-                            ScrollDistance::Pixels(value) => action_api::mouse_wheel::Distance::Pixels(*value),
-                            ScrollDistance::Clicks(value) => action_api::mouse_wheel::Distance::Clicks(*value),
+        super::AIAgentActionType::RequestComputerUse(request) => {
+            Some(tool::Tool::RequestComputerUse(tool::RequestComputerUse {
+                task_summary: request.task_summary.clone(),
+                screenshot_params: request.screenshot_params.map(computer_screenshot),
+            }))
+        }
+        super::AIAgentActionType::UseComputer(request) => {
+            Some(tool::Tool::UseComputer(tool::UseComputer {
+                action_summary: request.action_summary.clone(),
+                post_actions_screenshot_params: request.screenshot_params.map(computer_screenshot),
+                actions: request
+                    .actions
+                    .iter()
+                    .map(|targeted| tool::use_computer::Action {
+                        target: computer_target(targeted.target),
+                        r#type: Some(match &targeted.action {
+                            Action::MouseMove { to } => {
+                                action_api::Type::MouseMove(action_api::MouseMove {
+                                    to: coordinates(*to),
+                                })
+                            }
+                            Action::MouseDown { button: b, at } => {
+                                action_api::Type::MouseDown(action_api::MouseDown {
+                                    button: button(b),
+                                    at: coordinates(*at),
+                                })
+                            }
+                            Action::MouseUp { button: b } => {
+                                action_api::Type::MouseUp(action_api::MouseUp { button: button(b) })
+                            }
+                            Action::MouseWheel {
+                                at,
+                                direction,
+                                distance,
+                            } => action_api::Type::MouseWheel(action_api::MouseWheel {
+                                at: coordinates(*at),
+                                direction: match direction {
+                                    ScrollDirection::Up => {
+                                        action_api::mouse_wheel::Direction::Up as i32
+                                    }
+                                    ScrollDirection::Down => {
+                                        action_api::mouse_wheel::Direction::Down as i32
+                                    }
+                                    ScrollDirection::Left => {
+                                        action_api::mouse_wheel::Direction::Left as i32
+                                    }
+                                    ScrollDirection::Right => {
+                                        action_api::mouse_wheel::Direction::Right as i32
+                                    }
+                                },
+                                distance: Some(match distance {
+                                    ScrollDistance::Pixels(value) => {
+                                        action_api::mouse_wheel::Distance::Pixels(*value)
+                                    }
+                                    ScrollDistance::Clicks(value) => {
+                                        action_api::mouse_wheel::Distance::Clicks(*value)
+                                    }
+                                }),
+                            }),
+                            Action::TypeText { text } => {
+                                action_api::Type::TypeText(action_api::TypeText {
+                                    text: text.clone(),
+                                })
+                            }
+                            Action::KeyDown { key: k } => {
+                                action_api::Type::KeyDown(action_api::KeyDown { key: key(k) })
+                            }
+                            Action::KeyUp { key: k } => {
+                                action_api::Type::KeyUp(action_api::KeyUp { key: key(k) })
+                            }
+                            Action::Wait(duration) => action_api::Type::Wait(action_api::Wait {
+                                duration: Some(prost_types::Duration {
+                                    seconds: duration.as_secs() as i64,
+                                    nanos: duration.subsec_nanos() as i32,
+                                }),
+                            }),
                         }),
-                    }),
-                    Action::TypeText { text } => action_api::Type::TypeText(action_api::TypeText { text: text.clone() }),
-                    Action::KeyDown { key: k } => action_api::Type::KeyDown(action_api::KeyDown { key: key(k) }),
-                    Action::KeyUp { key: k } => action_api::Type::KeyUp(action_api::KeyUp { key: key(k) }),
-                    Action::Wait(duration) => action_api::Type::Wait(action_api::Wait { duration: Some(prost_types::Duration {
-                        seconds: duration.as_secs() as i64, nanos: duration.subsec_nanos() as i32,
-                    }) }),
-                }),
-            }).collect(),
-        })),
+                    })
+                    .collect(),
+            }))
+        }
         _ => None,
     }
 }
 
-fn computer_target(target: computer_use::Target) -> Option<api::message::tool_call::ComputerUseTarget> {
+fn computer_target(
+    target: computer_use::Target,
+) -> Option<api::message::tool_call::ComputerUseTarget> {
     use api::message::tool_call::{computer_use_target, ComputerUseTarget};
     match target {
         computer_use::Target::Screen => None,
-        computer_use::Target::Window { window_id, pid } => Some(ComputerUseTarget { target: Some(computer_use_target::Target::Window(computer_use_target::Window { window_id: window_id.to_string(), pid })) }),
+        computer_use::Target::Window { window_id, pid } => Some(ComputerUseTarget {
+            target: Some(computer_use_target::Target::Window(
+                computer_use_target::Window {
+                    window_id: window_id.to_string(),
+                    pid,
+                },
+            )),
+        }),
     }
 }
 
-fn computer_screenshot(params: computer_use::ScreenshotParams) -> api::message::tool_call::ScreenshotParams {
+fn computer_screenshot(
+    params: computer_use::ScreenshotParams,
+) -> api::message::tool_call::ScreenshotParams {
     api::message::tool_call::ScreenshotParams {
         max_long_edge_px: params.max_long_edge_px.unwrap_or_default() as i32,
         max_total_px: params.max_total_px.unwrap_or_default() as i32,
         target: computer_target(params.target),
-        region: params.region.map(|region| api::message::tool_call::screenshot_params::Region {
-            top_left: Some(api::Coordinates { x: region.top_left.x(), y: region.top_left.y() }),
-            bottom_right: Some(api::Coordinates { x: region.bottom_right.x(), y: region.bottom_right.y() }),
-        }),
+        region: params.region.map(
+            |region| api::message::tool_call::screenshot_params::Region {
+                top_left: Some(api::Coordinates {
+                    x: region.top_left.x(),
+                    y: region.top_left.y(),
+                }),
+                bottom_right: Some(api::Coordinates {
+                    x: region.bottom_right.x(),
+                    y: region.bottom_right.y(),
+                }),
+            },
+        ),
     }
 }
 

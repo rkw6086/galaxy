@@ -307,12 +307,7 @@ fn local_folder_moves_reject_cycles_and_missing_or_trashed_destinations() {
         let trashed_id = SyncId::ClientId(ClientId::new());
         repository.update(&mut app, |repository, ctx| {
             repository.create_folder_with_id(parent_id, "Plans".to_string(), None, ctx);
-            repository.create_folder_with_id(
-                child_id,
-                "Nested".to_string(),
-                Some(parent_id),
-                ctx,
-            );
+            repository.create_folder_with_id(child_id, "Nested".to_string(), Some(parent_id), ctx);
             repository.create_folder_with_id(trashed_id, "Deleted".to_string(), None, ctx);
             repository.set_folder_trashed(trashed_id, true, ctx);
         });

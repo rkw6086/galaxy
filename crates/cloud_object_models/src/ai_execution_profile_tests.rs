@@ -132,9 +132,18 @@ fn allow_all_projects_every_tool_to_always_allow() {
 #[test]
 fn clarification_availability_follows_permission_mode_after_projection_and_restore() {
     for (mode, expected) in [
-        (PermissionMode::AskFirst, AskUserQuestionPermission::AlwaysAsk),
-        (PermissionMode::AllowAll, AskUserQuestionPermission::AlwaysAsk),
-        (PermissionMode::GalaxyDecides, AskUserQuestionPermission::Never),
+        (
+            PermissionMode::AskFirst,
+            AskUserQuestionPermission::AlwaysAsk,
+        ),
+        (
+            PermissionMode::AllowAll,
+            AskUserQuestionPermission::AlwaysAsk,
+        ),
+        (
+            PermissionMode::GalaxyDecides,
+            AskUserQuestionPermission::Never,
+        ),
         (PermissionMode::ReadOnly, AskUserQuestionPermission::Never),
     ] {
         let mut profile = AIExecutionProfile {

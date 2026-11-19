@@ -127,25 +127,21 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
             AIAgentInput::ActionResult { result, context } => {
                 redact_context(Arc::make_mut(context));
                 match &mut result.result {
-                    AIAgentActionResultType::RequestCommandOutput(output) => {
-                        match output {
-                            RequestCommandOutputResult::BackgroundJobStarted {
-                                command, ..
-                            } => redact_secrets(command),
-                            RequestCommandOutputResult::Completed { output, .. } => {
-                                redact_secrets(output);
-                            }
-                            _ => {}
+                    AIAgentActionResultType::RequestCommandOutput(output) => match output {
+                        RequestCommandOutputResult::BackgroundJobStarted { command, .. } => {
+                            redact_secrets(command)
                         }
-                    }
+                        RequestCommandOutputResult::Completed { output, .. } => {
+                            redact_secrets(output);
+                        }
+                        _ => {}
+                    },
                     AIAgentActionResultType::WriteToLongRunningShellCommand(result) => {
                         use crate::ai::agent::WriteToLongRunningShellCommandResult::*;
                         match result {
                             Snapshot { grid_contents, .. } => redact_secrets(grid_contents),
                             CommandFinished { output, .. } => redact_secrets(output),
-                            BackgroundJobCancellationRequested { .. }
-                            | Error(_)
-                            | Cancelled => {}
+                            BackgroundJobCancellationRequested { .. } | Error(_) | Cancelled => {}
                         }
                     }
                     AIAgentActionResultType::ReadShellCommandOutput(result) => {

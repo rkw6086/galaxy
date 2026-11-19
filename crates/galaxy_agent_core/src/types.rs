@@ -218,7 +218,8 @@ impl ToolResult {
             let is_error = !matches!(result.status, ToolResultStatus::Success);
             if !result.images.is_empty() {
                 image_parts.push(ContentPart::Text(format!(
-                    "Images returned by tool call {}:", result.call_id
+                    "Images returned by tool call {}:",
+                    result.call_id
                 )));
                 image_parts.extend(result.images.into_iter().map(|image| ContentPart::Image {
                     data: image.data,

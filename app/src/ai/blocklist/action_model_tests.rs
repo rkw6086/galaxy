@@ -369,12 +369,21 @@ fn domain_read_result_contains_the_file_contents_for_the_next_model_turn() {
 #[test]
 fn computer_results_keep_real_image_bytes_and_coordinate_metadata() {
     let screenshot = computer_use::Screenshot {
-        width: 500, height: 300, original_width: 1000, original_height: 600,
-        data: vec![1, 2, 3, 4], mime_type: "image/png".into(),
+        width: 500,
+        height: 300,
+        original_width: 1000,
+        original_height: 600,
+        data: vec![1, 2, 3, 4],
+        mime_type: "image/png".into(),
     };
-    let action = action_result("desktop", AIAgentActionResultType::RequestComputerUse(RequestComputerUseResult::Approved {
-        screenshot, platform: computer_use::Platform::Mac, windows: Vec::new(),
-    }));
+    let action = action_result(
+        "desktop",
+        AIAgentActionResultType::RequestComputerUse(RequestComputerUseResult::Approved {
+            screenshot,
+            platform: computer_use::Platform::Mac,
+            windows: Vec::new(),
+        }),
+    );
     let result = domain_tool_result(&action, false);
     assert_eq!(result.images.len(), 1);
     assert_eq!(result.images[0].data, vec![1, 2, 3, 4]);

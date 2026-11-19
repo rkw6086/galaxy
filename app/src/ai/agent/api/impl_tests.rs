@@ -116,7 +116,10 @@ fn computer_use_never_expands_explicit_tool_overrides_or_read_only_permissions()
     assert!(cli.is_empty());
 
     params.permission_mode = crate::ai::execution_profiles::PermissionMode::ReadOnly;
-    params.supported_tools_override = Some(vec![api::ToolType::RequestComputerUse, api::ToolType::UseComputer]);
+    params.supported_tools_override = Some(vec![
+        api::ToolType::RequestComputerUse,
+        api::ToolType::UseComputer,
+    ]);
     let (normal, cli) = super::prepare_direct_provider_params(&mut params);
     assert!(normal.is_empty());
     assert!(cli.is_empty());

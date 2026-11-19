@@ -116,7 +116,10 @@ pub(super) fn initial_task_list(request: &TurnRequest) -> Option<TaskListSnapsho
     Some(snapshot)
 }
 
-pub(super) fn add_task_list_context(request: &mut TurnRequest, snapshot: Option<&TaskListSnapshot>) {
+pub(super) fn add_task_list_context(
+    request: &mut TurnRequest,
+    snapshot: Option<&TaskListSnapshot>,
+) {
     let Some(prompt) = request.system_prompt.as_mut() else {
         return;
     };
@@ -146,12 +149,14 @@ pub(super) fn add_task_list_context(request: &mut TurnRequest, snapshot: Option<
 /// UI and the next provider request. Rejected tools cannot create task lists.
 pub(super) fn task_list_from_plan_batch(batch: &PendingToolBatch) -> Option<TaskListSnapshot> {
     let plan_call = batch.calls.iter().find(|pending| {
-        matches!(pending.call.name.as_str(), "create_plan" | "create_documents")
-            && !matches!(
-                &pending.state,
-                PendingToolCallState::Resolved { result }
-                    if result.status != galaxy_agent_core::ToolResultStatus::Success
-            )
+        matches!(
+            pending.call.name.as_str(),
+            "create_plan" | "create_documents"
+        ) && !matches!(
+            &pending.state,
+            PendingToolCallState::Resolved { result }
+                if result.status != galaxy_agent_core::ToolResultStatus::Success
+        )
     })?;
     let content = plan_call
         .call

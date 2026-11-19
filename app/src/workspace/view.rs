@@ -78,9 +78,11 @@ use galaxyui::elements::{
     DraggableState, DropTarget, Element, Empty, EventHandler, Expanded, Fill as ElementFill, Flex,
     Highlight, Hoverable, Icon as WarpUiIcon, Image, MainAxisAlignment, MainAxisSize,
     MouseInBehavior, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
-    ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds, Radius, Rect,
-    SavePosition, Shrinkable, SizeConstraintCondition, SizeConstraintSwitch, Stack, Text,
+    ParentOffsetBounds, Point, PositionedElementAnchor, PositionedElementOffsetBounds, Radius,
+    Rect, SavePosition, Shrinkable, SizeConstraintCondition, SizeConstraintSwitch, Stack, Text,
+    ZIndex,
 };
+use galaxyui::event::DispatchedEvent;
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::geometry::vector::{vec2f, Vector2F};
 use galaxyui::keymap::Context;
@@ -95,7 +97,8 @@ use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles
 use galaxyui::windowing::state::ApplicationStage;
 use galaxyui::windowing::{StateEvent, WindowManager};
 use galaxyui::{
-    AppContext, Entity, EntityId, FocusContext, ModelHandle, SingletonEntity, TypedActionView,
+    AfterLayoutContext, AppContext, Entity, EntityId, Event, EventContext, FocusContext,
+    LayoutContext, ModelHandle, PaintContext, SingletonEntity, SizeConstraint, TypedActionView,
     UpdateModel, UpdateView, View, ViewAsRef, ViewContext, ViewHandle, WeakViewHandle, WindowId,
 };
 use instant::Instant;
@@ -578,6 +581,12 @@ const THEME_CHOOSER_RATIO: f32 = 3.5;
 /// Save position for the tab bar.
 pub(crate) const TAB_BAR_POSITION_ID: &str = "workspace_view:tab_bar";
 
+/// Save-position id for the split-view slot row.  Used by the
+/// `SplitViewResizeMove` action handler to look up the actual pixel width of
+/// the row so that drag deltas are converted to flex fractions accurately at
+/// any window size.
+pub(crate) const SPLIT_VIEW_ROW_POSITION_ID: &str = "workspace_view:split_view_row";
+
 /// Save position for the vertical tabs panel.
 /// HOA onboarding callouts anchor relative to this position, so whichever code
 /// path renders the vertical tabs panel must wrap it in a `SavePosition` with
@@ -960,7 +969,6 @@ fn query_for_rewind_prefill(inputs: &[AIAgentInput]) -> Option<String> {
 /// **This state is intentionally transient** – it is never persisted to disk
 /// and is not restored after a restart.  The workspace always starts with
 /// split view inactive.
-#[derive(Default)]
 pub(crate) struct SplitViewState {
     /// Ordered list of pane-group entity IDs currently visible in the split.
     /// Empty means split view is inactive.  Capped at
@@ -972,6 +980,166 @@ pub(crate) struct SplitViewState {
     focused_id: Option<EntityId>,
     /// Shared visual cue for this transient split; saved tab colors stay intact.
     color: Option<AnsiColorIdentifier>,
+    /// Per-slot flex weights keyed by stable `EntityId`.  Equal weight (1.0)
+    /// by default; redistributed when the user drags a divider.  Weights
+    /// are relative – only their ratio to each other matters, not the
+    /// absolute values.
+    slot_weights: HashMap<EntityId, f32>,
+    /// One divider per *gap* between adjacent visible slots.  Dividers are
+    /// rebuilt whenever membership changes so their count always equals
+    /// `pane_group_ids.len().saturating_sub(1)`.
+    dividers: Vec<SplitViewDivider>,
+    /// Non-`None` while the user holds the mouse button down on a divider.
+    drag_state: Option<SplitViewDragState>,
+}
+
+impl Default for SplitViewState {
+    fn default() -> Self {
+        Self {
+            pane_group_ids: Vec::new(),
+            focused_id: None,
+            color: None,
+            slot_weights: HashMap::new(),
+            dividers: Vec::new(),
+            drag_state: None,
+        }
+    }
+}
+
+/// A draggable handle rendered between two adjacent split-view slots.
+///
+/// Each divider has a stable [`EntityId`] used to correlate drag events
+/// back to the pair of slots whose weights should be redistributed.
+/// `mouse_state` **must** be constructed outside the render function and
+/// cloned into it so that hover / mouse-down state is preserved across
+/// frames.  Constructing it inside `render` causes a fresh handle on every
+/// frame, which breaks hover detection.
+pub(crate) struct SplitViewDivider {
+    /// Stable identifier correlating this divider to the render-time gap
+    /// between slots `i` and `i+1` in `pane_group_ids`.
+    id: EntityId,
+    /// Persistent mouse-state handle; must be constructed once and cloned
+    /// into the closure passed to [`Hoverable`].
+    mouse_state: MouseStateHandle,
+}
+
+impl SplitViewDivider {
+    fn new() -> Self {
+        Self {
+            id: EntityId::new(),
+            mouse_state: MouseStateHandle::default(),
+        }
+    }
+}
+
+/// Transient state kept for the duration of a divider drag.
+#[derive(Clone, Copy)]
+struct SplitViewDragState {
+    /// Which divider is being dragged.
+    divider_id: EntityId,
+    /// Mouse X position from the previous drag event (used to compute delta).
+    previous_x: f32,
+}
+
+/// Wrapper element that captures `LeftMouseDragged` and `LeftMouseUp` events
+/// via `raw_event()` when a split-view divider drag is active.
+///
+/// ## Why this is necessary
+///
+/// `EventHandler::dispatch_event` calls `event.at_z_index(z_index, ctx)` before
+/// invoking any callback.  `at_z_index` returns `None` for position-based events
+/// (drag, up, down) when the mouse is covered by a **higher-z sibling** (e.g.
+/// a dropdown menu, a modal, or any positioned overlay child that lives in the
+/// workspace `Stack`).  This means that even with `.with_always_handle()` the
+/// workspace-level `EventHandler` silently drops drag/up events that land over
+/// such overlays.
+///
+/// `DragResizeElement` and `Resizable` solve the same problem by using
+/// `event.raw_event()` for drag/up continuation — bypassing the cover check
+/// entirely and gating solely on whether a drag is already in progress.
+/// This element follows the identical pattern.
+///
+/// During normal (non-drag) operation the element is fully transparent: child
+/// events are delegated as usual and no extra processing is added.
+struct SplitViewCaptureElement {
+    child: Box<dyn Element>,
+    /// Captured at render time from `split_view_state.drag_state.is_some()`.
+    /// When false, raw drag/up events are passed through unchanged.
+    is_dragging: bool,
+    origin: Option<Point>,
+    child_max_z_index: Option<ZIndex>,
+}
+
+impl SplitViewCaptureElement {
+    fn new(child: Box<dyn Element>, is_dragging: bool) -> Self {
+        Self {
+            child,
+            is_dragging,
+            origin: None,
+            child_max_z_index: None,
+        }
+    }
+
+    fn finish(self) -> Box<dyn Element> {
+        Box::new(self)
+    }
+}
+
+impl Element for SplitViewCaptureElement {
+    fn layout(
+        &mut self,
+        constraint: SizeConstraint,
+        ctx: &mut LayoutContext,
+        app: &AppContext,
+    ) -> Vector2F {
+        self.child.layout(constraint, ctx, app)
+    }
+
+    fn after_layout(&mut self, ctx: &mut AfterLayoutContext, app: &AppContext) {
+        self.child.after_layout(ctx, app);
+    }
+
+    fn paint(&mut self, origin: Vector2F, ctx: &mut PaintContext, app: &AppContext) {
+        self.origin = Some(Point::from_vec2f(origin, ctx.scene.z_index()));
+        self.child.paint(origin, ctx, app);
+        self.child_max_z_index = Some(ctx.scene.max_active_z_index());
+    }
+
+    fn size(&self) -> Option<Vector2F> {
+        self.child.size()
+    }
+
+    fn origin(&self) -> Option<Point> {
+        self.child.origin()
+    }
+
+    fn dispatch_event(
+        &mut self,
+        event: &DispatchedEvent,
+        ctx: &mut EventContext,
+        app: &AppContext,
+    ) -> bool {
+        // Always let the child tree handle the event first.
+        let child_handled = self.child.dispatch_event(event, ctx, app);
+
+        if !self.is_dragging {
+            return child_handled;
+        }
+
+        // Use raw_event() so the check is **not** filtered by the cover/z-index
+        // test that at_z_index() applies.  This mirrors DragResizeElement.
+        match event.raw_event() {
+            Event::LeftMouseDragged { position, .. } => {
+                ctx.dispatch_typed_action(WorkspaceAction::SplitViewResizeMove(*position));
+                true
+            }
+            Event::LeftMouseUp { .. } => {
+                ctx.dispatch_typed_action(WorkspaceAction::EndSplitViewResize);
+                true
+            }
+            _ => child_handled,
+        }
+    }
 }
 
 impl SplitViewState {
@@ -1011,8 +1179,13 @@ impl SplitViewState {
         }
     }
 
+    /// Minimum pixel width allowed for any single slot when the user drags
+    /// a divider.  Prevents slots from being resized to zero.
+    const MIN_SLOT_PX: f32 = 50.;
+
     /// Add `id` to the split view, returning `true` if it was actually added.
     /// Does nothing (returns `false`) when already present or at capacity.
+    /// Assigns a default weight of 1.0 for the new slot and rebuilds dividers.
     pub(crate) fn add(&mut self, id: EntityId) -> bool {
         if self.pane_group_ids.contains(&id) || self.pane_group_ids.len() >= Self::MAX_VISIBLE {
             return false;
@@ -1021,18 +1194,22 @@ impl SplitViewState {
             self.color = Some(random_tab_color());
         }
         self.pane_group_ids.push(id);
+        self.slot_weights.entry(id).or_insert(1.0);
         if self.focused_id.is_none() {
             self.focused_id = Some(id);
         }
+        self.rebuild_dividers();
         true
     }
 
     /// Remove `id` from the split view. Returns `true` if it was present.
     /// If it held focus, select the first survivor, or clear focus when empty.
+    /// Removes the stale weight entry and rebuilds dividers.
     pub(crate) fn remove(&mut self, id: EntityId) -> bool {
         let pos = self.pane_group_ids.iter().position(|&x| x == id);
         let Some(pos) = pos else { return false };
         self.pane_group_ids.remove(pos);
+        self.slot_weights.remove(&id);
         if self.focused_id == Some(id) {
             // Transfer focus to the first remaining slot.
             self.focused_id = self.pane_group_ids.first().copied();
@@ -1040,6 +1217,8 @@ impl SplitViewState {
         if self.pane_group_ids.is_empty() {
             self.color = None;
         }
+        self.drag_state = None;
+        self.rebuild_dividers();
         true
     }
 
@@ -1048,11 +1227,194 @@ impl SplitViewState {
         self.focused_id = Some(id);
     }
 
+    /// Return the flex weight for `id` (defaults to 1.0 for unknown slots).
+    pub(crate) fn slot_weight(&self, id: EntityId) -> f32 {
+        self.slot_weights.get(&id).copied().unwrap_or(1.0)
+    }
+
+    /// Ordered slice of dividers between adjacent visible slots.
+    pub(crate) fn dividers(&self) -> &[SplitViewDivider] {
+        &self.dividers
+    }
+
+    /// Begin tracking a divider drag.  Called from the
+    /// `WorkspaceAction::StartSplitViewResize` handler.
+    ///
+    /// Returns `false` if `start_x` is nonfinite (NaN / ±Inf), in which case
+    /// the drag is not started so no subsequent move events can poison state.
+    pub(crate) fn start_resize(&mut self, divider_id: EntityId, start_x: f32) -> bool {
+        if !start_x.is_finite() {
+            return false;
+        }
+        self.drag_state = Some(SplitViewDragState {
+            divider_id,
+            previous_x: start_x,
+        });
+        true
+    }
+
+    /// Process a mouse-drag event while a divider is held.
+    ///
+    /// ## Parameters
+    /// - `new_x` – current mouse X in window coordinates.  Must be finite;
+    ///   returns `false` immediately if NaN or Inf to avoid poisoning
+    ///   `previous_x`.
+    /// - `visible_ids` – **ordered slice of non-detached** pane-group IDs
+    ///   currently rendered in the split row (detached tabs excluded).
+    ///   Only the weights for these IDs are summed so the flex conversion
+    ///   is not inflated by weights that belong to detached/off-screen tabs.
+    /// - `row_width` – **actual measured pixel width** of the split-view row
+    ///   from the layout geometry cache.  Must be finite and > 0; returns
+    ///   `false` without fallback if invalid so the caller is never silently
+    ///   working from a wrong reference.  The 1-px divider gaps are subtracted
+    ///   internally before the flex conversion so pixel positions match the
+    ///   rendered slot widths exactly.
+    ///
+    /// ## Clamping behaviour
+    /// When the requested delta would push either adjacent slot below
+    /// `MIN_SLOT_PX`, the delta applied to weights is **clamped** to the
+    /// largest value that keeps both slots exactly at the boundary.
+    /// `previous_x` is always updated to `new_x` (the real cursor position),
+    /// regardless of clamping, so reversal (moving back from the boundary)
+    /// takes effect on the very next drag event without a sticky frame.
+    ///
+    /// Returns `true` when weights were actually changed.
+    pub(crate) fn apply_resize_move(
+        &mut self,
+        new_x: f32,
+        visible_ids: &[EntityId],
+        row_width: f32,
+    ) -> bool {
+        // Reject nonfinite mouse positions immediately so we never poison
+        // `previous_x` with NaN or Inf.
+        if !new_x.is_finite() {
+            return false;
+        }
+        // Reject invalid row widths without fallback; callers must supply a
+        // real measured width to get correct pixel-accurate conversion.
+        if !row_width.is_finite() || row_width <= 0.0 {
+            return false;
+        }
+
+        let Some(state) = self.drag_state.as_mut() else {
+            return false;
+        };
+        let raw_delta = new_x - state.previous_x;
+        if raw_delta.abs() < f32::EPSILON {
+            return false;
+        }
+        let divider_id = state.divider_id;
+
+        // Locate which gap this divider covers.
+        let Some(div_idx) = self.dividers.iter().position(|d| d.id == divider_id) else {
+            return false;
+        };
+        let (Some(&left_id), Some(&right_id)) =
+            (visible_ids.get(div_idx), visible_ids.get(div_idx + 1))
+        else {
+            return false;
+        };
+
+        let left_w = self.slot_weights.get(&left_id).copied().unwrap_or(1.0);
+        let right_w = self.slot_weights.get(&right_id).copied().unwrap_or(1.0);
+        let pair_w = left_w + right_w;
+
+        // Sum only the weights of *visible* slots.  Using the full HashMap
+        // would inflate the denominator when detached slots still have weight
+        // entries, causing the cursor to move faster than the divider.
+        let visible_total_w: f32 = visible_ids
+            .iter()
+            .map(|id| self.slot_weights.get(id).copied().unwrap_or(1.0))
+            .sum();
+
+        // Subtract the 1-px visual divider gaps so the flex conversion maps
+        // to the actual rendered slot widths rather than the full row rect.
+        // There are `visible_ids.len() - 1` dividers.
+        let n_dividers = visible_ids.len().saturating_sub(1) as f32;
+        let slot_px = (row_width - n_dividers).max(1.0);
+
+        // Convert one unit of flex into pixels.
+        let flex_to_px = if visible_total_w > 0.0 {
+            slot_px / visible_total_w
+        } else {
+            return false;
+        };
+
+        // Current pixel sizes of the two adjacent slots.
+        let left_px = left_w * flex_to_px;
+        let right_px = right_w * flex_to_px;
+
+        // Clamp raw_delta so neither slot goes below MIN_SLOT_PX.
+        // max_right_move: how far right we can push the divider (left grows, right shrinks).
+        // max_left_move: how far left (right grows, left shrinks).
+        let max_right_move = right_px - Self::MIN_SLOT_PX; // positive
+        let max_left_move = left_px - Self::MIN_SLOT_PX; // positive
+        let clamped_delta = raw_delta
+            .min(max_right_move.max(0.0))
+            .max(-max_left_move.max(0.0));
+
+        if clamped_delta.abs() < f32::EPSILON {
+            // Already at the boundary; advance previous_x to avoid drift but
+            // report no weight change.
+            state.previous_x = new_x;
+            return false;
+        }
+
+        // Convert clamped pixel delta to flex delta.
+        let flex_delta = clamped_delta / flex_to_px;
+
+        let new_left_w = (left_w + flex_delta).max(0.001);
+        let new_right_w = (right_w - flex_delta).max(0.001);
+
+        // Restore exact pair-sum to prevent flex drift.
+        let raw_sum = new_left_w + new_right_w;
+        let (new_left_w, new_right_w) = if (raw_sum - pair_w).abs() > 1e-6 {
+            let scale = pair_w / raw_sum;
+            (new_left_w * scale, new_right_w * scale)
+        } else {
+            (new_left_w, new_right_w)
+        };
+
+        self.slot_weights.insert(left_id, new_left_w);
+        self.slot_weights.insert(right_id, new_right_w);
+        // Always advance previous_x to the actual cursor position (new_x),
+        // not to the clamped divider position.  Using `+= clamped_delta`
+        // would leave previous_x behind the cursor when clamped, causing the
+        // first reversal event (e.g. 2000→1999) to compute a large positive
+        // raw_delta that is immediately clamped to zero — a one-frame sticky
+        // response.  Tracking the real cursor means the next event's delta
+        // is always measured from where the user's pointer actually is.
+        state.previous_x = new_x;
+        true
+    }
+
+    /// End a divider drag.
+    pub(crate) fn end_resize(&mut self) {
+        self.drag_state = None;
+    }
+
     /// Reset to the inactive state.
     pub(crate) fn clear(&mut self) {
         self.pane_group_ids.clear();
         self.focused_id = None;
         self.color = None;
+        self.slot_weights.clear();
+        self.dividers.clear();
+        self.drag_state = None;
+    }
+
+    /// Rebuild the divider list to match the current membership.
+    /// Called whenever `pane_group_ids` changes length.
+    fn rebuild_dividers(&mut self) {
+        let needed = self.pane_group_ids.len().saturating_sub(1);
+        // Keep existing dividers (which carry stable ids and mouse handles)
+        // when the count stays the same; shrink or grow as needed.
+        while self.dividers.len() > needed {
+            self.dividers.pop();
+        }
+        while self.dividers.len() < needed {
+            self.dividers.push(SplitViewDivider::new());
+        }
     }
 }
 
@@ -9293,14 +9655,14 @@ impl Workspace {
         let focused_id = self.split_view_state.focused_id();
         for tab in &self.tabs {
             let tab_id = tab.pane_group.id();
-            let membership = self
-                .split_view_state
-                .color_for(tab_id)
-                .map(|color| WorkspaceSplitViewMembership {
-                    pane_group_id: tab_id,
-                    is_focused: focused_id == Some(tab_id),
-                    color,
-                });
+            let membership =
+                self.split_view_state
+                    .color_for(tab_id)
+                    .map(|color| WorkspaceSplitViewMembership {
+                        pane_group_id: tab_id,
+                        is_focused: focused_id == Some(tab_id),
+                        color,
+                    });
             tab.pane_group.update(ctx, |pane_group, ctx| {
                 pane_group.set_workspace_split_view_state(membership, ctx);
             });
@@ -22391,32 +22753,112 @@ impl Workspace {
                             color.to_ansi_color(&appearance.theme().terminal_colors().normal),
                         )
                     });
-                let divider_color = split_color
-                    .unwrap_or_else(|| appearance.theme().outline().into_solid());
+                let divider_color =
+                    split_color.unwrap_or_else(|| appearance.theme().outline().into_solid());
                 let mut row = Flex::row();
                 let last_idx = split_pane_groups.len().saturating_sub(1);
+                // Collect divider positions to render them as positioned
+                // elements anchored above pane content (same technique as
+                // `pane_group/tree.rs` to avoid content hitbox interception).
+                let dividers = self.split_view_state.dividers();
+                let mut divider_positions: Vec<(EntityId, MouseStateHandle, String)> = Vec::new();
                 for (i, pane_group) in split_pane_groups.iter().enumerate() {
+                    let pane_group_id = pane_group.id();
+                    let weight = self.split_view_state.slot_weight(pane_group_id);
                     let mut slot = Container::new(ChildView::new(pane_group).finish());
                     if let Some(color) = split_color {
                         slot = slot.with_border(
                             Border::all(2.).with_border_fill(coloru_with_opacity(color, 60)),
                         );
                     }
-                    row.add_child(
-                        Shrinkable::new(1.0, slot.finish()).finish(),
-                    );
-                    // Render a thin vertical divider between adjacent slots,
-                    // matching the style used by `render_panel_separator`.
+                    row.add_child(Shrinkable::new(weight, slot.finish()).finish());
+                    // Between adjacent slots, insert a 1-px placeholder that
+                    // saves its position; the actual interactive divider is
+                    // rendered as a positioned overlay afterwards so that pane
+                    // content hitboxes cannot shadow it.
                     if i < last_idx {
-                        let divider = ConstrainedBox::new(
-                            Rect::new().with_background_color(divider_color).finish(),
-                        )
-                        .with_width(1.0)
-                        .finish();
-                        row.add_child(divider);
+                        if let Some(divider) = dividers.get(i) {
+                            let pos_id = format!("split_view_divider_placeholder_{}", divider.id);
+                            let placeholder = ConstrainedBox::new(Empty::new().finish())
+                                .with_width(1.0)
+                                .finish();
+                            row.add_child(SavePosition::new(placeholder, &pos_id).finish());
+                            divider_positions.push((
+                                divider.id,
+                                divider.mouse_state.clone(),
+                                pos_id,
+                            ));
+                        } else {
+                            // Fallback: inert 1px spacer (should not normally happen).
+                            let spacer = ConstrainedBox::new(
+                                Rect::new().with_background_color(divider_color).finish(),
+                            )
+                            .with_width(1.0)
+                            .finish();
+                            row.add_child(spacer);
+                        }
                     }
                 }
-                row.finish()
+                // Wrap the flex row in a SavePosition so the
+                // SplitViewResizeMove action handler can read the actual row
+                // pixel width via ctx.element_position_by_id.
+                // The EventHandler for drag/up is NOT placed here: PaneGroup
+                // wraps its own content in an EventHandler that stops
+                // propagation, which would shadow any handler nested inside
+                // the same subtree.  Instead, the drag/up handler is attached
+                // at the top-level workspace render with `.with_always_handle()`
+                // so it fires regardless of what children handled.
+                let saved_row =
+                    SavePosition::new(row.finish(), SPLIT_VIEW_ROW_POSITION_ID).finish();
+
+                // Build a Stack with the row as the base layer and the
+                // interactive dividers as positioned overlays.
+                let mut stack = Stack::new().with_constrain_absolute_children();
+                stack.add_child(saved_row);
+                for (divider_id, mouse_state, pos_id) in divider_positions {
+                    // Visual: 1px coloured bar.  Hit target: 9px wide transparent
+                    // container (4px transparent padding each side + 1px bar)
+                    // so the user can grab the divider without pixel-perfect aim.
+                    let divider_bar = ConstrainedBox::new(
+                        Rect::new().with_background_color(divider_color).finish(),
+                    )
+                    .with_width(1.0);
+
+                    // 4px transparent padding on each side widens the
+                    // clickable area to 9px total (4+1+4) while keeping the
+                    // 1px visual line.
+                    const DIVIDER_HIT_PADDING: f32 = 4.0;
+                    let hit_area = Container::new(divider_bar.finish())
+                        .with_padding_left(DIVIDER_HIT_PADDING)
+                        .with_padding_right(DIVIDER_HIT_PADDING)
+                        .finish();
+
+                    let hoverable = Hoverable::new(mouse_state, |_| hit_area)
+                        .on_mouse_down(move |ctx, _, position| {
+                            ctx.dispatch_typed_action(WorkspaceAction::StartSplitViewResize {
+                                divider_id,
+                                start_x: position.x(),
+                            });
+                        })
+                        .with_cursor(Cursor::ResizeLeftRight)
+                        .with_propagate_drag()
+                        .finish();
+
+                    // Anchor the 9px hit overlay centred on the 1px placeholder.
+                    // Using ChildAnchor::TopMiddle / PositionedElementAnchor::TopMiddle
+                    // centres the wider hit area on the visual 1px bar.
+                    stack.add_positioned_child(
+                        hoverable,
+                        OffsetPositioning::offset_from_save_position_element(
+                            pos_id,
+                            Vector2F::new(0., 0.),
+                            PositionedElementOffsetBounds::Unbounded,
+                            PositionedElementAnchor::TopMiddle,
+                            ChildAnchor::TopMiddle,
+                        ),
+                    );
+                }
+                stack.finish()
             }
         } else if FeatureFlag::AgentManagementView.is_enabled()
             && self.current_workspace_state.is_agent_management_view_open
@@ -24268,6 +24710,41 @@ impl TypedActionView for Workspace {
                 self.remove_from_split_view(*pane_group_id, ctx)
             }
             ExitSplitView => self.exit_split_view(ctx),
+            StartSplitViewResize {
+                divider_id,
+                start_x,
+            } => {
+                self.split_view_state.start_resize(*divider_id, *start_x);
+            }
+            SplitViewResizeMove(position) => {
+                // Re-derive the visible-slot ordering (same filter as render).
+                let visible_ids: Vec<EntityId> = self
+                    .split_view_state
+                    .ids()
+                    .iter()
+                    .filter(|&&id| {
+                        self.tabs
+                            .iter()
+                            .any(|t| t.pane_group.id() == id && !t.detached)
+                    })
+                    .copied()
+                    .collect();
+                // Look up the actual pixel width of the split-view row from
+                // the layout-geometry cache so flex-to-pixel conversion is
+                // accurate at any window size.
+                let row_width = ctx
+                    .element_position_by_id(SPLIT_VIEW_ROW_POSITION_ID)
+                    .map_or(0.0, |rect| rect.width());
+                if self
+                    .split_view_state
+                    .apply_resize_move(position.x(), &visible_ids, row_width)
+                {
+                    ctx.notify();
+                }
+            }
+            EndSplitViewResize => {
+                self.split_view_state.end_resize();
+            }
             ToggleTabGroupCollapsed(group_id) => self.toggle_tab_group_collapsed(*group_id, ctx),
             RenameTabGroup(group_id) => self.rename_tab_group(*group_id, ctx),
             CancelActiveRename => {
@@ -26821,11 +27298,15 @@ impl View for Workspace {
             }
         }
 
-        stack.add_child(
-            Container::new(panels)
-                .with_uniform_padding(WORKSPACE_PADDING)
-                .finish(),
-        );
+        // Split-view drag/up events are captured by wrapping the complete
+        // workspace Stack with `SplitViewCaptureElement` (see below, after
+        // stack.finish()).  The element uses `event.raw_event()` which bypasses
+        // the `at_z_index` cover check, so overlay siblings do not shadow it.
+        let is_split_dragging = self.split_view_state.drag_state.is_some();
+        let panels_container = Container::new(panels)
+            .with_uniform_padding(WORKSPACE_PADDING)
+            .finish();
+        stack.add_child(panels_container);
 
         if !use_simplified_wasm_tab_bar
             && FeatureFlag::VerticalTabs.is_enabled()
@@ -27817,7 +28298,17 @@ impl View for Workspace {
         }
 
         let window_corner_radius = app.windows().window_corner_radius();
-        let workspace = Container::new(stack.finish()).with_corner_radius(window_corner_radius);
+        // `SplitViewCaptureElement` wraps the complete workspace stack so that
+        // `LeftMouseDragged` / `LeftMouseUp` events reach it even when an
+        // overlay sibling (menu, modal) has already claimed the event inside
+        // the stack.  It uses `event.raw_event()` which bypasses the
+        // `at_z_index` cover check; without this wrapper the stack's own
+        // dispatch waterfall stops at the highest-z handled sibling and the
+        // drag-continuation events are never delivered to the panels child.
+        let workspace = Container::new(
+            SplitViewCaptureElement::new(stack.finish(), is_split_dragging).finish(),
+        )
+        .with_corner_radius(window_corner_radius);
 
         let mut stack = Stack::new();
         let theme = appearance.theme();

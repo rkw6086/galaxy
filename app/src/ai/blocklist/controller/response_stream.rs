@@ -466,7 +466,10 @@ impl ResponseStream {
         let Some(raw_payload) = remote_logging::raw_model_payload_context(ctx, |max_chars| {
             struct DebugPayload<'a, T>(&'a T);
             impl<T: std::fmt::Debug> serde::Serialize for DebugPayload<'_, T> {
-                fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                fn serialize<S: serde::Serializer>(
+                    &self,
+                    serializer: S,
+                ) -> Result<S::Ok, S::Error> {
                     serializer.collect_str(&format_args!("{:#?}", self.0))
                 }
             }
@@ -991,12 +994,7 @@ impl ResponseStream {
                     None => "None",
                 };
                 #[cfg(not(target_family = "wasm"))]
-                self.log_raw_model_response(
-                    request_id,
-                    event_type_name,
-                    response_event,
-                    ctx,
-                );
+                self.log_raw_model_response(request_id, event_type_name, response_event, ctx);
                 if let Some(event_type) = &response_event.r#type {
                     match event_type {
                         warp_multi_agent_api::response_event::Type::Init(init_event) => {

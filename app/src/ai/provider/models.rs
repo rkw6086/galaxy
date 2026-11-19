@@ -1,6 +1,9 @@
 pub(crate) fn foundation_model_id(model_id: &str) -> &str {
     let id = model_id.rsplit('/').next().unwrap_or(model_id);
-    let id = id.strip_suffix("[1m]").or_else(|| id.strip_suffix("[1M]")).unwrap_or(id);
+    let id = id
+        .strip_suffix("[1m]")
+        .or_else(|| id.strip_suffix("[1M]"))
+        .unwrap_or(id);
     ["global.", "us.", "eu.", "apac.", "jp.", "au."]
         .iter()
         .find_map(|prefix| id.strip_prefix(prefix))

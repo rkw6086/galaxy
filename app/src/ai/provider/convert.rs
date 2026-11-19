@@ -50,9 +50,12 @@ impl CachingConfig {
                     || metadata.model_id.starts_with("anthropic.claude-haiku-4"))
         });
         self.enabled &= known_claude_4;
-        self.extended_ttl_requested &= self.enabled && model.is_some_and(|metadata| {
-            ["4-5", "4-6", "4-7", "4-8"].iter().any(|version| metadata.model_id.contains(version))
-        });
+        self.extended_ttl_requested &= self.enabled
+            && model.is_some_and(|metadata| {
+                ["4-5", "4-6", "4-7", "4-8"]
+                    .iter()
+                    .any(|version| metadata.model_id.contains(version))
+            });
         self
     }
 }

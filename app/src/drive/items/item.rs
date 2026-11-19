@@ -827,12 +827,10 @@ impl UiComponent for WarpDriveRow<'_> {
                                     return AcceptedByDropTarget::No;
                                 };
                                 let cloud_model = CloudModel::handle(app);
-                                let is_local = cloud_model
-                                    .as_ref(app)
-                                    .get_by_uid(&item.uid())
-                                    .is_some_and(|object| {
-                                        object.permissions().owner == local_owner()
-                                    });
+                                let is_local =
+                                    cloud_model.as_ref(app).get_by_uid(&item.uid()).is_some_and(
+                                        |object| object.permissions().owner == local_owner(),
+                                    );
                                 let can_move = if is_local {
                                     LocalObjectRepository::can_move_object_to_location(
                                         item, *location, app,

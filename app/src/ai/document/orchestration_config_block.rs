@@ -209,7 +209,8 @@ impl OrchestrationConfigBlockView {
             if let LLMPreferencesEvent::UpdatedAvailableLLMs = event {
                 if let Some(handle) = &me.pickers.model_picker {
                     let is_local = !me.edit_state.execution_mode.is_remote();
-                    oc::populate_model_picker_for_harness(None,
+                    oc::populate_model_picker_for_harness(
+                        None,
                         handle,
                         &me.edit_state.model_id,
                         &me.edit_state.harness_type,
@@ -404,7 +405,8 @@ impl OrchestrationConfigBlockView {
         let is_local = !self.edit_state.execution_mode.is_remote();
         let model_handle = oc::new_standard_filterable_picker_dropdown(&styles, ctx);
         model_handle.update(ctx, |d, c| d.set_use_overlay_layer(true, c));
-        oc::populate_model_picker_for_harness(None,
+        oc::populate_model_picker_for_harness(
+            None,
             &model_handle,
             &display_model_id,
             &self.edit_state.harness_type,

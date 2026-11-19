@@ -493,9 +493,11 @@ fn task_progress_survives_compaction_archive_eviction_and_restore() {
         ]);
     }
     run.replace_tool_result_archive(archive);
-    assert!(!serde_json::to_string(run.tool_result_archive())
-        .unwrap()
-        .contains("task_list_snapshot"));
+    assert!(
+        !serde_json::to_string(run.tool_result_archive())
+            .unwrap()
+            .contains("task_list_snapshot")
+    );
     assert_eq!(run.task_list(), Some(&snapshot));
     assert_serialization_round_trip(&run);
     run.validate_restored_state().unwrap();
@@ -535,12 +537,23 @@ fn restoring_a_completed_inline_task_batch_commits_once_without_external_work() 
             &[UPDATE_TASK_LIST_NAME],
         ),
     );
-    let mut restored: ProviderRun = serde_json::from_str(&serde_json::to_string(&run).unwrap()).unwrap();
+    let mut restored: ProviderRun =
+        serde_json::from_str(&serde_json::to_string(&run).unwrap()).unwrap();
     restored.validate_restored_state().unwrap();
     assert_eq!(restored.task_list(), None);
-    assert!(restored.normalize_after_restore().unwrap().committed_tool_batch);
+    assert!(
+        restored
+            .normalize_after_restore()
+            .unwrap()
+            .committed_tool_batch
+    );
     assert_eq!(restored.task_list(), Some(&snapshot));
-    assert!(!restored.normalize_after_restore().unwrap().committed_tool_batch);
+    assert!(
+        !restored
+            .normalize_after_restore()
+            .unwrap()
+            .committed_tool_batch
+    );
     assert_eq!(restored.task_list(), Some(&snapshot));
 
     let corrupted = mutate_run_json(&run, |value| {

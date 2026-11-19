@@ -55,23 +55,25 @@ pub(crate) fn action_from_tool_call(
                 rationale: optional_string(input, "rationale")?,
                 citations: Vec::new(),
             },
-            "request_computer_use" => AIAgentActionType::RequestComputerUse(
-                crate::ai::agent::RequestComputerUseRequest {
+            "request_computer_use" => {
+                AIAgentActionType::RequestComputerUse(crate::ai::agent::RequestComputerUseRequest {
                     task_summary: required_nonempty_string(input, "task_summary")?,
                     screenshot_params: Some(computer_screenshot_params(input)?),
-                },
-            ),
-            "use_computer" => AIAgentActionType::UseComputer(
-                crate::ai::agent::UseComputerRequest {
+                })
+            }
+            "use_computer" => {
+                AIAgentActionType::UseComputer(crate::ai::agent::UseComputerRequest {
                     action_summary: required_nonempty_string(input, "action_summary")?,
                     actions: computer_actions(input)?,
-                    screenshot_params: if optional_boolean(input, "take_screenshot")?.unwrap_or(true) {
+                    screenshot_params: if optional_boolean(input, "take_screenshot")?
+                        .unwrap_or(true)
+                    {
                         Some(computer_screenshot_params(input)?)
                     } else {
                         None
                     },
-                },
-            ),
+                })
+            }
             "read_files" => AIAgentActionType::ReadFiles(ReadFilesRequest {
                 locations: limited_required_array(input, "files", MAX_BATCH_READ_ITEMS)?
                     .iter()
@@ -120,7 +122,8 @@ pub(crate) fn action_from_tool_call(
                 block_id: optional_string(input, "job_id")?
                     .filter(|value| !value.trim().is_empty())
                     .or(optional_string(input, "command_id")?)
-                    .ok_or("job_id is required to cancel a background job")?.into(),
+                    .ok_or("job_id is required to cancel a background job")?
+                    .into(),
                 input: vec![galaxy_terminal::model::escape_sequences::C0::ETX].into(),
                 mode: AIAgentPtyWriteMode::Raw,
             },
@@ -496,25 +499,36 @@ fn optional_nonnegative_i32(input: &serde_json::Value, key: &str) -> Result<Opti
 }
 
 fn computer_i32(input: &serde_json::Value, key: &str) -> Result<i32, String> {
-    input.get(key).and_then(serde_json::Value::as_i64)
+    input
+        .get(key)
+        .and_then(serde_json::Value::as_i64)
         .and_then(|value| i32::try_from(value).ok())
         .ok_or_else(|| format!("invalid field {key:?}: expected a 32-bit integer"))
 }
 
 fn computer_target(input: &serde_json::Value) -> Result<computer_use::Target, String> {
-    let Some(target) = input.get("target") else { return Ok(computer_use::Target::Screen); };
+    let Some(target) = input.get("target") else {
+        return Ok(computer_use::Target::Screen);
+    };
     require_object(target, "target")?;
     match required_string(target, "type")?.as_str() {
         "screen" => Ok(computer_use::Target::Screen),
         "window" => {
             let window_id = optional_bounded_u64(target, "window_id", u64::from(u32::MAX))?
-                .filter(|id| *id > 0).ok_or("window target requires a non-zero window_id")? as u32;
+                .filter(|id| *id > 0)
+                .ok_or("window target requires a non-zero window_id")?
+                as u32;
             let pid = computer_i32(target, "pid")?;
-            if pid <= 0 { return Err("window target requires a positive pid".to_string()); }
+            if pid <= 0 {
+                return Err("window target requires a positive pid".to_string());
+            }
             if !crate::features::FeatureFlag::BackgroundComputerUse.is_enabled()
                 || !computer_use::background_supported()
             {
-                return Err("Background window targeting is unavailable; use the screen target.".to_string());
+                return Err(
+                    "Background window targeting is unavailable; use the screen target."
+                        .to_string(),
+                );
             }
             Ok(computer_use::Target::Window { window_id, pid })
         }
@@ -522,13 +536,17 @@ fn computer_target(input: &serde_json::Value) -> Result<computer_use::Target, St
     }
 }
 
-fn computer_screenshot_params(input: &serde_json::Value) -> Result<computer_use::ScreenshotParams, String> {
+fn computer_screenshot_params(
+    input: &serde_json::Value,
+) -> Result<computer_use::ScreenshotParams, String> {
     let empty = serde_json::json!({});
     let params = input.get("screenshot_params").unwrap_or(&empty);
     require_object(params, "screenshot_params")?;
     let positive = |key, maximum, default| -> Result<usize, String> {
         let value = optional_bounded_u64(params, key, maximum)?.unwrap_or(default);
-        if value == 0 { return Err(format!("{key} must be positive")); }
+        if value == 0 {
+            return Err(format!("{key} must be positive"));
+        }
         Ok(value as usize)
     };
     Ok(computer_use::ScreenshotParams {
@@ -539,67 +557,102 @@ fn computer_screenshot_params(input: &serde_json::Value) -> Result<computer_use:
     })
 }
 
-fn computer_actions(input: &serde_json::Value) -> Result<Vec<computer_use::TargetedAction>, String> {
-    use computer_use::{Action, Key, MouseButton, ScrollDirection, ScrollDistance, TargetedAction, Vector2I};
+fn computer_actions(
+    input: &serde_json::Value,
+) -> Result<Vec<computer_use::TargetedAction>, String> {
+    use computer_use::{
+        Action, Key, MouseButton, ScrollDirection, ScrollDistance, TargetedAction, Vector2I,
+    };
     let mut wait_seconds = 0.0;
-    limited_required_array(input, "actions", 20)?.iter().map(|input| {
-        require_object(input, "action")?;
-        let position = || -> Result<Vector2I, String> {
-            Ok(Vector2I::new(computer_i32(input, "x")?, computer_i32(input, "y")?))
-        };
-        let button = || -> Result<MouseButton, String> {
-            match required_string(input, "button")?.as_str() {
-                "left" => Ok(MouseButton::Left), "right" => Ok(MouseButton::Right),
-                "middle" => Ok(MouseButton::Middle), "back" => Ok(MouseButton::Back),
-                "forward" => Ok(MouseButton::Forward),
-                _ => Err("button must be left, right, middle, back, or forward".to_string()),
-            }
-        };
-        let key = || -> Result<Key, String> {
-            match (input.get("key"), input.get("keycode")) {
-                (Some(_), None) => {
-                    let text = required_string(input, "key")?;
-                    let mut chars = text.chars();
-                    let key = chars.next().ok_or("key must contain exactly one character")?;
-                    if chars.next().is_some() { return Err("key must contain exactly one character".to_string()); }
-                    Ok(Key::Char(key))
+    limited_required_array(input, "actions", 20)?
+        .iter()
+        .map(|input| {
+            require_object(input, "action")?;
+            let position = || -> Result<Vector2I, String> {
+                Ok(Vector2I::new(
+                    computer_i32(input, "x")?,
+                    computer_i32(input, "y")?,
+                ))
+            };
+            let button = || -> Result<MouseButton, String> {
+                match required_string(input, "button")?.as_str() {
+                    "left" => Ok(MouseButton::Left),
+                    "right" => Ok(MouseButton::Right),
+                    "middle" => Ok(MouseButton::Middle),
+                    "back" => Ok(MouseButton::Back),
+                    "forward" => Ok(MouseButton::Forward),
+                    _ => Err("button must be left, right, middle, back, or forward".to_string()),
                 }
-                (None, Some(_)) => Ok(Key::Keycode(computer_i32(input, "keycode")?)),
-                _ => Err("provide exactly one of key or keycode".to_string()),
-            }
-        };
-        let action = match required_string(input, "type")?.as_str() {
-            "mouse_move" => Action::MouseMove { to: position()? },
-            "mouse_down" => Action::MouseDown { button: button()?, at: position()? },
-            "mouse_up" => Action::MouseUp { button: button()? },
-            "mouse_wheel" => Action::MouseWheel {
-                at: position()?,
-                direction: match required_string(input, "direction")?.as_str() {
-                    "up" => ScrollDirection::Up, "down" => ScrollDirection::Down,
-                    "left" => ScrollDirection::Left, "right" => ScrollDirection::Right,
-                    _ => return Err("direction must be up, down, left, or right".to_string()),
+            };
+            let key = || -> Result<Key, String> {
+                match (input.get("key"), input.get("keycode")) {
+                    (Some(_), None) => {
+                        let text = required_string(input, "key")?;
+                        let mut chars = text.chars();
+                        let key = chars
+                            .next()
+                            .ok_or("key must contain exactly one character")?;
+                        if chars.next().is_some() {
+                            return Err("key must contain exactly one character".to_string());
+                        }
+                        Ok(Key::Char(key))
+                    }
+                    (None, Some(_)) => Ok(Key::Keycode(computer_i32(input, "keycode")?)),
+                    _ => Err("provide exactly one of key or keycode".to_string()),
+                }
+            };
+            let action = match required_string(input, "type")?.as_str() {
+                "mouse_move" => Action::MouseMove { to: position()? },
+                "mouse_down" => Action::MouseDown {
+                    button: button()?,
+                    at: position()?,
                 },
-                distance: ScrollDistance::Pixels(optional_nonnegative_i32(input, "pixels")?.ok_or("mouse_wheel requires pixels")?),
-            },
-            "type_text" => {
-                let text = required_string(input, "text")?;
-                if text.len() > 100_000 { return Err("text must be no longer than 100000 bytes".to_string()); }
-                Action::TypeText { text }
-            }
-            "key_down" => Action::KeyDown { key: key()? },
-            "key_up" => Action::KeyUp { key: key()? },
-            "wait" => {
-                let seconds = input.get("seconds").and_then(serde_json::Value::as_f64)
-                    .filter(|seconds| seconds.is_finite() && *seconds >= 0.0 && *seconds <= 10.0)
-                    .ok_or("seconds must be between 0 and 10")?;
-                wait_seconds += seconds;
-                if wait_seconds > 10.0 { return Err("a computer-use batch may wait at most 10 seconds".to_string()); }
-                Action::Wait(Duration::from_secs_f64(seconds))
-            }
-            _ => return Err("unknown computer action type".to_string()),
-        };
-        Ok(TargetedAction { action, target: computer_target(input)? })
-    }).collect()
+                "mouse_up" => Action::MouseUp { button: button()? },
+                "mouse_wheel" => Action::MouseWheel {
+                    at: position()?,
+                    direction: match required_string(input, "direction")?.as_str() {
+                        "up" => ScrollDirection::Up,
+                        "down" => ScrollDirection::Down,
+                        "left" => ScrollDirection::Left,
+                        "right" => ScrollDirection::Right,
+                        _ => return Err("direction must be up, down, left, or right".to_string()),
+                    },
+                    distance: ScrollDistance::Pixels(
+                        optional_nonnegative_i32(input, "pixels")?
+                            .ok_or("mouse_wheel requires pixels")?,
+                    ),
+                },
+                "type_text" => {
+                    let text = required_string(input, "text")?;
+                    if text.len() > 100_000 {
+                        return Err("text must be no longer than 100000 bytes".to_string());
+                    }
+                    Action::TypeText { text }
+                }
+                "key_down" => Action::KeyDown { key: key()? },
+                "key_up" => Action::KeyUp { key: key()? },
+                "wait" => {
+                    let seconds = input
+                        .get("seconds")
+                        .and_then(serde_json::Value::as_f64)
+                        .filter(|seconds| {
+                            seconds.is_finite() && *seconds >= 0.0 && *seconds <= 10.0
+                        })
+                        .ok_or("seconds must be between 0 and 10")?;
+                    wait_seconds += seconds;
+                    if wait_seconds > 10.0 {
+                        return Err("a computer-use batch may wait at most 10 seconds".to_string());
+                    }
+                    Action::Wait(Duration::from_secs_f64(seconds))
+                }
+                _ => return Err("unknown computer action type".to_string()),
+            };
+            Ok(TargetedAction {
+                action,
+                target: computer_target(input)?,
+            })
+        })
+        .collect()
 }
 
 fn skill_references(

@@ -361,7 +361,11 @@ impl LLMInfo {
         if custom_model_routers::is_custom_router_id(self.id.as_str()) {
             return label.to_string();
         }
-        match self.description.as_deref().filter(|name| !name.trim().is_empty()) {
+        match self
+            .description
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+        {
             Some(name) => format!("{label} ({name})"),
             None => label.to_string(),
         }
@@ -1045,7 +1049,8 @@ impl LLMPreferences {
             .choices
             .retain(|m| m.provider != LLMProvider::Bedrock && !m.is_placeholder());
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            cli.choices.retain(|m| m.provider != LLMProvider::Bedrock && !m.is_placeholder());
+            cli.choices
+                .retain(|m| m.provider != LLMProvider::Bedrock && !m.is_placeholder());
         }
 
         let settings = AISettings::as_ref(ctx);
@@ -1058,8 +1063,8 @@ impl LLMPreferences {
         let discovered_models = settings.bedrock_models.value();
         let region = settings.bedrock_region.value();
         let cross_region = *settings.bedrock_cross_region_inference.value();
-        let connection_is_verified = self.bedrock_verified_config.as_ref()
-            == Some(&bedrock_discovery_config(settings));
+        let connection_is_verified =
+            self.bedrock_verified_config.as_ref() == Some(&bedrock_discovery_config(settings));
 
         for model in discovered_models {
             if !model.enabled
@@ -1182,18 +1187,25 @@ impl LLMPreferences {
             .or_else(|| self.models_by_feature.coding.choices.first())
             .map(|m| m.id.clone())
         {
-            if !self.models_by_feature.coding.choices.iter().any(|model| {
-                model.id == self.models_by_feature.coding.default_id
-            }) {
+            if !self
+                .models_by_feature
+                .coding
+                .choices
+                .iter()
+                .any(|model| model.id == self.models_by_feature.coding.default_id)
+            {
                 self.models_by_feature.coding.default_id = id;
             }
         }
 
         // Default CLI agent to the first available model.
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            if let Some(id) = cli.choices.first().filter(|_| {
-                !cli.choices.iter().any(|model| model.id == cli.default_id)
-            }).map(|m| m.id.clone()) {
+            if let Some(id) = cli
+                .choices
+                .first()
+                .filter(|_| !cli.choices.iter().any(|model| model.id == cli.default_id))
+                .map(|m| m.id.clone())
+            {
                 cli.default_id = id;
             }
         }
@@ -1221,11 +1233,18 @@ impl LLMPreferences {
             .choices
             .retain(|m| m.provider != LLMProvider::LiteLLM && !m.is_placeholder());
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            cli.choices.retain(|m| m.provider != LLMProvider::LiteLLM && !m.is_placeholder());
+            cli.choices
+                .retain(|m| m.provider != LLMProvider::LiteLLM && !m.is_placeholder());
         }
         self.openai_provider_routing.clear();
-        self.models_by_feature.agent_mode.legacy_reasoning_aliases.clear();
-        self.models_by_feature.coding.legacy_reasoning_aliases.clear();
+        self.models_by_feature
+            .agent_mode
+            .legacy_reasoning_aliases
+            .clear();
+        self.models_by_feature
+            .coding
+            .legacy_reasoning_aliases
+            .clear();
         if let Some(cli) = &mut self.models_by_feature.cli_agent {
             cli.legacy_reasoning_aliases.clear();
         }
@@ -1367,15 +1386,18 @@ impl LLMPreferences {
 
                 // All providers may advertise discrete effort choices. Keep the
                 // default model key stable and route explicit choices separately.
-                let reasoning_efforts = std::iter::once(None)
-                    .chain(model.reasoning_efforts.iter().map(Some));
+                let reasoning_efforts =
+                    std::iter::once(None).chain(model.reasoning_efforts.iter().map(Some));
 
                 // Choose a namespace once for the whole family. Otherwise a
                 // colliding base with unique efforts would split one connection
                 // into multiple groups in the model/reasoning selectors.
                 let connection_suffix = if seen_model_ids.contains(&model.model_id) {
                     use sha2::{Digest, Sha256};
-                    Some(format!("{:x}", Sha256::digest(connection_identity.as_bytes())))
+                    Some(format!(
+                        "{:x}",
+                        Sha256::digest(connection_identity.as_bytes())
+                    ))
                 } else {
                     None
                 };
@@ -1401,7 +1423,8 @@ impl LLMPreferences {
                     }
 
                     if legacy_unclaimed && reasoning_effort.is_some() && legacy_key != model_key {
-                        legacy_reasoning_aliases.insert(LLMId::from(legacy_key), LLMId::from(model_key.clone()));
+                        legacy_reasoning_aliases
+                            .insert(LLMId::from(legacy_key), LLMId::from(model_key.clone()));
                     }
                     // Register the routing entry. Reasoning variants keep the provider's
                     // actual model ID while using their synthetic key only for selection.
@@ -1464,13 +1487,21 @@ impl LLMPreferences {
         }
 
         // An exact key, including one reserved by a disabled model, always wins.
-        legacy_reasoning_aliases.retain(|legacy_id, _| !seen_model_ids.contains(legacy_id.as_str()));
+        legacy_reasoning_aliases
+            .retain(|legacy_id, _| !seen_model_ids.contains(legacy_id.as_str()));
         for (legacy_id, canonical_id) in &legacy_reasoning_aliases {
-            if let Some(config) = self.openai_provider_routing.get(canonical_id.as_str()).cloned() {
-                self.openai_provider_routing.entry(legacy_id.to_string()).or_insert(config);
+            if let Some(config) = self
+                .openai_provider_routing
+                .get(canonical_id.as_str())
+                .cloned()
+            {
+                self.openai_provider_routing
+                    .entry(legacy_id.to_string())
+                    .or_insert(config);
             }
         }
-        self.models_by_feature.agent_mode.legacy_reasoning_aliases = legacy_reasoning_aliases.clone();
+        self.models_by_feature.agent_mode.legacy_reasoning_aliases =
+            legacy_reasoning_aliases.clone();
         self.models_by_feature.coding.legacy_reasoning_aliases = legacy_reasoning_aliases.clone();
         if let Some(cli) = &mut self.models_by_feature.cli_agent {
             cli.legacy_reasoning_aliases = legacy_reasoning_aliases;
@@ -1483,7 +1514,9 @@ impl LLMPreferences {
     fn inject_acp_models(&mut self, ctx: &AppContext) {
         let previous_acp_model_ids = self.acp_selections.keys().cloned().collect::<HashSet<_>>();
         let remove_previous_acp_models = |choices: &mut Vec<LLMInfo>| {
-            choices.retain(|model| !previous_acp_model_ids.contains(&model.id) && !model.is_placeholder());
+            choices.retain(|model| {
+                !previous_acp_model_ids.contains(&model.id) && !model.is_placeholder()
+            });
         };
         remove_previous_acp_models(&mut self.models_by_feature.agent_mode.choices);
         remove_previous_acp_models(&mut self.models_by_feature.coding.choices);
@@ -1847,7 +1880,10 @@ impl LLMPreferences {
             .enumerate()
             .filter_map(|(index, provider)| {
                 (provider.enabled
-                    && matches!(provider.kind, OpenAIProviderKind::LiteLLM | OpenAIProviderKind::Anthropic)
+                    && matches!(
+                        provider.kind,
+                        OpenAIProviderKind::LiteLLM | OpenAIProviderKind::Anthropic
+                    )
                     && self.catalog_connections.get(index) != Some(provider))
                 .then_some(index)
             })
@@ -2246,13 +2282,23 @@ impl LLMPreferences {
     }
 
     pub fn orchestration_provider_name<'a>(&self, model: &'a LLMInfo) -> &'a str {
-        model.description.as_deref().unwrap_or_else(|| model.provider.display_name())
+        model
+            .description
+            .as_deref()
+            .unwrap_or_else(|| model.provider.display_name())
     }
 
-    pub fn profile_allows_orchestration_model(&self, model: &LLMInfo, terminal: Option<EntityId>, app: &AppContext) -> bool {
+    pub fn profile_allows_orchestration_model(
+        &self,
+        model: &LLMInfo,
+        terminal: Option<EntityId>,
+        app: &AppContext,
+    ) -> bool {
         let profile = AIExecutionProfilesModel::as_ref(app).active_profile(terminal, app);
         // Routers can choose another provider, so they cannot bypass a restricted profile.
-        if profile.data().orchestration_providers.is_some() && custom_model_routers::is_custom_router_id(model.id.as_str()) {
+        if profile.data().orchestration_providers.is_some()
+            && custom_model_routers::is_custom_router_id(model.id.as_str())
+        {
             return false;
         }
         profile
@@ -2750,13 +2796,10 @@ impl LLMPreferences {
         terminal_view_id: EntityId,
         ctx: &mut ModelContext<Self>,
     ) {
-        let Some(model) = self
-            .get_llm_info(preferred_llm_id)
-            .filter(|model| {
-                model.is_usable_selection()
-                    && self.profile_allows_orchestration_model(model, Some(terminal_view_id), ctx)
-            })
-        else {
+        let Some(model) = self.get_llm_info(preferred_llm_id).filter(|model| {
+            model.is_usable_selection()
+                && self.profile_allows_orchestration_model(model, Some(terminal_view_id), ctx)
+        }) else {
             log::warn!("[orchestration] Refusing an unavailable or excluded child model selection");
             return;
         };
@@ -3230,11 +3273,13 @@ fn advertised_reasoning_efforts(value: &serde_json::Value) -> Vec<String> {
             return result;
         }
     }
-    ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
-        .into_iter()
-        .filter(|level| value[format!("supports_{level}_reasoning_effort")].as_bool() == Some(true))
-        .map(str::to_string)
-        .collect()
+    [
+        "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
+    ]
+    .into_iter()
+    .filter(|level| value[format!("supports_{level}_reasoning_effort")].as_bool() == Some(true))
+    .map(str::to_string)
+    .collect()
 }
 
 /// Keep an endpoint's recommended window separate from its optional expanded
@@ -3627,14 +3672,12 @@ async fn fetch_litellm_catalog(
                         .into_iter()
                         .chain(info.max_input_tokens)
                         .min();
-                    enriched.context_size = match (
-                        model.default_context_size,
-                        info.default_context_size,
-                    ) {
-                        (Some(_), Some(_)) => model.context_size.max(info.context_size),
-                        (Some(_), None) => model.context_size,
-                        _ => info.context_size,
-                    };
+                    enriched.context_size =
+                        match (model.default_context_size, info.default_context_size) {
+                            (Some(_), Some(_)) => model.context_size.max(info.context_size),
+                            (Some(_), None) => model.context_size,
+                            _ => info.context_size,
+                        };
                     if enriched.reasoning_efforts.is_empty() {
                         enriched.reasoning_efforts = model.reasoning_efforts.clone();
                     }

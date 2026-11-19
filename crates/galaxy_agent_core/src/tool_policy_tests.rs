@@ -214,8 +214,8 @@ fn recall_never_returns_a_prior_recall_call() {
 
 fn screenshot_exchange(id: &str, bytes: Vec<u8>) -> Vec<ConversationMessage> {
     let mut messages = tool_exchange(id, "use_computer", serde_json::json!({}), "captured");
-    messages[1].content = MessageContent::MultiPart(ToolResult::into_batch_content_parts(vec![
-        ToolResult {
+    messages[1].content =
+        MessageContent::MultiPart(ToolResult::into_batch_content_parts(vec![ToolResult {
             call_id: id.to_string(),
             content: "captured".to_string(),
             status: ToolResultStatus::Success,
@@ -223,8 +223,7 @@ fn screenshot_exchange(id: &str, bytes: Vec<u8>) -> Vec<ConversationMessage> {
                 data: bytes,
                 mime_type: "image/png".to_string(),
             }],
-        },
-    ]));
+        }]));
     messages
 }
 
@@ -269,9 +268,11 @@ fn recall_attaches_only_the_exact_selected_screenshots_from_archived_or_live_res
             panic!("recall should execute inline");
         };
         assert_eq!(result.call_id, call.id);
-        assert!(result
-            .content
-            .contains(&format!("Tool Use ID: {original_id}\n")));
+        assert!(
+            result
+                .content
+                .contains(&format!("Tool Use ID: {original_id}\n"))
+        );
         assert_eq!(
             result.images,
             vec![ToolResultImage {

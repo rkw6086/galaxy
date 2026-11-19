@@ -4,10 +4,10 @@ use galaxy_core::features::FeatureFlag;
 use warpui::App;
 
 use super::ui_helpers::context_window_snap_values;
-use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::execution_profiles::model_menu_items::{
     collapse_model_reasoning_choices, has_reasoning_variants, reasoning_choices_for_model,
 };
+use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::execution_profiles::{
     has_configurable_context_window, should_show_long_context_pricing_warning, AIExecutionProfile,
     AIExecutionProfileAppExt as _,
@@ -348,7 +348,10 @@ fn reasoning_choices_without_discovery_remain_unchanged() {
     let choices = vec![&base];
     assert!(!has_reasoning_variants(&base, &choices));
     assert!(reasoning_choices_for_model(&base.id, &choices).is_empty());
-    assert_eq!(collapse_model_reasoning_choices(choices, Some(&base.id))[0].id, base.id);
+    assert_eq!(
+        collapse_model_reasoning_choices(choices, Some(&base.id))[0].id,
+        base.id
+    );
 }
 
 #[test]

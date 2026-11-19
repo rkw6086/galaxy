@@ -79,7 +79,9 @@ impl PlanArchivalModel {
         ctx.subscribe_to_model(
             &BlocklistAIHistoryModel::handle(ctx),
             |model, _, event, ctx| match event {
-                BlocklistAIHistoryEvent::AppendedExchange { conversation_id, .. } => {
+                BlocklistAIHistoryEvent::AppendedExchange {
+                    conversation_id, ..
+                } => {
                     // Clear completion before a successor turn can start. A
                     // previously archived plan becomes visible again as well.
                     model.begin_exchange(*conversation_id, ctx);
@@ -91,8 +93,9 @@ impl PlanArchivalModel {
                 _ => {}
             },
         );
-        ctx.subscribe_to_model(&AIDocumentModel::handle(ctx), |model, _, event, ctx| {
-            match event {
+        ctx.subscribe_to_model(
+            &AIDocumentModel::handle(ctx),
+            |model, _, event, ctx| match event {
                 AIDocumentModelEvent::DocumentUpdated {
                     document_id,
                     source: AIDocumentUpdateSource::User,
@@ -107,24 +110,27 @@ impl PlanArchivalModel {
                     status: AIDocumentUserEditStatus::UpToDate,
                 } => model.accept_document_edits(*document_id, ctx),
                 _ => {}
-            }
-        });
+            },
+        );
         ctx.subscribe_to_model(&CloudModel::handle(ctx), |model, _, event, ctx| {
             if matches!(event, CloudModelEvent::InitialLoadCompleted) {
                 model.sweep(ctx);
             }
         });
-        ctx.subscribe_to_model(&LocalObjectRepository::handle(ctx), |model, _, event, ctx| {
-            let LocalObjectRepositoryEvent::NotebookContentEdited { id } = event else {
-                return;
-            };
-            let document_id = CloudModel::as_ref(ctx)
-                .get_notebook(id)
-                .and_then(|notebook| notebook.model().ai_document_id);
-            if let Some(document_id) = document_id {
-                model.reopen_document(document_id, ctx);
-            }
-        });
+        ctx.subscribe_to_model(
+            &LocalObjectRepository::handle(ctx),
+            |model, _, event, ctx| {
+                let LocalObjectRepositoryEvent::NotebookContentEdited { id } = event else {
+                    return;
+                };
+                let document_id = CloudModel::as_ref(ctx)
+                    .get_notebook(id)
+                    .and_then(|notebook| notebook.model().ai_document_id);
+                if let Some(document_id) = document_id {
+                    model.reopen_document(document_id, ctx);
+                }
+            },
+        );
 
         // The first callback runs after singleton registration and session
         // restoration. Periodic checks also catch provider cleanup occurring
@@ -183,15 +189,13 @@ impl PlanArchivalModel {
                         .into_iter()
                         .map(|(id, _)| id.to_string())
                         .collect::<HashSet<_>>();
-                    document_ids.extend(conversation.artifacts().iter().filter_map(
-                        |artifact| {
-                            if let Artifact::Plan { document_uid, .. } = artifact {
-                                Some(document_uid.clone())
-                            } else {
-                                None
-                            }
-                        },
-                    ));
+                    document_ids.extend(conversation.artifacts().iter().filter_map(|artifact| {
+                        if let Artifact::Plan { document_uid, .. } = artifact {
+                            Some(document_uid.clone())
+                        } else {
+                            None
+                        }
+                    }));
                     (
                         conversation.id(),
                         document_ids,
@@ -329,11 +333,7 @@ impl PlanArchivalModel {
         self.persist(ctx);
     }
 
-    fn begin_exchange(
-        &mut self,
-        conversation_id: AIConversationId,
-        ctx: &mut ModelContext<Self>,
-    ) {
+    fn begin_exchange(&mut self, conversation_id: AIConversationId, ctx: &mut ModelContext<Self>) {
         self.resume_conversation(conversation_id, ctx);
         let mut changed = false;
         self.reopened_plans.retain(|document_id, record| {

@@ -185,7 +185,10 @@ fn provider_terminal_logs_distinguish_clean_completion_from_failure() {
     assert_eq!(failed.context["failure_kind"], "RetryLimitExceeded");
     assert_eq!(failed.context["error_kind"], "Transport");
     assert_eq!(failed.context["error_recoverable"], true);
-    assert_eq!(failed.context["model_failure_diagnostics"]["observed_count"], 1);
+    assert_eq!(
+        failed.context["model_failure_diagnostics"]["observed_count"],
+        1
+    );
     assert_eq!(failed.context["error"], "[redacted] timeout");
 }
 
@@ -3987,7 +3990,8 @@ fn progressive_summary_completion_preserves_an_in_flight_model_turn() {
             let stream_id = ResponseStreamId::new_for_test();
             let response_stream =
                 ctx.add_model(|_| ResponseStream::new_for_test(stream_id.clone()));
-            let mut slot = progressive_summary_test_slot(conversation_id, stream_id, response_stream);
+            let mut slot =
+                progressive_summary_test_slot(conversation_id, stream_id, response_stream);
             let identity = super::ActiveProviderRunIdentity {
                 conversation_id,
                 stream_id: slot.stream_id.clone(),
@@ -4001,7 +4005,9 @@ fn progressive_summary_completion_preserves_an_in_flight_model_turn() {
             }];
 
             terminal.ai_controller().update(ctx, |controller, ctx| {
-                controller.active_provider_runs.insert(conversation_id, slot);
+                controller
+                    .active_provider_runs
+                    .insert(conversation_id, slot);
                 controller.active_provider_progressive_summaries.insert(
                     conversation_id,
                     super::ActiveProviderProgressiveSummaryState::InFlight {
@@ -4097,7 +4103,9 @@ fn stale_progressive_summary_completion_preserves_a_successor_generation() {
             };
 
             terminal.ai_controller().update(ctx, |controller, ctx| {
-                controller.active_provider_runs.insert(conversation_id, slot);
+                controller
+                    .active_provider_runs
+                    .insert(conversation_id, slot);
                 controller.active_provider_progressive_summaries.insert(
                     conversation_id,
                     super::ActiveProviderProgressiveSummaryState::InFlight {
@@ -4175,7 +4183,9 @@ fn idle_progressive_summary_preserves_appended_messages_and_archives_tool_result
                 },
                 ConversationMessage {
                     role: MessageRole::User,
-                    content: MessageContent::Text("Appended while the summary was running".to_owned()),
+                    content: MessageContent::Text(
+                        "Appended while the summary was running".to_owned(),
+                    ),
                 },
             ];
             let conversation_id =
@@ -4213,7 +4223,9 @@ fn idle_progressive_summary_preserves_appended_messages_and_archives_tool_result
                     )),
                     ctx,
                 );
-                assert!(!controller.active_provider_runs.contains_key(&conversation_id));
+                assert!(!controller
+                    .active_provider_runs
+                    .contains_key(&conversation_id));
                 assert!(!controller
                     .active_provider_progressive_summaries
                     .contains_key(&conversation_id));
@@ -4250,7 +4262,9 @@ fn idle_progressive_summary_rejects_a_changed_prefix() {
             }];
             let replacement = vec![ConversationMessage {
                 role: MessageRole::User,
-                content: MessageContent::Text("replacement context that must survive".repeat(1_000)),
+                content: MessageContent::Text(
+                    "replacement context that must survive".repeat(1_000),
+                ),
             }];
             let conversation_id =
                 BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
@@ -4295,7 +4309,10 @@ fn idle_progressive_summary_rejects_a_changed_prefix() {
                 .conversation(&conversation_id)
                 .unwrap();
             assert_eq!(conversation.progressive_summary(), None);
-            assert_eq!(conversation.bedrock_message_history(), replacement.as_slice());
+            assert_eq!(
+                conversation.bedrock_message_history(),
+                replacement.as_slice()
+            );
             assert!(conversation.tool_result_archive().is_empty());
             assert!(!conversation.has_pending_progressive_summary());
         });

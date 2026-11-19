@@ -38,7 +38,9 @@ impl PermissionMode {
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::AllowAll => "Run tools without approval or model review. Explicit denylists and workspace restrictions still apply.",
+            Self::AllowAll => {
+                "Run tools without approval or model review. Explicit denylists and workspace restrictions still apply."
+            }
             Self::ReadOnly => {
                 "Only file reads, code searches, grep, and file discovery are available. Commands, edits, MCP, computer use, and agents are disabled, except explicitly allowlisted shell commands."
             }
@@ -630,7 +632,9 @@ impl Default for AIExecutionProfile {
 
 impl AIExecutionProfile {
     pub fn includes_orchestration_provider(&self, name: &str) -> bool {
-        self.orchestration_providers.as_ref().is_none_or(|providers| providers.iter().any(|provider| provider == name))
+        self.orchestration_providers
+            .as_ref()
+            .is_none_or(|providers| providers.iter().any(|provider| provider == name))
     }
 
     /// Adapter for legacy providers that still consume per-tool permission fields.

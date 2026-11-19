@@ -8224,27 +8224,28 @@ impl BlocklistAIController {
         if catalog_changed {
             let context = {
                 let preferences = LLMPreferences::as_ref(ctx);
-                let profile = crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx)
-                    .active_profile(Some(self.terminal_surface_id), ctx);
+                let profile =
+                    crate::ai::execution_profiles::profiles::AIExecutionProfilesModel::as_ref(ctx)
+                        .active_profile(Some(self.terminal_surface_id), ctx);
                 serde_json::json!({
-                        "event": "orchestration_model_catalog",
-                        "conversation_id": conversation_id,
-                        "profile_id": profile.id().to_string(),
-                        "provider_allowlist": profile.data().orchestration_providers.as_ref().map(|providers| {
-                            providers.iter().take(128).map(remote_logging::sanitize_error).collect::<Vec<_>>()
-                        }),
-                        "provider_allowlist_truncated": profile.data().orchestration_providers.as_ref().is_some_and(|providers| providers.len() > 128),
-                        "active_base_model_id": remote_logging::sanitize_error(preferences.get_active_base_model(ctx, Some(self.terminal_surface_id)).id.as_str()),
-                        "active_cli_model_id": remote_logging::sanitize_error(preferences.get_active_cli_agent_model(ctx, Some(self.terminal_surface_id)).id.as_str()),
-                        "model_count": orchestration_models.len(),
-                        "models": orchestration_models.iter().take(128).map(|model| {
-                            serde_json::json!({
-                                "id": remote_logging::sanitize_error(&model.id),
-                                "provider": remote_logging::sanitize_error(&model.provider),
-                            })
-                        }).collect::<Vec<_>>(),
-                        "models_truncated": orchestration_models.len() > 128,
-                    })
+                    "event": "orchestration_model_catalog",
+                    "conversation_id": conversation_id,
+                    "profile_id": profile.id().to_string(),
+                    "provider_allowlist": profile.data().orchestration_providers.as_ref().map(|providers| {
+                        providers.iter().take(128).map(remote_logging::sanitize_error).collect::<Vec<_>>()
+                    }),
+                    "provider_allowlist_truncated": profile.data().orchestration_providers.as_ref().is_some_and(|providers| providers.len() > 128),
+                    "active_base_model_id": remote_logging::sanitize_error(preferences.get_active_base_model(ctx, Some(self.terminal_surface_id)).id.as_str()),
+                    "active_cli_model_id": remote_logging::sanitize_error(preferences.get_active_cli_agent_model(ctx, Some(self.terminal_surface_id)).id.as_str()),
+                    "model_count": orchestration_models.len(),
+                    "models": orchestration_models.iter().take(128).map(|model| {
+                        serde_json::json!({
+                            "id": remote_logging::sanitize_error(&model.id),
+                            "provider": remote_logging::sanitize_error(&model.provider),
+                        })
+                    }).collect::<Vec<_>>(),
+                    "models_truncated": orchestration_models.len() > 128,
+                })
             };
             remote_logging::log_model_event(
                 ctx,

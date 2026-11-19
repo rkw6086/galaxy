@@ -1,13 +1,13 @@
 pub mod header;
 pub mod header_content;
 
+use galaxy_core::ui::color::coloru_with_opacity;
 use header::PaneHeader;
 pub use header::PaneHeaderAction;
 pub use header::PaneHeaderAction::CustomAction as PaneHeaderCustomAction;
 pub use header_content::{
     HeaderContent, HeaderRenderContext, StandardHeader, StandardHeaderOptions,
 };
-use galaxy_core::ui::color::coloru_with_opacity;
 use pathfinder_geometry::rect::RectF;
 use warpui::elements::{
     Border, Container, DropTarget, DropTargetData, Flex, MainAxisSize, ParentElement, SavePosition,
@@ -24,11 +24,11 @@ use super::{
     BackingView, PaneConfiguration, PaneConfigurationEvent, PaneId, PaneStack, PaneStackEvent,
 };
 use crate::appearance::Appearance;
+use crate::menu::{MenuItem, MenuItemFields};
+use crate::pane_group::focus_state::WorkspaceSplitViewHeaderAction;
 use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusEvent};
 use crate::pane_group::pane::ActionOrigin;
 use crate::pane_group::{Direction, SplitPaneState, TabBarHoverIndex};
-use crate::menu::{MenuItem, MenuItemFields};
-use crate::pane_group::focus_state::WorkspaceSplitViewHeaderAction;
 use crate::server::telemetry::SharingDialogSource;
 use crate::settings::{PaneSettings, PaneSettingsChangedEvent};
 use crate::util::bindings::CustomAction;

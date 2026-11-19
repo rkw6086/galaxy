@@ -181,6 +181,8 @@ use focus_state::PaneGroupFocusState;
 #[path = "mod_tests.rs"]
 mod tests;
 
+pub use focus_state::WorkspaceSplitViewHeaderAction;
+pub use focus_state::WorkspaceSplitViewMembership;
 pub use pane::ai_document_pane::AIDocumentPane;
 pub use pane::ai_fact_pane::AIFactPane;
 pub use pane::code_diff_pane::CodeDiffPane;
@@ -199,8 +201,6 @@ pub use pane::{
     AnyPaneContent, BackingView, PaneConfiguration, PaneConfigurationEvent, PaneContent, PaneEvent,
     PaneHeaderAction, PaneHeaderCustomAction, PaneId, PaneView, TerminalPaneId,
 };
-pub use focus_state::WorkspaceSplitViewMembership;
-pub use focus_state::WorkspaceSplitViewHeaderAction;
 pub use tree::{Direction, PaneData, PaneFlex, PaneNode, SplitDirection};
 pub use working_directories::{WorkingDirectoriesEvent, WorkingDirectoriesModel};
 

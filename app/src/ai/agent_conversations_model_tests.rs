@@ -17,9 +17,8 @@ use super::{
     record_earliest_rtc_task_refresh_timestamp, AgentConversationsModel,
     AgentConversationsModelEvent, AgentManagementFilters, AgentRunDisplayStatus, ArtifactFilter,
     ConversationMetadata, ConversationUpdateKind, CreatedOnFilter, CreatorFilter,
-    EnvironmentFilter, HarnessFilter, OwnerFilter, SourceFilter,
-    RtcTaskRefreshThrottleState, StatusFilter, TaskFetchError, TaskFetchState, MAX_PERSONAL_TASKS,
-    MAX_TEAM_TASKS,
+    EnvironmentFilter, HarnessFilter, OwnerFilter, RtcTaskRefreshThrottleState, SourceFilter,
+    StatusFilter, TaskFetchError, TaskFetchState, MAX_PERSONAL_TASKS, MAX_TEAM_TASKS,
 };
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent::api::ServerConversationToken;
@@ -864,8 +863,7 @@ fn local_history_keeps_saved_legacy_sessions_and_excludes_hosted_rows() {
                 vec![create_message("saved-message", task_id)],
             )],
         };
-        let history =
-            app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[saved]));
+        let history = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[saved]));
         history.update(&mut app, |model, _| {
             model.merge_cloud_conversation_metadata(vec![create_server_conversation_metadata(
                 "Remote-only conversation",
@@ -905,8 +903,11 @@ fn local_history_keeps_saved_legacy_sessions_and_excludes_hosted_rows() {
                 ))
                 .unwrap();
             assert!(AgentConversationsModel::resolve_local_open_action(
-                AgentConversationEntryId::Conversation(remote_id), None, ctx,
-            ).is_none());
+                AgentConversationEntryId::Conversation(remote_id),
+                None,
+                ctx,
+            )
+            .is_none());
         });
     });
 }

@@ -286,7 +286,10 @@ pub fn render_models_section(
         ));
 
     if view.reasoning_roles.contains(&ProfileModelRole::Base) {
-        column.add_child(render_reasoning_dropdown_row(appearance, &view.base_reasoning_dropdown));
+        column.add_child(render_reasoning_dropdown_row(
+            appearance,
+            &view.base_reasoning_dropdown,
+        ));
     }
 
     if let Some(row) = render_context_window_row(appearance, view, app) {
@@ -300,8 +303,14 @@ pub fn render_models_section(
         &view.full_terminal_use_model_dropdown,
     ));
 
-    if view.reasoning_roles.contains(&ProfileModelRole::FullTerminalUse) {
-        column.add_child(render_reasoning_dropdown_row(appearance, &view.full_terminal_reasoning_dropdown));
+    if view
+        .reasoning_roles
+        .contains(&ProfileModelRole::FullTerminalUse)
+    {
+        column.add_child(render_reasoning_dropdown_row(
+            appearance,
+            &view.full_terminal_reasoning_dropdown,
+        ));
     }
 
     if FeatureFlag::LocalComputerUse.is_enabled() {
@@ -311,8 +320,14 @@ pub fn render_models_section(
             "The model used when the agent takes control of your computer to interact with graphical applications through mouse movements, clicks, and keyboard input.",
             &view.computer_use_model_dropdown,
         ));
-        if view.reasoning_roles.contains(&ProfileModelRole::ComputerUse) {
-            column.add_child(render_reasoning_dropdown_row(appearance, &view.computer_use_reasoning_dropdown));
+        if view
+            .reasoning_roles
+            .contains(&ProfileModelRole::ComputerUse)
+        {
+            column.add_child(render_reasoning_dropdown_row(
+                appearance,
+                &view.computer_use_reasoning_dropdown,
+            ));
         }
     }
 
@@ -652,12 +667,26 @@ fn render_command_denylist_section(
         .finish()
 }
 
-fn render_command_allowlist_section(view: &ExecutionProfileEditorView, profile: &AIExecutionProfile, appearance: &Appearance) -> Box<dyn Element> {
-    let items: Vec<_> = profile.command_allowlist.iter().cloned().zip(view.command_allowlist_mouse_state_handles.iter().cloned()).map(|(predicate, mouse_state_handle)| InputListItem {
-        item: predicate.to_string(), mouse_state_handle,
-        on_remove_action: ExecutionProfileEditorViewAction::RemoveFromCommandAllowlist { predicate },
-        is_disabled: false, tooltip_mouse_state: None,
-    }).collect();
+fn render_command_allowlist_section(
+    view: &ExecutionProfileEditorView,
+    profile: &AIExecutionProfile,
+    appearance: &Appearance,
+) -> Box<dyn Element> {
+    let items: Vec<_> = profile
+        .command_allowlist
+        .iter()
+        .cloned()
+        .zip(view.command_allowlist_mouse_state_handles.iter().cloned())
+        .map(|(predicate, mouse_state_handle)| InputListItem {
+            item: predicate.to_string(),
+            mouse_state_handle,
+            on_remove_action: ExecutionProfileEditorViewAction::RemoveFromCommandAllowlist {
+                predicate,
+            },
+            is_disabled: false,
+            tooltip_mouse_state: None,
+        })
+        .collect();
     Flex::column().with_child(create_section_header("Always approve commands", "Regular expressions approved in every mode, including Read Only. Denylists and workspace restrictions take precedence. Anchor patterns with ^ and $ to match the complete command.", appearance))
         .with_child(render_input_list(None, items, Some(&view.command_allowlist_editor), appearance)).finish()
 }

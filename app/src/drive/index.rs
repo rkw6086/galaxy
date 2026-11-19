@@ -3367,7 +3367,11 @@ impl DriveIndex {
             });
         } else {
             UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-                update_manager.move_object_to_location(*cloud_object_type_and_id, new_location, ctx);
+                update_manager.move_object_to_location(
+                    *cloud_object_type_and_id,
+                    new_location,
+                    ctx,
+                );
             });
         }
 
@@ -4911,7 +4915,8 @@ impl DriveIndex {
             }
         }
 
-        if self.move_operation_allowed(cloud_object_type_and_id, app) && access_level.can_move_drive()
+        if self.move_operation_allowed(cloud_object_type_and_id, app)
+            && access_level.can_move_drive()
         {
             if let Some(move_menu) = self.local_move_menu_item(*cloud_object_type_and_id, app) {
                 menu_items.push(move_menu);

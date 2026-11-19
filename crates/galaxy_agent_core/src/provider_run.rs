@@ -1311,7 +1311,10 @@ impl ProviderRun {
             if pending.call.name != UPDATE_TASK_LIST_NAME {
                 continue;
             }
-            let result = pending.state.result().expect("validated complete tool batch");
+            let result = pending
+                .state
+                .result()
+                .expect("validated complete tool batch");
             if result.status == ToolResultStatus::Success {
                 task_list = Some(task_list_from_tool_result(&result.content).ok_or_else(|| {
                     ProviderRunProtocolError::InvalidTaskList {
@@ -1689,8 +1692,9 @@ fn validate_pending_tool_state(pending: &PendingToolCall) -> Result<(), String> 
     if pending.call.name == UPDATE_TASK_LIST_NAME {
         if let Some(result) = pending.state.result() {
             if result.status == ToolResultStatus::Success {
-                let snapshot = task_list_from_tool_result(&result.content)
-                    .ok_or_else(|| "successful task update has no valid snapshot result".to_string())?;
+                let snapshot = task_list_from_tool_result(&result.content).ok_or_else(|| {
+                    "successful task update has no valid snapshot result".to_string()
+                })?;
                 let expected = TaskListSnapshot::from_arguments(&pending.call.arguments)?;
                 if snapshot != expected {
                     return Err("task update result does not match its arguments".to_string());

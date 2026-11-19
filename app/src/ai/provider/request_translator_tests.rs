@@ -724,16 +724,21 @@ fn status_and_log_followups_are_not_parked_behind_event_waits() {
             "missing instruction: {instruction}"
         );
     }
-    assert!(!super::PROGRESS_COMMUNICATION_GUIDANCE
-        .contains("command or subagent, use its wait tool"));
+    assert!(
+        !super::PROGRESS_COMMUNICATION_GUIDANCE.contains("command or subagent, use its wait tool")
+    );
 
     let tools = extract_tools(&request);
     let wait = tools
         .iter()
         .find(|tool| tool.name == "wait_for_events")
         .expect("child wait tool");
-    assert!(wait.description.contains("expected update from an already-started child agent or orchestration event source"));
-    assert!(wait.description.contains("never park that request in a wait"));
+    assert!(wait.description.contains(
+        "expected update from an already-started child agent or orchestration event source"
+    ));
+    assert!(wait
+        .description
+        .contains("never park that request in a wait"));
     assert!(!wait.description.contains("other asynchronous work"));
     assert!(tools.iter().any(|tool| tool.name == "read_files"));
 }

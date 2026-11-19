@@ -53,8 +53,8 @@ impl UiComponent for Checkbox {
                                 .build()
                                 .finish(),
                         )
-                            .with_margin_left(LABEL_LEFT_MARGIN)
-                            .finish(),
+                        .with_margin_left(LABEL_LEFT_MARGIN)
+                        .finish(),
                     )
                     .finish()
             } else {

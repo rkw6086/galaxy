@@ -905,7 +905,10 @@ impl Display for RenderableAIError {
                 }
             }
             Self::ServerOverloaded => {
-                write!(f, "The AI service is currently overloaded. Please try again later.")
+                write!(
+                    f,
+                    "The AI service is currently overloaded. Please try again later."
+                )
             }
             Self::InternalWarpError => write!(f, "Internal Galaxy error."),
             Self::ContextWindowExceeded(message) => {
@@ -1252,7 +1255,10 @@ impl<'a> std::fmt::Display for MarkdownActionResult<'a> {
                 WriteToLongRunningShellCommandResult::BackgroundJobCancellationRequested {
                     job_id,
                 } => {
-                    write!(f, "\n_Cancellation requested for background job `{job_id}`_")
+                    write!(
+                        f,
+                        "\n_Cancellation requested for background job `{job_id}`_"
+                    )
                 }
                 WriteToLongRunningShellCommandResult::CommandFinished { output, .. } => {
                     write!(f, "\n```\n{output}\n```")

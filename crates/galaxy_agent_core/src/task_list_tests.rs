@@ -55,19 +55,28 @@ fn argument_parser_accepts_only_the_reserved_tool_title_outside_the_snapshot() {
         })),
         Ok(plain),
     );
-    assert!(TaskListSnapshot::from_arguments(&json!({
-        "tasks": tasks,
-        "_galaxy_tool_title": false,
-    })).is_err());
-    assert!(TaskListSnapshot::from_arguments(&json!({
-        "tasks": tasks,
-        "_galaxy_tool_title": "Update progress",
-        "other": "unsupported",
-    })).is_err());
-    assert!(serde_json::from_value::<TaskListSnapshot>(json!({
-        "tasks": tasks,
-        "_galaxy_tool_title": "Update progress",
-    })).is_err());
+    assert!(
+        TaskListSnapshot::from_arguments(&json!({
+            "tasks": tasks,
+            "_galaxy_tool_title": false,
+        }))
+        .is_err()
+    );
+    assert!(
+        TaskListSnapshot::from_arguments(&json!({
+            "tasks": tasks,
+            "_galaxy_tool_title": "Update progress",
+            "other": "unsupported",
+        }))
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<TaskListSnapshot>(json!({
+            "tasks": tasks,
+            "_galaxy_tool_title": "Update progress",
+        }))
+        .is_err()
+    );
 }
 
 #[test]

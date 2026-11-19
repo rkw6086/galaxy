@@ -949,15 +949,24 @@ async fn inline_tool_batches_commit_before_the_next_model_boundary() {
 
 #[tokio::test]
 async fn task_progress_reaches_the_next_model_after_compaction_and_restore() {
+    use crate::ai::runtime::task_progress::{
+        add_task_list_context, initial_task_list, task_list_tool,
+    };
     use galaxy_agent_core::{TaskListItem, TaskListSnapshot, TaskListStatus};
-    use crate::ai::runtime::task_progress::{add_task_list_context, initial_task_list, task_list_tool};
 
-    let initial = TaskListSnapshot { tasks: vec![TaskListItem {
-        id: "verify".to_owned(), title: "Build the change".to_owned(), status: TaskListStatus::InProgress,
-    }] };
-    let current = TaskListSnapshot { tasks: vec![TaskListItem {
-        status: TaskListStatus::Completed, ..initial.tasks[0].clone()
-    }] };
+    let initial = TaskListSnapshot {
+        tasks: vec![TaskListItem {
+            id: "verify".to_owned(),
+            title: "Build the change".to_owned(),
+            status: TaskListStatus::InProgress,
+        }],
+    };
+    let current = TaskListSnapshot {
+        tasks: vec![TaskListItem {
+            status: TaskListStatus::Completed,
+            ..initial.tasks[0].clone()
+        }],
+    };
     let runtime = Arc::new(ScriptedRuntime::new(vec![
         tool_turn_with_calls(vec![ToolCall {
             id: "progress".to_owned(),
@@ -970,23 +979,51 @@ async fn task_progress_reaches_the_next_model_after_compaction_and_restore() {
     template.tools.push(task_list_tool());
     add_task_list_context(&mut template, Some(&initial));
     let mut coordinator = ProviderRunCoordinator::from_request(
-        "run", ProviderRunProfile::new(runtime.clone(), template.clone()), Vec::new(), ProviderRunLimits::default(),
-    ).unwrap();
+        "run",
+        ProviderRunProfile::new(runtime.clone(), template.clone()),
+        Vec::new(),
+        ProviderRunLimits::default(),
+    )
+    .unwrap();
     let (_sender, control) = turn_control();
-    assert!(matches!(coordinator.drive_until_blocked(control, |_| Ok(())).await.unwrap(), ProviderRunBlock::ReadyToCallModel));
+    assert!(matches!(
+        coordinator
+            .drive_until_blocked(control, |_| Ok(()))
+            .await
+            .unwrap(),
+        ProviderRunBlock::ReadyToCallModel
+    ));
     assert_eq!(coordinator.run().task_list(), Some(&current));
     let length = coordinator.run().transcript().len();
-    coordinator.run_mut().compact_transcript_at_model_boundary(length, vec![ConversationMessage {
-        role: MessageRole::User, content: MessageContent::Text("Prior work summarized.".to_owned()),
-    }]).unwrap();
-    coordinator.run_mut().replace_tool_result_archive(Vec::new());
-    let restored: ProviderRun = serde_json::from_str(&serde_json::to_string(coordinator.run()).unwrap()).unwrap();
+    coordinator
+        .run_mut()
+        .compact_transcript_at_model_boundary(
+            length,
+            vec![ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text("Prior work summarized.".to_owned()),
+            }],
+        )
+        .unwrap();
+    coordinator
+        .run_mut()
+        .replace_tool_result_archive(Vec::new());
+    let restored: ProviderRun =
+        serde_json::from_str(&serde_json::to_string(coordinator.run()).unwrap()).unwrap();
     restored.validate_restored_state().unwrap();
-    let mut coordinator = ProviderRunCoordinator::new(restored, BTreeMap::from([
-        (BASE_PROVIDER_PROFILE.to_owned(), ProviderRunProfile::new(runtime.clone(), template)),
-    ])).unwrap();
+    let mut coordinator = ProviderRunCoordinator::new(
+        restored,
+        BTreeMap::from([(
+            BASE_PROVIDER_PROFILE.to_owned(),
+            ProviderRunProfile::new(runtime.clone(), template),
+        )]),
+    )
+    .unwrap();
     let (_sender, control) = turn_control();
-    coordinator.drive_until_blocked(control, |_| Ok(())).await.unwrap();
+    coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
     assert_eq!(initial_task_list(&runtime.requests()[1]), Some(current));
     assert_eq!(runtime.requests()[1].messages.len(), 1);
 }
@@ -1637,7 +1674,10 @@ async fn compaction_boundary_keeps_the_monitor_context_limit() {
         .unwrap();
 
     assert_eq!(block, ProviderRunBlock::ContextWindowExceeded);
-    assert_eq!(coordinator.run().state(), &ProviderRunState::ReadyToCallModel);
+    assert_eq!(
+        coordinator.run().state(),
+        &ProviderRunState::ReadyToCallModel
+    );
     assert_eq!(coordinator.current_context_limit(), Some(8_000));
     assert!(base_runtime.requests().is_empty());
     assert!(cli_runtime.requests().is_empty());

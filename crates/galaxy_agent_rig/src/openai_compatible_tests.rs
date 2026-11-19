@@ -118,9 +118,11 @@ async fn rig_stream_ignores_empty_reasoning_heartbeats() {
         AgentEvent::ReasoningCompleted { text, signature }
             if text.is_empty() && signature.is_none()
     )));
-    assert!(events
-        .iter()
-        .any(|event| matches!(event, AgentEvent::TextDelta { text } if text == "done")));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextDelta { text } if text == "done"))
+    );
 }
 
 #[tokio::test]
@@ -380,11 +382,13 @@ fn selected_reasoning_effort_is_sent_without_changing_the_model() {
         }))
     );
     let default = build_completion_request(text_request(), None, true, None).unwrap();
-    assert!(default
-        .additional_params
-        .unwrap()
-        .get("reasoning_effort")
-        .is_none());
+    assert!(
+        default
+            .additional_params
+            .unwrap()
+            .get("reasoning_effort")
+            .is_none()
+    );
 }
 
 #[test]

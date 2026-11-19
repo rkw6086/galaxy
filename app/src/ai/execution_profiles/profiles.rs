@@ -654,11 +654,17 @@ impl AIExecutionProfilesModel {
         providers: Option<Vec<String>>,
         ctx: &mut ModelContext<Self>,
     ) {
-        self.edit_profile_internal(profile_id, |profile| {
-            if profile.orchestration_providers == providers { return false; }
-            profile.orchestration_providers = providers;
-            true
-        }, ctx);
+        self.edit_profile_internal(
+            profile_id,
+            |profile| {
+                if profile.orchestration_providers == providers {
+                    return false;
+                }
+                profile.orchestration_providers = providers;
+                true
+            },
+            ctx,
+        );
     }
 
     pub fn set_permission_mode(

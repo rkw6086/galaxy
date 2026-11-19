@@ -28,7 +28,9 @@ fn query(id: &str) -> api::Message {
 fn computer_tool_display_and_native_restoration_preserve_the_same_actions() {
     let context = ProviderActionContext::new_for_test("task");
     let call = ToolCall {
-        id: "desktop-call".into(), name: "use_computer".into(), arguments: json!({
+        id: "desktop-call".into(),
+        name: "use_computer".into(),
+        arguments: json!({
             "action_summary": "Type and press Return", "actions": [
                 { "type": "type_text", "text": "hello" },
                 { "type": "key_down", "keycode": 36 },
@@ -38,11 +40,17 @@ fn computer_tool_display_and_native_restoration_preserve_the_same_actions() {
     };
     let action = context.action_from_tool_call(&call).unwrap();
     let message = tool_message(&context, &call, &action).unwrap();
-    let Some(api::message::Message::ToolCall(display)) = message.message else { panic!("expected tool display"); };
-    let Some(api::message::tool_call::Tool::UseComputer(display)) = display.tool else { panic!("expected computer display"); };
+    let Some(api::message::Message::ToolCall(display)) = message.message else {
+        panic!("expected tool display");
+    };
+    let Some(api::message::tool_call::Tool::UseComputer(display)) = display.tool else {
+        panic!("expected computer display");
+    };
     let display_action = crate::ai::agent::AIAgentActionType::try_from(display).unwrap();
     assert_eq!(display_action, action.action);
-    let restored = super::restore_tool(&message.server_message_data).unwrap().unwrap();
+    let restored = super::restore_tool(&message.server_message_data)
+        .unwrap()
+        .unwrap();
     assert_eq!(restored.action, action.action);
     assert_eq!(restored.id, action.id);
 }

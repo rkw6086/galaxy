@@ -1291,9 +1291,11 @@ impl AgentConversationsModel {
         if active_views.is_conversation_open(conversation_id, app) && nav_data.is_none() {
             return active_views
                 .get_terminal_view_id_for_conversation(conversation_id, app)
-                .map(|terminal_view_id| WorkspaceAction::FocusTerminalViewInWorkspace {
-                    terminal_view_id,
-                });
+                .map(
+                    |terminal_view_id| WorkspaceAction::FocusTerminalViewInWorkspace {
+                        terminal_view_id,
+                    },
+                );
         }
 
         Some(WorkspaceAction::RestoreOrNavigateToConversation {

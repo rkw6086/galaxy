@@ -1,8 +1,8 @@
 use super::model_availability_is_usable;
 use aws_sdk_bedrock::operation::list_inference_profiles::ListInferenceProfilesOutput;
 use aws_sdk_bedrock::types::{
-    FoundationModelSummary, InferenceProfileModel, InferenceProfileStatus,
-    InferenceProfileSummary, InferenceProfileType, InferenceType, ModelModality,
+    FoundationModelSummary, InferenceProfileModel, InferenceProfileStatus, InferenceProfileSummary,
+    InferenceProfileType, InferenceType, ModelModality,
 };
 
 fn foundation(id: &str, on_demand: bool) -> FoundationModelSummary {
@@ -23,12 +23,18 @@ fn inference_profile(id: &str, model: &str) -> InferenceProfileSummary {
     InferenceProfileSummary::builder()
         .inference_profile_id(id)
         .inference_profile_name(id)
-        .inference_profile_arn(format!("arn:aws:bedrock:us-east-1:123456789012:inference-profile/{id}"))
+        .inference_profile_arn(format!(
+            "arn:aws:bedrock:us-east-1:123456789012:inference-profile/{id}"
+        ))
         .status(InferenceProfileStatus::Active)
         .r#type(InferenceProfileType::SystemDefined)
-        .models(InferenceProfileModel::builder()
-            .model_arn(format!("arn:aws:bedrock:us-east-1::foundation-model/{model}"))
-            .build())
+        .models(
+            InferenceProfileModel::builder()
+                .model_arn(format!(
+                    "arn:aws:bedrock:us-east-1::foundation-model/{model}"
+                ))
+                .build(),
+        )
         .build()
         .unwrap()
 }
@@ -38,12 +44,14 @@ fn new_live_model_does_not_need_a_bundled_catalog_entry() {
     let id = "future.new-model-v100";
     assert!(galaxy_bedrock_model_catalog::model_metadata(id).is_none());
     let profile = inference_profile("us.future.new-model-v100", id);
-    let models = super::models_from_inventory(
-        vec![foundation(id, false)], &[profile.clone()], true,
-    );
+    let models =
+        super::models_from_inventory(vec![foundation(id, false)], &[profile.clone()], true);
     assert_eq!(models.len(), 1);
     assert_eq!(models[0].model_id, id);
-    assert_eq!(models[0].invocation_model_id, profile.inference_profile_arn());
+    assert_eq!(
+        models[0].invocation_model_id,
+        profile.inference_profile_arn()
+    );
     assert_eq!(models[0].response_streaming_supported, Some(true));
     assert_eq!(models[0].provider_name, "New provider");
 }
@@ -52,12 +60,11 @@ fn new_live_model_does_not_need_a_bundled_catalog_entry() {
 fn cross_region_disabled_requires_an_actual_on_demand_route() {
     let id = "future.profile-only";
     let profile = inference_profile("us.future.profile-only", id);
-    assert!(super::models_from_inventory(
-        vec![foundation(id, false)], &[profile.clone()], false,
-    ).is_empty());
-    let models = super::models_from_inventory(
-        vec![foundation(id, true)], &[profile], false,
+    assert!(
+        super::models_from_inventory(vec![foundation(id, false)], &[profile.clone()], false,)
+            .is_empty()
     );
+    let models = super::models_from_inventory(vec![foundation(id, true)], &[profile], false);
     assert_eq!(models.len(), 1);
     assert_eq!(models[0].invocation_model_id, id);
 }
@@ -72,9 +79,10 @@ fn inventory_deduplicates_routes_and_rejects_known_incompatible_models() {
         true,
     );
     assert_eq!(models.len(), 1);
-    assert!(super::models_from_inventory(
-        vec![foundation("openai.gpt-5.5", true)], &[], true,
-    ).is_empty());
+    assert!(
+        super::models_from_inventory(vec![foundation("openai.gpt-5.5", true)], &[], true,)
+            .is_empty()
+    );
     let mut not_streaming = foundation(id, true);
     not_streaming.response_streaming_supported = Some(false);
     assert!(super::models_from_inventory(vec![not_streaming], &[], true).is_empty());
@@ -91,27 +99,33 @@ async fn inference_profile_discovery_follows_every_page() {
         let page = match token.as_deref() {
             None => ListInferenceProfilesOutput::builder()
                 .inference_profile_summaries(inference_profile("us.future.first", "future.first"))
-                .next_token("page-2").build(),
+                .next_token("page-2")
+                .build(),
             Some("page-2") => ListInferenceProfilesOutput::builder()
                 .inference_profile_summaries(inference_profile("us.future.second", "future.second"))
                 .build(),
             Some(token) => panic!("Unexpected token: {token}"),
         };
         std::future::ready(Ok(page))
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     assert_eq!(profiles.len(), 2);
     assert_eq!(calls, [None, Some("page-2".to_owned())]);
 }
 
 #[tokio::test]
 async fn failed_or_repeating_profile_pages_do_not_return_partial_success() {
-    let result = super::collect_profile_pages(|_| {
-        std::future::ready(Err("network unavailable".to_owned()))
-    }).await;
+    let result =
+        super::collect_profile_pages(|_| std::future::ready(Err("network unavailable".to_owned())))
+            .await;
     assert_eq!(result.unwrap_err(), "network unavailable");
     let result = super::collect_profile_pages(|_| {
-        std::future::ready(Ok(ListInferenceProfilesOutput::builder().next_token("repeated").build()))
-    }).await;
+        std::future::ready(Ok(ListInferenceProfilesOutput::builder()
+            .next_token("repeated")
+            .build()))
+    })
+    .await;
     assert!(result.is_err());
 }
 

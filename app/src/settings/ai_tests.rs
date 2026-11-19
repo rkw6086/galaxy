@@ -39,7 +39,8 @@ fn legacy_bedrock_model_settings_default_live_capabilities_without_authorization
         "display_name": "Saved model",
         "enabled": false,
         "vision_supported": true
-    })).unwrap();
+    }))
+    .unwrap();
     assert_eq!(model.invocation_model_id, "");
     assert_eq!(model.provider_name, "");
     assert_eq!(model.response_streaming_supported, None);

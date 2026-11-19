@@ -171,8 +171,12 @@ pub enum ExecutionProfileEditorViewAction {
         id: LLMId,
     },
 
-    SetOrchestrationProviders { providers: Option<Vec<String>> },
-    RemoveFromCommandAllowlist { predicate: AgentModeCommandExecutionPredicate },
+    SetOrchestrationProviders {
+        providers: Option<Vec<String>>,
+    },
+    RemoveFromCommandAllowlist {
+        predicate: AgentModeCommandExecutionPredicate,
+    },
     SetPermissionMode {
         mode: PermissionMode,
     },
@@ -323,7 +327,8 @@ impl ExecutionProfileEditorView {
         let full_terminal_reasoning_dropdown = ctx.add_typed_action_view(Dropdown::new);
         let computer_use_reasoning_dropdown = ctx.add_typed_action_view(Dropdown::new);
         let command_allowlist_editor = ctx.add_typed_action_view(|ctx| {
-            let mut input = SubmittableTextInput::new(ctx).validate_on_edit(|s| Regex::new(s).is_ok());
+            let mut input =
+                SubmittableTextInput::new(ctx).validate_on_edit(|s| Regex::new(s).is_ok());
             input.set_placeholder_text("e.g. ^cargo test$", ctx);
             input
         });
@@ -421,7 +426,9 @@ impl ExecutionProfileEditorView {
 
         ctx.subscribe_to_view(&view.command_allowlist_editor, |view, _, event, ctx| {
             if let SubmittableTextInputEvent::Submit(value) = event {
-                let Ok(predicate) = AgentModeCommandExecutionPredicate::new_regex(value) else { return; };
+                let Ok(predicate) = AgentModeCommandExecutionPredicate::new_regex(value) else {
+                    return;
+                };
                 AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
                     profiles.add_to_command_allowlist(view.profile_id, &predicate, ctx);
                 });
@@ -557,21 +564,55 @@ impl ExecutionProfileEditorView {
         let permissions = BlocklistAIPermissions::as_ref(app);
         let current_permissions = permissions.permissions_profile_for_id(app, self.profile_id);
 
-        self.command_allowlist_mouse_state_handles = current_permissions.command_allowlist.iter().map(|_| Default::default()).collect();
-        let mut names: Vec<_> = LLMPreferences::as_ref(app).get_base_llm_choices_for_agent_mode(app)
-            .filter(|model| !matches!(model.id.as_str(), "none" | "placeholder") && !crate::ai::custom_model_routers::is_custom_router_id(model.id.as_str()))
+        self.command_allowlist_mouse_state_handles = current_permissions
+            .command_allowlist
+            .iter()
+            .map(|_| Default::default())
+            .collect();
+        let mut names: Vec<_> = LLMPreferences::as_ref(app)
+            .get_base_llm_choices_for_agent_mode(app)
+            .filter(|model| {
+                !matches!(model.id.as_str(), "none" | "placeholder")
+                    && !crate::ai::custom_model_routers::is_custom_router_id(model.id.as_str())
+            })
             // Cloud catalog descriptions name vendors, not configured connections.
             // Direct registry models already carry the user's connection name.
-            .filter(|model| matches!(model.provider, LLMProvider::LiteLLM | LLMProvider::Bedrock | LLMProvider::Acp))
-            .map(|model| LLMPreferences::as_ref(app).orchestration_provider_name(model).to_string()).collect();
-        names.extend(AISettings::as_ref(app).openai_providers.value().iter().map(|provider| provider.name.clone()));
+            .filter(|model| {
+                matches!(
+                    model.provider,
+                    LLMProvider::LiteLLM | LLMProvider::Bedrock | LLMProvider::Acp
+                )
+            })
+            .map(|model| {
+                LLMPreferences::as_ref(app)
+                    .orchestration_provider_name(model)
+                    .to_string()
+            })
+            .collect();
+        names.extend(
+            AISettings::as_ref(app)
+                .openai_providers
+                .value()
+                .iter()
+                .map(|provider| provider.name.clone()),
+        );
         names.retain(|name| !name.trim().is_empty());
-        names.sort(); names.dedup();
-        self.orchestration_provider_checkboxes.retain(|(name, _)| names.contains(name));
-        for name in names { if !self.orchestration_provider_checkboxes.iter().any(|(existing, _)| existing == &name) {
-            self.orchestration_provider_checkboxes.push((name, Default::default()));
-        }}
-        self.orchestration_provider_checkboxes.sort_by(|a, b| a.0.cmp(&b.0));
+        names.sort();
+        names.dedup();
+        self.orchestration_provider_checkboxes
+            .retain(|(name, _)| names.contains(name));
+        for name in names {
+            if !self
+                .orchestration_provider_checkboxes
+                .iter()
+                .any(|(existing, _)| existing == &name)
+            {
+                self.orchestration_provider_checkboxes
+                    .push((name, Default::default()));
+            }
+        }
+        self.orchestration_provider_checkboxes
+            .sort_by(|a, b| a.0.cmp(&b.0));
 
         self.command_denylist_mouse_state_handles = current_permissions
             .command_denylist
@@ -666,50 +707,78 @@ impl ExecutionProfileEditorView {
     }
 
     fn refresh_reasoning_dropdowns(&mut self, ctx: &mut ViewContext<Self>) {
-        let profile = BlocklistAIPermissions::as_ref(ctx)
-            .permissions_profile_for_id(ctx, self.profile_id);
+        let profile =
+            BlocklistAIPermissions::as_ref(ctx).permissions_profile_for_id(ctx, self.profile_id);
         self.reasoning_roles.clear();
-        for role in [ProfileModelRole::Base, ProfileModelRole::FullTerminalUse, ProfileModelRole::ComputerUse] {
+        for role in [
+            ProfileModelRole::Base,
+            ProfileModelRole::FullTerminalUse,
+            ProfileModelRole::ComputerUse,
+        ] {
             let prefs = LLMPreferences::as_ref(ctx);
             let (id, choices, dropdown) = match role {
                 ProfileModelRole::Base => (
-                    profile.base_model.clone().unwrap_or_else(|| prefs.get_default_base_model().id.clone()),
+                    profile
+                        .base_model
+                        .clone()
+                        .unwrap_or_else(|| prefs.get_default_base_model().id.clone()),
                     prefs.get_base_llm_choices_for_agent_mode(ctx).collect_vec(),
                     &self.base_reasoning_dropdown,
                 ),
                 ProfileModelRole::FullTerminalUse => (
-                    profile.cli_agent_model.clone().unwrap_or_else(|| prefs.get_default_cli_agent_model().id.clone()),
+                    profile
+                        .cli_agent_model
+                        .clone()
+                        .unwrap_or_else(|| prefs.get_default_cli_agent_model().id.clone()),
                     prefs.get_cli_agent_llm_choices(ctx).collect_vec(),
                     &self.full_terminal_reasoning_dropdown,
                 ),
                 ProfileModelRole::ComputerUse => (
-                    profile.computer_use_model.clone().unwrap_or_else(|| prefs.get_default_computer_use_model().id.clone()),
+                    profile
+                        .computer_use_model
+                        .clone()
+                        .unwrap_or_else(|| prefs.get_default_computer_use_model().id.clone()),
                     prefs.get_computer_use_llm_choices(ctx).collect_vec(),
                     &self.computer_use_reasoning_dropdown,
                 ),
             };
-            let id = prefs.get_llm_info(&id).map_or(id.clone(), |model| model.id.clone());
+            let id = prefs
+                .get_llm_info(&id)
+                .map_or(id.clone(), |model| model.id.clone());
             let reasoning_choices = reasoning_choices_for_model(&id, &choices);
-            let items: Vec<MenuItem<DropdownAction>> = reasoning_choices.iter().map(|model| {
-                let mut fields = MenuItemFields::new(
-                    model.reasoning_level.clone().unwrap_or_else(|| "Provider default".to_owned()),
-                )
-                .with_on_select_action(DropdownAction::select_action_and_close(
-                    ExecutionProfileEditorViewAction::SetModelReasoning { role, id: model.id.clone() },
-                ))
-                .with_disabled(model.disable_reason.is_some());
-                if let Some(reason) = &model.disable_reason {
-                    fields = fields.with_tooltip(reason.tooltip_text())
-                        .with_tooltip_position(MenuTooltipPosition::Above);
-                }
-                fields.into_item()
-            }).collect();
+            let items: Vec<MenuItem<DropdownAction>> = reasoning_choices
+                .iter()
+                .map(|model| {
+                    let mut fields = MenuItemFields::new(
+                        model
+                            .reasoning_level
+                            .clone()
+                            .unwrap_or_else(|| "Provider default".to_owned()),
+                    )
+                    .with_on_select_action(DropdownAction::select_action_and_close(
+                        ExecutionProfileEditorViewAction::SetModelReasoning {
+                            role,
+                            id: model.id.clone(),
+                        },
+                    ))
+                    .with_disabled(model.disable_reason.is_some());
+                    if let Some(reason) = &model.disable_reason {
+                        fields = fields
+                            .with_tooltip(reason.tooltip_text())
+                            .with_tooltip_position(MenuTooltipPosition::Above);
+                    }
+                    fields.into_item()
+                })
+                .collect();
             if !reasoning_choices.is_empty() {
                 self.reasoning_roles.push(role);
             }
             dropdown.update(ctx, |dropdown, ctx| {
                 dropdown.set_rich_items(items, ctx);
-                dropdown.set_selected_by_action(ExecutionProfileEditorViewAction::SetModelReasoning { role, id }, ctx);
+                dropdown.set_selected_by_action(
+                    ExecutionProfileEditorViewAction::SetModelReasoning { role, id },
+                    ctx,
+                );
                 if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
                     dropdown.set_enabled(ctx);
                 } else {
@@ -745,9 +814,13 @@ impl ExecutionProfileEditorView {
             let llm_prefs = LLMPreferences::handle(ctx);
             let llm_prefs = llm_prefs.as_ref(ctx);
             let model_to_select = profile_model.unwrap_or_else(|| get_default_id(llm_prefs));
-            let model_to_select = llm_prefs.get_llm_info(&model_to_select)
+            let model_to_select = llm_prefs
+                .get_llm_info(&model_to_select)
                 .map_or(model_to_select.clone(), |model| model.id.clone());
-            let choices = collapse_model_reasoning_choices(get_choices(llm_prefs, ctx), Some(&model_to_select));
+            let choices = collapse_model_reasoning_choices(
+                get_choices(llm_prefs, ctx),
+                Some(&model_to_select),
+            );
 
             let has_upgrade_gated_models = choices
                 .iter()
@@ -1108,13 +1181,24 @@ impl TypedActionView for ExecutionProfileEditorView {
                 ctx.notify();
             }
             ExecutionProfileEditorViewAction::SetModelReasoning { role, id } => {
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
-                    match role {
-                        ProfileModelRole::Base => profiles_model.set_base_model(self.profile_id, Some(id.clone()), ctx),
-                        ProfileModelRole::FullTerminalUse => profiles_model.set_cli_agent_model(self.profile_id, Some(id.clone()), ctx),
-                        ProfileModelRole::ComputerUse => profiles_model.set_computer_use_model(self.profile_id, Some(id.clone()), ctx),
-                    }
-                });
+                AIExecutionProfilesModel::handle(ctx).update(
+                    ctx,
+                    |profiles_model, ctx| match role {
+                        ProfileModelRole::Base => {
+                            profiles_model.set_base_model(self.profile_id, Some(id.clone()), ctx)
+                        }
+                        ProfileModelRole::FullTerminalUse => profiles_model.set_cli_agent_model(
+                            self.profile_id,
+                            Some(id.clone()),
+                            ctx,
+                        ),
+                        ProfileModelRole::ComputerUse => profiles_model.set_computer_use_model(
+                            self.profile_id,
+                            Some(id.clone()),
+                            ctx,
+                        ),
+                    },
+                );
                 ctx.notify();
             }
             ExecutionProfileEditorViewAction::ContextWindowSliderDragged { value } => {

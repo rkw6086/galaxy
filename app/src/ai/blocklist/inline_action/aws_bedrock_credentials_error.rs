@@ -35,7 +35,6 @@ pub struct AwsBedrockCredentialsErrorView {
     model_name: String,
     login_command: String,
 
-
     // Run button
     run_button: ViewHandle<ActionButton>,
 
@@ -47,11 +46,7 @@ pub struct AwsBedrockCredentialsErrorView {
 }
 
 impl AwsBedrockCredentialsErrorView {
-    pub fn new(
-        model_name: String,
-        login_command: String,
-        ctx: &mut ViewContext<Self>,
-    ) -> Self {
+    pub fn new(model_name: String, login_command: String, ctx: &mut ViewContext<Self>) -> Self {
         // Run button
         let run_button = ctx.add_typed_action_view(|_ctx| {
             ActionButton::new("Refresh AWS Credentials", PrimaryTheme)
@@ -99,7 +94,6 @@ impl View for AwsBedrockCredentialsErrorView {
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
-
 
         let auto_login_enabled = *AISettings::as_ref(app).bedrock_auto_login.value();
 

@@ -66,8 +66,7 @@ impl TaskListSnapshot {
             if !ids.insert(task.id.as_str()) {
                 return Err(format!("Duplicate task ID: '{}'.", task.id));
             }
-            if task.title.trim().is_empty() || task.title.chars().count() > MAX_TASK_TITLE_CHARS
-            {
+            if task.title.trim().is_empty() || task.title.chars().count() > MAX_TASK_TITLE_CHARS {
                 return Err(format!(
                     "Task titles must be nonempty and at most {MAX_TASK_TITLE_CHARS} characters."
                 ));
@@ -105,7 +104,9 @@ impl TaskListSnapshot {
 /// tool name and successful result status when reading conversation history.
 pub fn task_list_from_tool_result(content: &str) -> Option<TaskListSnapshot> {
     let result: TaskListToolResult = serde_json::from_str(content).ok()?;
-    let snapshot = TaskListSnapshot { tasks: result.tasks };
+    let snapshot = TaskListSnapshot {
+        tasks: result.tasks,
+    };
     snapshot.validate().ok()?;
     Some(snapshot)
 }
