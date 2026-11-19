@@ -64,6 +64,77 @@ function git(repo, ...args) {
   return execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
+// Derive the only two CI version edits from the immutable tagged source.
+export function versionFiles(manifest, lock, version) {
+  parseVersion(version);
+  const current = manifestVersion(manifest);
+  parseVersion(current);
+  const block = galaxyLockBlock(lock);
+  if (block.match(/^version = "([^"]+)"$/m)?.[1] !== current) {
+    throw new Error('Source package versions do not match.');
+  }
+  if (compareVersions(version, current) < 0) throw new Error('Release versions cannot move backwards.');
+  return new Map([
+    ['app/Cargo.toml', manifest.replace(
+      /(^\[package\]\s*\n[\s\S]*?^version\s*=\s*")[^"]+("\s*$)/m,
+      (_, before, after) => `${before}${version}${after}`,
+    )],
+    ['Cargo.lock', lock.replace(block, block.replace(/^version = "[^"]+"$/m, `version = "${version}"`))],
+  ]);
+}
+
+function stagingSource(version, sha, repo) {
+  parseVersion(version);
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha ?? '') || git(repo, 'rev-parse', 'HEAD') !== sha) {
+    throw new Error('Version staging requires the exact validated source commit.');
+  }
+  if (process.env.CI !== 'true' || process.env.GITHUB_EVENT_NAME !== 'push'
+      || process.env.GITHUB_REF !== `refs/tags/${version}`
+      || git(repo, 'rev-parse', `refs/tags/${version}^{commit}`) !== sha) {
+    throw new Error('CI version staging is restricted to the validated pushed version tag.');
+  }
+  const source = (file) => execFileSync('git', ['show', `${sha}:${file}`], {
+    cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return versionFiles(source('app/Cargo.toml'), source('Cargo.lock'), version);
+}
+
+export function verifyStagedVersion(version, sha, { repo = root } = {}) {
+  const expected = stagingSource(version, sha, repo);
+  // Index changes, renames, modes, and new files are never part of version staging.
+  const status = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all', '-z'], {
+    cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  for (const entry of status.split('\0').filter(Boolean)) {
+    if (!entry.startsWith(' M ') || !expected.has(entry.slice(3))) {
+      throw new Error('Checkout has changes outside the two controlled CI version edits.');
+    }
+  }
+  for (const [file, content] of expected) {
+    const target = path.join(repo, file);
+    const stat = fs.lstatSync(target);
+    if (!stat.isFile() || (stat.mode & 0o111) !== 0 || fs.readFileSync(target, 'utf8') !== content) {
+      throw new Error(`Unexpected CI version contents or file mode: ${file}.`);
+    }
+  }
+  return checkVersions({ repo, expected: version });
+}
+
+export function stageVersion(version, sha, { repo = root } = {}) {
+  if (git(repo, 'status', '--porcelain', '--untracked-files=all')) {
+    throw new Error('CI version staging requires an unchanged source checkout.');
+  }
+  const expected = stagingSource(version, sha, repo);
+  for (const [file, content] of expected) {
+    const target = path.join(repo, file);
+    if (fs.readFileSync(target, 'utf8') === content) continue;
+    const temporary = `${target}.galaxy-version-tmp`;
+    fs.writeFileSync(temporary, content, { flag: 'wx', mode: fs.statSync(target).mode });
+    fs.renameSync(temporary, target);
+  }
+  return verifyStagedVersion(version, sha, { repo });
+}
+
 function prepare(target) {
   const current = checkVersions();
   let version = target;
@@ -76,17 +147,10 @@ function prepare(target) {
   }
   parseVersion(version);
   if (compareVersions(version, current) < 0) throw new Error('Release versions cannot move backwards.');
-  const manifestPath = path.join(root, 'app/Cargo.toml');
-  const lockPath = path.join(root, 'Cargo.lock');
-  const manifest = fs.readFileSync(manifestPath, 'utf8');
-  const lock = fs.readFileSync(lockPath, 'utf8');
-  const updatedManifest = manifest.replace(
-    /(^\[package\]\s*\n[\s\S]*?^version\s*=\s*")[^"]+("\s*$)/m,
-    (_, before, after) => `${before}${version}${after}`,
-  );
-  const block = galaxyLockBlock(lock);
-  const updatedLock = lock.replace(block, block.replace(/^version = "[^"]+"$/m, `version = "${version}"`));
-  for (const [file, text] of [[manifestPath, updatedManifest], [lockPath, updatedLock]]) {
+  const expected = versionFiles(fs.readFileSync(path.join(root, 'app/Cargo.toml'), 'utf8'),
+    fs.readFileSync(path.join(root, 'Cargo.lock'), 'utf8'), version);
+  for (const [relative, text] of expected) {
+    const file = path.join(root, relative);
     if (fs.readFileSync(file, 'utf8') === text) continue;
     const temporary = `${file}.galaxy-version-tmp`;
     fs.writeFileSync(temporary, text, { flag: 'wx', mode: fs.statSync(file).mode });
@@ -96,8 +160,10 @@ function prepare(target) {
 }
 
 function tag(requested, push) {
-  const version = checkVersions({ expected: requested });
-  changelog(version);
+  const current = checkVersions();
+  const version = requested ?? current;
+  parseVersion(version);
+  if (compareVersions(version, current) < 0) throw new Error('Release versions cannot move backwards.');
   // Codex attachments are user-provided files, never release build inputs.
   if (git(root, 'status', '--porcelain', '--untracked-files=normal', '--', '.', ':(exclude).codex-attachments')) {
     throw new Error('Commit all release changes before tagging.');
@@ -138,7 +204,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       console.log(`Galaxy ${checkVersions({ expected: argument })}: package versions match.`);
     } else if (command === 'prepare') {
       if (!argument || option) throw new Error('Usage: node script/release.mjs prepare major|minor|patch|X.Y.Z');
-      console.log(`Prepared Galaxy ${prepare(argument)}. Add changelog notes, build, commit, and push both remotes before tagging.`);
+      console.log(`Prepared Galaxy ${prepare(argument)}. Build, commit, and push both remotes before tagging.`);
+    } else if (command === 'stage' || command === 'verify-staged') {
+      if (!argument || !option) throw new Error(`Usage: node script/release.mjs ${command} X.Y.Z SOURCE_SHA`);
+      const version = command === 'stage' ? stageVersion(argument, option) : verifyStagedVersion(argument, option);
+      console.log(`Galaxy ${version}: controlled CI version edits verified.`);
     } else if (command === 'tag') {
       if ((option && option !== '--push') || (argument === '--push' && option)) {
         throw new Error('Usage: node script/release.mjs tag [X.Y.Z] [--push]');
@@ -146,7 +216,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       const push = argument === '--push' || option === '--push';
       const version = tag(argument === '--push' ? undefined : argument, push);
       console.log(push ? `Pushed Galaxy ${version} to both remotes; Gitea will build the signed release.` : `Created ${version}. Push this tag to samsung and origin to release.`);
-    } else throw new Error('Use check, prepare, or tag.');
+    } else throw new Error('Use check, prepare, tag, stage, or verify-staged.');
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

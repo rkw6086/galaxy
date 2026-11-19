@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install unsigned build tools shared by release tags and manual macOS preflight.
+# Install unsigned build tools shared by releases, master betas, and macOS preflight.
 set -euo pipefail
 
 : "${RUNNER_TEMP:?Missing Actions temporary directory}"

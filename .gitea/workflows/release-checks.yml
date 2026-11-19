@@ -28,6 +28,7 @@ jobs:
           set -euo pipefail
           node script/release.mjs check
           node --check script/ci/check-release-tag.mjs
+          node --check script/ci/check-beta-build.mjs
           bash -n script/ci/setup-macos.sh script/ci/build-macos.sh script/ci/package-macos.sh
           python3 - <<'PY'
           import ast

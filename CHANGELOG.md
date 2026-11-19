@@ -1,5 +1,11 @@
 # Galaxy changelog
 
+## [Unreleased]
+
+- Keep one rolling beta and one latest stable download, replacing older release assets and removing redundant native build archives after successful verification.
+- Build betas nightly at 3 a.m. Central when master changes or manually on demand, with notes since the previous beta. Set tagged app versions automatically from the new tag.
+- Sign and notarize Apple Silicon beta DMGs, with the source commit in About Galaxy. Tagged releases continue to display their version.
+
 ## [3.1.3]
 
 - Fix a crash when opening Bedrock settings and other provider pages that display saved models in a scrollable table.

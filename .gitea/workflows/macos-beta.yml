@@ -1,0 +1,87 @@
+name: macOS beta
+
+on:
+  schedule:
+    - cron: 'CRON_TZ=America/Chicago 0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  macos-beta:
+    # The single-capacity native runner serializes publication with stable jobs.
+    runs-on: macos-arm64
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master'
+    timeout-minutes: 300
+    permissions:
+      code: write # Only rolling beta/staging tag refs are mutable.
+      actions: write # Remove superseded native-build artifact duplicates.
+      releases: write
+    env:
+      CI: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      GALAXY_BUILD_CHANNEL: beta
+      GALAXY_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      GITEA_SERVER_URL: ${{ github.server_url }}
+      GITEA_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Check out current master
+        uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Scheduled context SHAs can be stale; preflight validates the live head.
+          ref: master
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: https://github.com/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.17.0'
+
+      - name: Check master and changes since the published beta
+        id: beta
+        shell: bash
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: node script/ci/check-beta-build.mjs
+
+      - name: Set up pinned build tools
+        if: steps.beta.outputs.build == 'true'
+        shell: bash
+        run: bash script/ci/setup-macos.sh
+
+      - name: Build Galaxy without signing credentials
+        if: steps.beta.outputs.build == 'true'
+        shell: bash
+        run: |
+          export PATH="$GALAXY_TOOLS_DIR/bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+          bash script/ci/build-macos.sh
+
+      - name: Sign, notarize, staple, and create beta DMG
+        if: steps.beta.outputs.build == 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: bash script/ci/package-macos.sh
+
+      - name: Replace the beta release and prune superseded downloads
+        if: steps.beta.outputs.build == 'true'
+        shell: bash
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: python3 script/ci/publish-release.py
+
+      - name: Remove job build files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Signing restores the runner keychains in package-macos.sh's trap.
+          for kind in build artifacts tools notes; do
+            [[ "$RUNNER_TEMP" == /* && "$GALAXY_JOB_ID" =~ ^[0-9]+-[0-9]*$ ]]
+            rm -rf -- "$RUNNER_TEMP/galaxy-$kind-$GALAXY_JOB_ID"
+          done

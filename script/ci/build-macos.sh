@@ -15,14 +15,28 @@ for tool in clang metal metallib actool notarytool stapler; do xcrun --find "$to
 
 version=${GALAXY_RELEASE_VERSION:-}
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail 'A validated stable version is required.'
+export GALAXY_BUILD_CHANNEL=${GALAXY_BUILD_CHANNEL:-release}
+[[ $GALAXY_BUILD_CHANNEL == release || $GALAXY_BUILD_CHANNEL == beta ]] || fail 'Build channel must be release or beta.'
 if [[ ${GALAXY_UNSIGNED_PREFLIGHT:-} == 1 ]]; then
+  [[ $GALAXY_BUILD_CHANNEL == release ]] || fail 'Unsigned preflight cannot produce a beta build.'
   [[ ${GITHUB_EVENT_NAME:-} == workflow_dispatch && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Unsigned preflight is restricted to manual builds of master.'
+elif [[ $GALAXY_BUILD_CHANNEL == beta ]]; then
+  [[ ( ${GITHUB_EVENT_NAME:-} == schedule || ${GITHUB_EVENT_NAME:-} == workflow_dispatch ) && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Beta builds require a scheduled or manual master run.'
+  [[ ${GALAXY_RELEASE_SHA:-} =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && ${GALAXY_BETA_ID:-} == "$GALAXY_RELEASE_SHA" ]] || fail 'Beta identity must match the validated master commit.'
 else
   [[ ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == "refs/tags/$version" ]] || fail "Release builds require a pushed $version tag."
 fi
-node script/release.mjs check "$version"
-[[ -z $(git status --porcelain) ]] || fail 'Build requires a clean checkout.'
 [[ $(git rev-parse HEAD) == "${GALAXY_RELEASE_SHA:-}" ]] || fail 'Checkout does not match the validated release commit.'
+verify_source() {
+  if [[ $GALAXY_BUILD_CHANNEL == release && ${GALAXY_UNSIGNED_PREFLIGHT:-} != 1 ]]; then
+    [[ ${GALAXY_VERSION_STAGED:-} == 1 ]] || fail 'Tagged releases require controlled CI version staging.'
+    node script/release.mjs verify-staged "$version" "$GALAXY_RELEASE_SHA"
+  else
+    node script/release.mjs check "$version"
+    [[ -z $(git status --porcelain) ]] || fail 'Build requires an unchanged source checkout.'
+  fi
+}
+verify_source
 export GIT_RELEASE_TAG="$version"
 export GALAXY_GIT_COMMIT="$GALAXY_RELEASE_SHA"
 export GALAXY_GIT_DIRTY=false
@@ -64,14 +78,16 @@ ditto "$root/target/release/$plugin" "$app/Contents/PlugIns/$plugin"
 export WARP_SCHEME_NAME=galaxyoss
 export WARP_PLIST_PATH="$app/Contents/Info.plist"
 bash script/update_plist
-python3 - "$app" "$version" <<'PY'
+python3 - "$app" "$version" "$GALAXY_BUILD_CHANNEL" "$GALAXY_RELEASE_SHA" <<'PY'
 import pathlib, plistlib, sys
-app, version = pathlib.Path(sys.argv[1]), sys.argv[2]
+app = pathlib.Path(sys.argv[1])
+version, channel, commit = sys.argv[2:]
 path = app / 'Contents/Info.plist'
 with path.open('rb') as stream:
     data = plistlib.load(stream)
 data.update(CFBundleVersion=version, CFBundleShortVersionString=version,
             WarpVersion=version, LSBackgroundOnly=False,
+            GalaxyBuildChannel=channel, GalaxySourceCommit=commit,
             SUPPORTS_CHAT_GPT_WORK_WITH_APPS=True,
             NSDockTilePlugIn='GalaxyDockTilePlugin.docktileplugin')
 for key, value in list(data.items()):
@@ -149,6 +165,5 @@ for binary in app.rglob('*'):
         if not any(candidate.exists() and (candidate.resolve() == app or app in candidate.resolve().parents) for candidate in candidates):
             raise SystemExit(f'Unbundled macOS dependency in {binary.relative_to(app)}: {value}')
 PY
-node script/release.mjs check "$version"
-[[ -z $(git status --porcelain) ]] || fail 'Checkout changed during the unsigned build.'
+verify_source
 echo 'Unsigned Galaxy app, DockTile plug-in, resources, and Wormhole archives verified; ready for signing.'

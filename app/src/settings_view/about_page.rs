@@ -89,7 +89,7 @@ impl SettingsWidget for AboutPageWidget {
             .with_alignment(TextAlignment::Center)
             .finish();
         let version = Text::new(
-            format!("Version {}", env!("CARGO_PKG_VERSION")),
+            crate::build_info::about_version_label(),
             appearance.ui_font_family(),
             12.,
         )
