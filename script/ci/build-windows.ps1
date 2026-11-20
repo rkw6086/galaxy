@@ -63,7 +63,22 @@ $features = 'autoupdate,release_bundle,gui,nld_classifier_v3,nld_heuristic_v2,ga
 # CARGO_TARGET_DIR. This remains inside the disposable checkout's ignored target.
 New-Item -ItemType Directory (Join-Path $root 'target\release') -Force | Out-Null
 & cargo build --locked --release --target $target --bin galaxy-oss --bin generate_settings_schema --features $features
-if ($LASTEXITCODE -ne 0) { throw 'Windows release compilation failed.' }
+$buildExitCode = $LASTEXITCODE
+if ($buildExitCode -ne 0 -and $env:RUSTC_WRAPPER) {
+    # A wrapper may exceed Windows command-line limits while scanning rustc
+    # inputs. Retry any wrapped failure once, without parsing compiler output.
+    # Cargo reuses completed dependencies from the same target directory.
+    $compilerWrapper = $env:RUSTC_WRAPPER
+    Write-Host "Wrapped Windows compilation failed (exit $buildExitCode); retrying once with RUSTC_WRAPPER disabled."
+    try {
+        $env:RUSTC_WRAPPER = ''
+        & cargo build --locked --release --target $target --bin galaxy-oss --bin generate_settings_schema --features $features
+        $buildExitCode = $LASTEXITCODE
+    } finally {
+        $env:RUSTC_WRAPPER = $compilerWrapper
+    }
+}
+if ($buildExitCode -ne 0) { throw 'Windows release compilation failed.' }
 $binaryDirectory = Join-Path $env:CARGO_TARGET_DIR "$target\release"
 $binary = Join-Path $binaryDirectory 'galaxy-oss.exe'
 $generator = Join-Path $binaryDirectory 'generate_settings_schema.exe'

@@ -126,7 +126,9 @@ by successful trusted master Nightlies, before Apple credentials are available;
 pull requests and tagged builds may restore compatible master caches. Cargo
 credentials, signing material, and release payloads are excluded. Cache-service
 or compiler-cache setup failures fall back to ordinary compilation. The first
-run fills caches; later run statistics show actual reuse.
+run fills caches; later run statistics show actual reuse. If a wrapped Windows
+build fails, it retries the same locked build once with the normal compiler,
+retaining completed dependencies and requiring a successful final exit status.
 
 Local validation remains `cargo build` only. The development machine does not
 launch the application; native CI validates build/package/signing behavior, and
