@@ -1,0 +1,96 @@
+name: Check Windows build
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_artifact:
+        description: Retain the unsigned installer and checksum for one day
+        type: boolean
+        default: true
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: galaxy-windows-validation
+  cancel-in-progress: false
+
+env:
+  CI: 'true'
+  PYTHONDONTWRITEBYTECODE: '1'
+  CARGO_BUILD_JOBS: '2'
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_RELEASE_DEBUG: '0'
+  CARGO_PROFILE_RELEASE_STRIP: debuginfo
+  GALAXY_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+  GALAXY_GITHUB_CI: '1'
+
+jobs:
+  windows:
+    if: github.repository == 'rkw6086/galaxy' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+    runs-on: windows-2025
+    timeout-minutes: 350
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out the triggering master snapshot and LFS resources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          lfs: true
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.17.0'
+      - name: Validate the source and configure the unsigned build
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $validation = @'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { checkVersions } from './script/release.mjs';
+          const env = process.env;
+          if (env.GITHUB_SERVER_URL !== 'https://github.com' || env.GITHUB_REPOSITORY !== 'rkw6086/galaxy'
+              || env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || env.GITHUB_REF !== 'refs/heads/master') {
+            throw new Error('Windows validation requires a manual master run in the Galaxy repository.');
+          }
+          const git = (...args) => execFileSync('git', args, {
+            encoding: 'utf8', timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          }).trim();
+          const sha = git('rev-parse', 'HEAD');
+          if (!/^[0-9a-f]{40}$/.test(sha) || sha !== env.GITHUB_SHA
+              || git('status', '--porcelain', '--untracked-files=all')) {
+            throw new Error('Windows validation requires a clean checkout of the triggering commit.');
+          }
+          if (!/^[1-9][0-9]{0,18}$/.test(env.GITHUB_RUN_ID)
+              || !/^[1-9][0-9]{0,8}$/.test(env.GITHUB_RUN_ATTEMPT)
+              || env.GALAXY_JOB_ID !== `${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`) {
+            throw new Error('Windows validation run identity is invalid.');
+          }
+          const version = checkVersions();
+          fs.appendFileSync(env.GITHUB_ENV, `GALAXY_RELEASE_VERSION=${version}\nGALAXY_RELEASE_SHA=${sha}\nGALAXY_BUILD_CHANNEL=nightly\nGALAXY_NIGHTLY_ID=${sha}_${env.GALAXY_JOB_ID}\n`);
+          console.log(`Validate unsigned Windows packaging for Galaxy ${version}, source ${sha}.`);
+          '@
+          $validation | & node --input-type=module -
+          if ($LASTEXITCODE -ne 0) { throw 'Windows validation preparation failed.' }
+      - name: Set up pinned native build tools
+        run: ./script/ci/setup-windows.ps1
+      - name: Build and verify the unsigned Windows installer
+        run: ./script/ci/build-windows.ps1
+      - name: Retain the unsigned Windows installer for inspection
+        if: inputs.upload_artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: galaxy-windows-check
+          path: |
+            ${{ env.GALAXY_RELEASE_DIR }}/*-setup.exe
+            ${{ env.GALAXY_RELEASE_DIR }}/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+          compression-level: 0

@@ -28,6 +28,11 @@ runner demand. A manual **Build Galaxy** run on `master` also creates a Nightly.
 One rolling **Nightly** release contains the newest complete downloads and changes
 since the previous Nightly. About displays its source commit. Download names
 include `nightly_FULL_COMMIT_SHA_RUN_ID-ATTEMPT`.
+Preparation binds the exact snapshot to both repository masters. Ordinary master
+advances during compilation do not discard that snapshot: a new publication
+requires it to remain an ancestor of both freshly fetched masters. Rewritten or
+missing history that no longer contains the snapshot stops that candidate;
+stable releases still require their exact tags.
 
 A pushed bare Semantic Version tag, such as `3.1.5`, starts a stable build after
 Gitea synchronizes the tag to GitHub. Create a version newer than every retained
@@ -47,6 +52,11 @@ available when a committed source version bump is wanted.
 Pull requests targeting `master` build all three platforms without signing or
 publication. Fork builds receive no Apple credentials. The source, tag, and
 Gitea primary ref are validated before trusted Nightly or stable signing.
+
+The manual **Check Windows build** workflow validates Windows packaging
+independently while other native builds run. It uses the same unsigned build
+scripts and can retain the installer and checksum for one day, without publishing
+a release. Full Nightly and tagged publication still wait for all three platforms.
 
 ## Signing, publication and retention
 

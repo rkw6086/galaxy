@@ -314,7 +314,10 @@ def nightly_ref(client):
 
 
 def primary_source(config):
-    ref = "refs/heads/master" if config.channel == "nightly" else "refs/tags/" + config.version
+    if config.channel == "nightly":
+        verify_nightly_ancestry(config)
+        return
+    ref = "refs/tags/" + config.version
     try:
         rows = subprocess.check_output(["git", "-c", "credential.helper=", "ls-remote",
             "https://git.ryserve.net/public/galaxy.git", ref, ref + "^{}"], cwd=ROOT,
@@ -324,12 +327,51 @@ def primary_source(config):
     refs = {name: oid for oid, name in (row.split("\t") for row in rows)}
     if refs.get(ref + "^{}", refs.get(ref)) != config.commit:
         raise PublishError("Gitea primary changed; candidate was not committed.")
-    if config.channel == "nightly" and client_branch_commit(config) != config.commit:
-        raise PublishError("GitHub master changed; candidate was not committed.")
 
 
-def client_branch_commit(config):
-    return GitHub(config).request("GET", "/branches/master").get("commit", {}).get("sha")
+def verify_nightly_ancestry(config):
+    # Prepare already bound this exact snapshot to both trusted masters. Normal
+    # descendant pushes during compilation must not invalidate that day's build.
+    # Fetch only commit graphs into a disposable bare repository: no checkout,
+    # source hooks, submodules, tags, LFS smudging, or inherited Git configuration.
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith("GIT_") and key not in ("SSH_ASKPASS", "SSH_ASKPASS_REQUIRE")}
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+               GIT_TERMINAL_PROMPT="0", GIT_NO_LAZY_FETCH="1")
+    command = ["git", "-c", "core.hooksPath=" + os.devnull,
+               "-c", "credential.helper=", "-c", "protocol.allow=never",
+               "-c", "protocol.https.allow=always", "-c", "http.followRedirects=false",
+               "-c", "maintenance.auto=false", "-c", "gc.auto=0"]
+    with tempfile.TemporaryDirectory(prefix="galaxy-nightly-graph-") as directory:
+        def graph(*args, allowed=(0,), timeout=30):
+            with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+                try:
+                    result = subprocess.run(command + list(args), cwd=directory, env=env,
+                        stdin=subprocess.DEVNULL, stdout=output, stderr=errors,
+                        timeout=timeout, check=False)
+                except (OSError, subprocess.SubprocessError):
+                    raise PublishError("Cannot verify fresh Nightly master ancestry; candidate was not committed.") from None
+                if result.returncode not in allowed:
+                    raise PublishError("Cannot verify fresh Nightly master ancestry; candidate was not committed.")
+                output.seek(0)
+                value = output.read(256)
+                if len(value) == 256:
+                    raise PublishError("Unexpected Nightly graph verification output.")
+                return result.returncode, value.decode("ascii").strip()
+
+        graph("init", "--bare", "--quiet", ".")
+        for owner, url in (("Gitea", "https://git.ryserve.net/public/galaxy.git"),
+                           ("GitHub", "https://github.com/rkw6086/galaxy.git")):
+            ref = "refs/galaxy-nightly-verification/" + owner.lower()
+            graph("fetch", "--quiet", "--no-tags", "--no-recurse-submodules",
+                  "--no-write-fetch-head", "--filter=tree:0", url,
+                  "refs/heads/master:" + ref, timeout=120)
+            _, head = graph("rev-parse", "--verify", ref + "^{commit}")
+            if not COMMIT.fullmatch(head):
+                raise PublishError("Fresh Nightly master identity is invalid.")
+            status, _ = graph("merge-base", "--is-ancestor", config.commit, head, allowed=(0, 1))
+            if status:
+                raise PublishError(f"Nightly snapshot is no longer an ancestor of {owner} master; candidate was not committed.")
 
 
 def assets(client, release):

@@ -1233,6 +1233,8 @@ impl Window {
 
         #[cfg(windows)]
         {
+            use super::windows::WindowExt;
+
             if let Err(err) = window.set_alpha(alpha) {
                 log::warn!("Failed to set window alpha: {err:#?}");
             }
