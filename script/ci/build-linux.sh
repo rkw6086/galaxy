@@ -29,12 +29,14 @@ verify_source() {
   fi
 }
 verify_source
+node script/ci/release-identity.mjs
 export GIT_RELEASE_TAG="$version" GALAXY_GIT_COMMIT="$sha" GALAXY_GIT_DIRTY=false
 export GALAXY_BUILD_CHANNEL=$channel
 [[ $channel != ci ]] || export GALAXY_BUILD_CHANNEL=release
+[[ $channel != ci ]] || export GALAXY_GITHUB_CI=0
 export CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0
 target=x86_64-unknown-linux-gnu
-features=release_bundle,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli
+features=autoupdate,release_bundle,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli
 cargo build --locked --release --target "$target" --bin galaxy-oss --bin generate_settings_schema --features "$features"
 binary_dir="$CARGO_TARGET_DIR/$target/release"
 [[ -x $binary_dir/galaxy-oss && -x $binary_dir/generate_settings_schema ]] || fail 'Built executables are missing.'
@@ -56,7 +58,7 @@ mkdir -p "$GALAXY_RELEASE_DIR"
 if [[ $channel == release ]]; then
   stem="Galaxy_$version"
 elif [[ $channel == nightly ]]; then
-  stem="Galaxy_nightly_$GALAXY_NIGHTLY_ID"
+  stem="Galaxy_$GALAXY_ARTIFACT_IDENTITY"
 else
   stem="Galaxy_ci_$sha"
 fi

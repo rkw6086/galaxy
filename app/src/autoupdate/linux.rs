@@ -1,11 +1,12 @@
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{bail, Context as _, Result};
 use channel_versions::VersionInfo;
 use galaxy_core::channel::{Channel, ChannelState};
 use galaxy_terminal::shell::ShellType;
-use galaxyui::ViewContext;
+use galaxyui::{SingletonEntity, ViewContext};
 use instant::Duration;
 
 use super::{release_assets_directory_url, DownloadReady, ReadyForRelaunch};
@@ -18,6 +19,29 @@ lazy_static::lazy_static! {
     /// a deleted file includes " (deleted)" _in the file name_, which breaks
     /// the relaunch logic.
     static ref CURRENT_EXE: std::io::Result<PathBuf> = std::env::current_exe();
+    static ref GALAXY_PACKAGE: parking_lot::Mutex<Option<Arc<GalaxyPackage>>> = parking_lot::Mutex::new(None);
+}
+
+struct GalaxyPackage {
+    _directory: tempfile::TempDir,
+    path: PathBuf,
+    version: VersionInfo,
+}
+
+async fn supports_galaxy_package_install() -> bool {
+    // A portable installation must not silently install a second system copy.
+    let expected = Path::new("/opt/galaxy/galaxy-oss/galaxy-oss");
+    if !CURRENT_EXE.as_ref().is_ok_and(|path| path == expected)
+        || !Path::new("/usr/bin/pkexec").is_file()
+        || !Path::new("/usr/bin/apt-get").is_file()
+    {
+        return false;
+    }
+    command::r#async::Command::new("/usr/bin/dpkg-query")
+        .args(["--show", "--showformat=${db:Status-Status}", "galaxy-oss"])
+        .output()
+        .await
+        .is_ok_and(|output| output.status.success() && output.stdout == b"installed")
 }
 
 pub(super) async fn download_update_and_cleanup(
@@ -25,6 +49,25 @@ pub(super) async fn download_update_and_cleanup(
     _update_id: &str,
     client: &http_client::Client,
 ) -> Result<DownloadReady> {
+    if let Some(update) = &version_info.galaxy_update {
+        if !update.asset_name.ends_with("_amd64.deb") || !supports_galaxy_package_install().await {
+            return Ok(DownloadReady::NeedsAuthorization);
+        }
+        let directory = tempfile::Builder::new()
+            .prefix("galaxy-update-")
+            .tempdir()?;
+        let path = directory.path().join("galaxy-update.deb");
+        super::github::download_verified(version_info, &path).await?;
+        *GALAXY_PACKAGE.lock() = Some(Arc::new(GalaxyPackage {
+            _directory: directory,
+            path,
+            version: version_info.clone(),
+        }));
+        return Ok(DownloadReady::Yes);
+    }
+    if super::github::is_galaxy_updater() {
+        bail!("Galaxy updates require signed release metadata");
+    }
     match UpdateMethod::detect() {
         UpdateMethod::Unknown => Ok(DownloadReady::NeedsAuthorization),
         UpdateMethod::AppImage(appimage_path) => {
@@ -42,6 +85,85 @@ pub(super) fn apply_update(
     update_id: &str,
     ctx: &mut ViewContext<Workspace>,
 ) -> Result<ReadyForRelaunch> {
+    if super::github::is_galaxy_updater() {
+        // Cache the executable before dpkg replaces its inode.
+        let _ = CURRENT_EXE.as_ref().map_err(|error| {
+            anyhow::anyhow!("Cannot locate the running Galaxy executable: {error}")
+        })?;
+        let package = GALAXY_PACKAGE
+            .lock()
+            .clone()
+            .context("No verified Galaxy package")?;
+        let id = update_id.to_owned();
+        let package_path = package.path.clone();
+        let version = package.version.clone();
+        let matches = super::AutoupdateState::as_ref(ctx).stage.clone();
+        if !matches!(matches, super::AutoupdateStage::UpdateReady { new_version, update_id: current }
+            if current == id && new_version == version)
+        {
+            bail!("The prepared Galaxy package no longer matches the selected update");
+        }
+        super::AutoupdateState::handle(ctx).update(ctx, |state, ctx| {
+            state.set_autoupdate_stage(
+                super::AutoupdateStage::Updating {
+                    new_version: version,
+                    update_id: id.clone(),
+                },
+                ctx,
+            );
+            ctx.spawn(
+                async move {
+                    // pkexec uses the desktop's normal authorization agent. No password
+                    // is read by Galaxy, and this process has no terminal input.
+                    super::github::verify_download(&package.version, &package.path)?;
+                    let status = command::r#async::Command::new("/usr/bin/pkexec")
+                        .arg("/usr/bin/apt-get")
+                        .args([
+                            "--yes",
+                            "--reinstall",
+                            "-o",
+                            "Dpkg::Options::=--force-confold",
+                            "install",
+                        ])
+                        .arg(&package.path)
+                        .stdin(command::Stdio::null())
+                        .stdout(command::Stdio::null())
+                        .stderr(command::Stdio::null())
+                        .status()
+                        .await?;
+                    anyhow::ensure!(
+                        status.success(),
+                        "Galaxy package installation was cancelled or failed ({status})"
+                    );
+                    Ok(())
+                },
+                move |state, result, ctx| {
+                    if state.native_install_finished(&id, result, ctx) {
+                        // Installation is complete, so this private package is no
+                        // longer needed. Failed installs retain it for a retry.
+                        let mut pending = GALAXY_PACKAGE.lock();
+                        if pending
+                            .as_ref()
+                            .is_some_and(|package| package.path == package_path)
+                        {
+                            pending.take();
+                        }
+                        drop(pending);
+                        // Re-enter the app after this model's mutable borrow ends.
+                        let weak_app = ctx.weak_app();
+                        ctx.foreground_executor()
+                            .spawn(async move {
+                                if let Some(mut app) = weak_app.upgrade() {
+                                    app.update(|ctx| super::initiate_relaunch_for_update(ctx));
+                                }
+                            })
+                            .detach();
+                    }
+                },
+            );
+        });
+        return Ok(ReadyForRelaunch::No);
+    }
     // Make sure CURRENT_EXE is initialized before we actually apply the update.
     let _ = CURRENT_EXE.as_ref();
 
@@ -63,6 +185,9 @@ pub(super) fn apply_update(
 }
 
 pub(super) fn relaunch() -> Result<()> {
+    if super::github::is_galaxy_updater() {
+        return package_manager::relaunch();
+    }
     match UpdateMethod::detect() {
         UpdateMethod::Unknown => bail!("Don't know how to relaunch for an unknown update method!"),
         UpdateMethod::AppImage(appimage_path) => appimage::relaunch(&appimage_path),

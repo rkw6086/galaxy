@@ -48,6 +48,8 @@ verify_source() {
   fi
 }
 verify_source
+node script/ci/release-identity.mjs
+[[ ${GALAXY_UNSIGNED_PREFLIGHT:-} != 1 ]] || export GALAXY_GITHUB_CI=0
 export GIT_RELEASE_TAG="$version"
 export GALAXY_GIT_COMMIT="$GALAXY_RELEASE_SHA"
 export GALAXY_GIT_DIRTY=false
@@ -64,7 +66,7 @@ xcode_resource=$("$CLANG_PATH" -print-resource-dir)
 export PATH="$xcode_bin:$PATH"
 
 target=aarch64-apple-darwin
-features=release_bundle,extern_plist,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli
+features=autoupdate,release_bundle,extern_plist,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli
 app="$CARGO_TARGET_DIR/$target/release/bundle/osx/Galaxy.app"
 [[ ! -e "$app" && ! -L "$app" ]] || fail 'Unsigned bundle already exists; use a fresh job target directory.'
 # The pinned cargo-bundle supports CARGO_BUNDLE_SKIP_BUILD but not --locked.
@@ -95,16 +97,17 @@ ditto "$root/target/release/$plugin" "$app/Contents/PlugIns/$plugin"
 export WARP_SCHEME_NAME=galaxyoss
 export WARP_PLIST_PATH="$app/Contents/Info.plist"
 bash script/update_plist
-python3 - "$app" "$version" "$GALAXY_BUILD_CHANNEL" "$GALAXY_RELEASE_SHA" <<'PY'
+python3 - "$app" "$version" "$GALAXY_BUILD_CHANNEL" "$GALAXY_RELEASE_SHA" "${GALAXY_NIGHTLY_ID:-}" "${GALAXY_ARTIFACT_IDENTITY:-}" "${GALAXY_RELEASE_TIMESTAMP:-}" <<'PY'
 import pathlib, plistlib, sys
 app = pathlib.Path(sys.argv[1])
-version, channel, commit = sys.argv[2:]
+version, channel, commit, build_id, identity, built_at = sys.argv[2:]
 path = app / 'Contents/Info.plist'
 with path.open('rb') as stream:
     data = plistlib.load(stream)
 data.update(CFBundleVersion=version, CFBundleShortVersionString=version,
             WarpVersion=version, LSBackgroundOnly=False,
             GalaxyBuildChannel=channel, GalaxySourceCommit=commit,
+            GalaxyBuildId=build_id, GalaxyArtifactIdentity=identity, GalaxyBuiltAt=built_at,
             SUPPORTS_CHAT_GPT_WORK_WITH_APPS=True,
             NSDockTilePlugIn='GalaxyDockTilePlugin.docktileplugin')
 for key, value in list(data.items()):

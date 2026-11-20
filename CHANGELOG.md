@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [4.0.0]
+
+- Check for and download verified updates from GitHub Releases, with an update status and manual check in About Galaxy.
+- Keep tagged builds on stable updates and Beta/Nightly builds on the rolling Nightly channel. Authenticate update metadata with an embedded Ed25519 public key and verify package checksums before installation.
+- Apply updates through the native macOS and Windows installation flow, and use the system authorization prompt for Linux Debian package updates.
+- Give Nightly downloads readable Central-time dates, times, and build numbers while retaining exact source and build provenance.
 - Use Gitea as the single local Git origin, with server jobs synchronizing clean merges with GitHub and Samsung.
 - Build Windows x64, Linux x64, and signed Apple Silicon macOS releases on GitHub Actions while keeping Gitea as the primary source and synchronizing repository branches.
 - Keep one rolling Nightly download while preserving all tagged release history and assets.

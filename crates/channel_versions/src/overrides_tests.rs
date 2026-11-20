@@ -21,6 +21,7 @@ fn test_only_first_override_is_applied() {
             is_rollback: None,
             version_for_new_users: None,
             cli_version: None,
+            galaxy_update: None,
         },
         overrides: vec![
             VersionOverride {
@@ -33,6 +34,7 @@ fn test_only_first_override_is_applied() {
                     is_rollback: None,
                     version_for_new_users: None,
                     cli_version: None,
+                    galaxy_update: None,
                 },
             },
             VersionOverride {
@@ -47,6 +49,7 @@ fn test_only_first_override_is_applied() {
                     is_rollback: None,
                     version_for_new_users: None,
                     cli_version: None,
+                    galaxy_update: None,
                 },
             },
         ],
@@ -143,6 +146,7 @@ fn test_cli_version_override_is_applied() {
             is_rollback: None,
             version_for_new_users: None,
             cli_version: Some("base_cli_version".to_string()),
+            galaxy_update: None,
         },
         overrides: vec![VersionOverride {
             predicate,
@@ -154,6 +158,7 @@ fn test_cli_version_override_is_applied() {
                 is_rollback: None,
                 version_for_new_users: None,
                 cli_version: Some("override_cli_version".to_string()),
+                galaxy_update: None,
             },
         }],
     };
@@ -187,6 +192,7 @@ fn test_cli_version_preserved_when_override_omits_it() {
             is_rollback: None,
             version_for_new_users: None,
             cli_version: Some("base_cli_version".to_string()),
+            galaxy_update: None,
         },
         overrides: vec![VersionOverride {
             predicate,
@@ -198,6 +204,7 @@ fn test_cli_version_preserved_when_override_omits_it() {
                 is_rollback: None,
                 version_for_new_users: None,
                 cli_version: None,
+                galaxy_update: None,
             },
         }],
     };

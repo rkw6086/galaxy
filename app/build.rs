@@ -149,6 +149,13 @@ fn emit_git_build_metadata() {
     }
     println!("cargo:rerun-if-env-changed=GALAXY_GIT_DIRTY");
     println!("cargo:rerun-if-env-changed=GALAXY_BUILD_CHANNEL");
+    for variable in [
+        "GALAXY_NIGHTLY_ID",
+        "GALAXY_ARTIFACT_IDENTITY",
+        "GALAXY_GITHUB_CI",
+    ] {
+        println!("cargo:rerun-if-env-changed={variable}");
+    }
 
     let build_channel = env::var("GALAXY_BUILD_CHANNEL").unwrap_or_else(|_| "release".to_owned());
     assert!(
@@ -156,6 +163,45 @@ fn emit_git_build_metadata() {
         "GALAXY_BUILD_CHANNEL must be beta, nightly, or release"
     );
     println!("cargo:rustc-env=GALAXY_BUILD_CHANNEL={build_channel}");
+    let official_github_build = env::var("GALAXY_GITHUB_CI").as_deref() == Ok("1");
+    let nightly_id = env::var("GALAXY_NIGHTLY_ID").unwrap_or_default();
+    let artifact_identity = env::var("GALAXY_ARTIFACT_IDENTITY").unwrap_or_default();
+    assert!(
+        !nightly_id.contains(['\n', '\r']) && !artifact_identity.contains(['\n', '\r']),
+        "Galaxy update build metadata cannot contain line breaks"
+    );
+    if official_github_build {
+        assert!(
+            !artifact_identity.is_empty()
+                && artifact_identity.len() <= 160
+                && artifact_identity
+                    .bytes()
+                    .all(|value| value.is_ascii_alphanumeric() || b"_.-".contains(&value)),
+            "Official Galaxy builds require their safe artifact identity"
+        );
+    }
+    if official_github_build && matches!(build_channel.as_str(), "beta" | "nightly") {
+        let mut identity = nightly_id.split('_');
+        let commit = identity.next().unwrap_or_default();
+        let run_attempt = identity.next().unwrap_or_default();
+        let mut run_attempt = run_attempt.split('-');
+        let run = run_attempt.next().unwrap_or_default();
+        let attempt = run_attempt.next().unwrap_or_default();
+        assert!(
+            is_valid_commit(commit)
+                && identity.next().is_none()
+                && run.parse::<u64>().is_ok_and(|value| value > 0)
+                && attempt.parse::<u32>().is_ok_and(|value| value > 0)
+                && run_attempt.next().is_none(),
+            "Official Nightly builds require their exact source/run/attempt identity"
+        );
+    }
+    println!("cargo:rustc-env=GALAXY_BUILD_NIGHTLY_ID={nightly_id}");
+    println!("cargo:rustc-env=GALAXY_BUILD_ARTIFACT_IDENTITY={artifact_identity}");
+    println!(
+        "cargo:rustc-env=GALAXY_BUILD_OFFICIAL_GITHUB_CI={}",
+        if official_github_build { "1" } else { "0" }
+    );
 
     // Keep local build metadata current when the checked-out commit changes. Watching the
     // package and workspace source directories also refreshes the dirty marker for normal
@@ -202,6 +248,13 @@ fn emit_git_build_metadata() {
             )
             .is_some_and(|output| !output.is_empty())
         });
+
+    if official_github_build && matches!(build_channel.as_str(), "beta" | "nightly") {
+        assert!(
+            nightly_id.split('_').next() == Some(commit.as_str()),
+            "Nightly build identity must match the compiled source commit"
+        );
+    }
 
     println!("cargo:rustc-env=GALAXY_BUILD_GIT_COMMIT={commit}");
     println!("cargo:rustc-env=GALAXY_BUILD_GIT_DIRTY={dirty}");

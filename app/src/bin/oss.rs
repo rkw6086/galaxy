@@ -3,7 +3,9 @@
 #![cfg_attr(feature = "release_bundle", windows_subsystem = "windows")]
 
 use anyhow::Result;
-use galaxy_core::channel::{Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig};
+use galaxy_core::channel::{
+    AutoupdateConfig, Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig,
+};
 use galaxy_core::AppId;
 
 fn main() -> Result<()> {
@@ -17,7 +19,13 @@ fn main() -> Result<()> {
             server_config: WarpServerConfig::disabled(),
             oz_config: OzConfig::production(),
             telemetry_config: None,
-            autoupdate_config: None,
+            autoupdate_config: (cfg!(feature = "release_bundle")
+                && cfg!(feature = "autoupdate")
+                && option_env!("GALAXY_BUILD_OFFICIAL_GITHUB_CI") == Some("1"))
+            .then(|| AutoupdateConfig {
+                releases_base_url: "https://github.com/rkw6086/galaxy/releases".into(),
+                show_autoupdate_menu_items: true,
+            }),
             mcp_static_config: None,
         },
     );

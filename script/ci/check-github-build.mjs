@@ -5,12 +5,14 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { checkVersions, compareVersions, changelog } from '../release.mjs';
+import { prepareReleaseIdentity } from './release-identity.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 const SHA = /^[0-9a-f]{40}$/;
 const BUILD = /^([0-9a-f]{40})_([1-9][0-9]{0,18})-([1-9][0-9]{0,8})$/;
 const NIGHTLY = /<!-- galaxy-nightly:v1 commit=([0-9a-f]{40}) build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) -->/g;
+const NIGHTLY_ASSETS = /<!-- galaxy-nightly-assets:v1 build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) identity=(Nightly_[0-9]{8}_[0-9]{6}_CT_r[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) -->/g;
 const TRANSITION = /<!-- galaxy-nightly-transition:v1 release=(new|[1-9][0-9]{0,18}) previous=([0-9a-f]{40}|none) build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}|none) ref=([0-9a-f]{40}|none) candidate=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) -->/g;
 const git = (...args) => execFileSync('git', args, {
   cwd: root, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024, timeout: 60_000,
@@ -54,6 +56,14 @@ function nightlyState(release, ref) {
   const transitions = [...(release.body ?? '').matchAll(TRANSITION)];
   if (markers.length !== 1 || transitions.length > 1 || BUILD.exec(markers[0][2])?.[1] !== markers[0][1]) throw new Error('Nightly build identity is invalid.');
   const [, commit, build] = markers[0];
+  const assetMarkers = [...(release.body ?? '').matchAll(NIGHTLY_ASSETS)];
+  if (assetMarkers.length > 1 || (release.body ?? '').split('<!-- galaxy-nightly-assets:').length !== assetMarkers.length + 1
+      || (assetMarkers.length && assetMarkers[0][1] !== build)) throw new Error('Nightly artifact identity is invalid.');
+  const identity = assetMarkers.length ? assetMarkers[0][2] : `nightly_${build}`;
+  if (assetMarkers.length) {
+    const expected = `<!-- galaxy-update:v1 manifest=Galaxy_Update_${identity}.json signature=Galaxy_Update_${identity}.sig -->`;
+    if (!(release.body ?? '').includes(expected) || (release.body ?? '').split('<!-- galaxy-update:').length !== 2) throw new Error('Signed update binding is missing.');
+  }
   let previous = commit;
   if (transitions.length) {
     const [, id, prior, priorBuild, oldRef, candidate] = transitions[0];
@@ -63,11 +73,15 @@ function nightlyState(release, ref) {
     if (id === 'new' && (!release.draft || prior !== 'none' || oldRef !== 'none')) throw new Error('Only an initial Nightly draft may have a new-record marker.');
     if (![oldRef === 'none' ? null : oldRef, commit].includes(ref)) throw new Error('Nightly ref changed outside its recorded transition.');
     if (id !== 'new') {
-      const names = new Set([`Galaxy_nightly_${build}_aarch64.dmg`, `Galaxy_nightly_${build}_x86_64-setup.exe`,
-        `Galaxy_nightly_${build}_amd64.deb`, `Galaxy_nightly_${build}_linux_x86_64.tar.gz`, `SHA256SUMS_nightly_${build}`]);
+      const names = new Set([`Galaxy_${identity}_aarch64.dmg`, `Galaxy_${identity}_x86_64-setup.exe`,
+        `Galaxy_${identity}_amd64.deb`, `Galaxy_${identity}_linux_x86_64.tar.gz`, `SHA256SUMS_${identity}`]);
+      if (assetMarkers.length) {
+        names.add(`Galaxy_Update_${identity}.json`);
+        names.add(`Galaxy_Update_${identity}.sig`);
+      }
       for (const asset of release.assets ?? []) {
         if (names.has(asset.name) && Number.isSafeInteger(asset.size) && asset.size > 0
-            && asset.size <= (asset.name.startsWith('SHA256SUMS_') ? 8192 : 2 * 1024 ** 3)) names.delete(asset.name);
+            && asset.size <= (asset.name.endsWith('.sig') ? 64 : asset.name.endsWith('.json') ? 64 * 1024 : asset.name.startsWith('SHA256SUMS_') ? 8192 : 2 * 1024 ** 3)) names.delete(asset.name);
       }
       if (names.size) throw new Error('Pending Nightly transition is missing its candidate downloads; existing data was left intact.');
     }
@@ -145,6 +159,8 @@ async function main() {
     return object.sha;
   };
   let nightlyId = '';
+  let artifactIdentity = `ci_${sha}`;
+  let releaseTimestamp = '';
   let previous = '';
   let previousBuild = '';
   let previousId = '';
@@ -154,6 +170,7 @@ async function main() {
   let notes = '';
   if (channel !== 'ci') {
     if (!token || /\s/.test(token)) throw new Error('Missing GitHub workflow token.');
+    const workflowRun = await api(`/actions/runs/${process.env.GITHUB_RUN_ID}`);
     const primaryRef = channel === 'nightly' ? 'refs/heads/master' : ref;
     const rows = git('-c', 'credential.helper=', 'ls-remote', 'https://git.ryserve.net/public/galaxy.git', primaryRef, `${primaryRef}^{}`)
       .split('\n').filter(Boolean).map((line) => line.split('\t'));
@@ -166,6 +183,7 @@ async function main() {
       const attempt = process.env.GITHUB_RUN_ATTEMPT;
       if (!/^[1-9][0-9]{0,18}$/.test(run ?? '') || !/^[1-9][0-9]{0,8}$/.test(attempt ?? '')) throw new Error('Missing Nightly run identity.');
       nightlyId = `${sha}_${run}-${attempt}`;
+      ({ identity: artifactIdentity, timestamp: releaseTimestamp } = prepareReleaseIdentity(workflowRun, process.env, sha));
       const current = await releaseForTag('nightly');
       const object = await tagObject('nightly', true);
       if (object && (object.type !== 'commit' || !SHA.test(object.sha))) throw new Error('Nightly must use its owned lightweight source ref.');
@@ -183,6 +201,7 @@ async function main() {
     } else {
       version = ref.slice('refs/tags/'.length);
       if (!VERSION.test(version) || compareVersions(version, checkVersions()) < 0) throw new Error('Use a bare, nondecreasing stable version tag.');
+      ({ identity: artifactIdentity, timestamp: releaseTimestamp } = prepareReleaseIdentity(workflowRun, process.env, sha, { channel, version }));
       if (git('rev-parse', `${ref}^{commit}`) !== sha || await tagCommit(version) !== sha
           || git('rev-parse', `${process.env.GITHUB_SHA}^{commit}`) !== sha) throw new Error('Release tag or source changed.');
       git('merge-base', '--is-ancestor', sha, 'refs/remotes/origin/master');
@@ -234,9 +253,9 @@ async function main() {
     fs.appendFileSync(process.env.GITHUB_ENV, `GALAXY_RELEASE_NOTES_FILE=${file}\n`);
   }
   fs.appendFileSync(process.env.GITHUB_OUTPUT,
-    `build=true\nchannel=${channel}\nversion=${version}\nsha=${sha}\nnightly_id=${nightlyId}\nprevious_nightly_sha=${previous}\nprevious_nightly_build=${previousBuild}\nprevious_nightly_release_id=${previousId}\nprevious_nightly_ref=${previousRef}\nprevious_nightly_pending=${pending}\n`);
+    `build=true\nchannel=${channel}\nversion=${version}\nsha=${sha}\nnightly_id=${nightlyId}\nartifact_identity=${artifactIdentity}\nrelease_timestamp=${releaseTimestamp}\nprevious_nightly_sha=${previous}\nprevious_nightly_build=${previousBuild}\nprevious_nightly_release_id=${previousId}\nprevious_nightly_ref=${previousRef}\nprevious_nightly_pending=${pending}\n`);
   fs.appendFileSync(process.env.GITHUB_ENV,
-    `GALAXY_RELEASE_VERSION=${version}\nGALAXY_RELEASE_SHA=${sha}\nGALAXY_NIGHTLY_ID=${nightlyId}\n`);
+    `GALAXY_RELEASE_VERSION=${version}\nGALAXY_RELEASE_SHA=${sha}\nGALAXY_NIGHTLY_ID=${nightlyId}\nGALAXY_ARTIFACT_IDENTITY=${artifactIdentity}\nGALAXY_RELEASE_TIMESTAMP=${releaseTimestamp}\n`);
   console.log(`Validated Galaxy ${channel} ${version} at ${sha}.`);
 }
 

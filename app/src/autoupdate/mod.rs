@@ -1,6 +1,7 @@
 #![allow(dead_code, unused_imports, unused_variables)]
 mod changelog;
 mod channel_versions;
+pub(super) mod github;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "macos")]
@@ -24,7 +25,6 @@ use galaxyui::windowing::{self, WindowManager};
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity, ViewContext};
 use rand::Rng as _;
 
-pub use self::changelog::get_current_changelog;
 use self::channel_versions::fetch_channel_versions;
 use crate::channel::Channel;
 use crate::features::FeatureFlag;
@@ -67,8 +67,7 @@ pub enum AutoupdateStage {
     UnableToLaunchNewVersion { new_version: VersionInfo },
     /// A new version was installed, but Warp hasn't restarted yet.
     ///
-    /// This state is only used on macOS, where the update isn't fully applied until right before
-    /// restarting.
+    /// The native installation finished while the current process is still running.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     UpdatedPendingRestart { new_version: VersionInfo },
 }
@@ -114,6 +113,8 @@ pub struct AutoupdateState {
     /// executed until `start_polling` is called. This ensures no version-check requests are made
     /// before onboarding completes.
     polling_started: bool,
+    last_check_error: Option<String>,
+    checked_successfully: bool,
 }
 
 impl AutoupdateState {
@@ -125,6 +126,8 @@ impl AutoupdateState {
             downloaded_update: None,
             request_queue: VecDeque::new(),
             polling_started: false,
+            last_check_error: None,
+            checked_successfully: false,
         }
     }
 
@@ -140,7 +143,7 @@ impl AutoupdateState {
         if self.polling_started {
             return;
         }
-        if FeatureFlag::Autoupdate.is_enabled() && AppExecutionMode::as_ref(ctx).can_autoupdate() {
+        if is_available() && AppExecutionMode::as_ref(ctx).can_autoupdate() {
             log::info!("Starting autoupdate polling loop");
             self.polling_started = true;
             // Initiate the polling loop.
@@ -205,6 +208,11 @@ impl AutoupdateState {
         if cfg!(target_family = "wasm") {
             return;
         }
+        if github::is_galaxy_updater()
+            && (self.is_busy() || self.request_queue.contains(&request_type))
+        {
+            return;
+        }
         self.request_queue.push_back(request_type);
         self.try_execute_request(ctx);
     }
@@ -216,9 +224,14 @@ impl AutoupdateState {
     /// loop.
     fn poll_for_update(&mut self, ctx: &mut ModelContext<Self>) {
         self.enqueue_request(RequestType::Poll, ctx);
+        let interval = if github::is_galaxy_updater() {
+            Duration::from_secs(6 * 60 * 60)
+        } else {
+            Self::AUTOUPDATE_POLL
+        };
         ctx.spawn(
-            async {
-                Timer::after(Self::AUTOUPDATE_POLL).await;
+            async move {
+                Timer::after(interval).await;
             },
             |me, _, ctx| me.poll_for_update(ctx),
         );
@@ -234,6 +247,7 @@ impl AutoupdateState {
             self.stage,
             AutoupdateStage::CheckingForUpdate
                 | AutoupdateStage::DownloadingUpdate
+                | AutoupdateStage::Updating { .. }
                 | AutoupdateStage::UpdatedPendingRestart { .. }
         )
     }
@@ -262,6 +276,7 @@ impl AutoupdateState {
         }
 
         self.stage = AutoupdateStage::CheckingForUpdate;
+        self.last_check_error = None;
         ctx.notify();
 
         let server_api = self.server_api.clone();
@@ -270,9 +285,13 @@ impl AutoupdateState {
                 let update_id = new_update_id();
                 let channel = ChannelState::channel();
                 log::info!("Checking for update on channel {channel}. Update id is {update_id}");
-                let version = fetch_version(&channel, is_daily, &update_id, server_api)
-                    .await
-                    .context("Error checking for new version");
+                let version = if github::is_galaxy_updater() {
+                    github::fetch_version(request_type == RequestType::ManualCheck).await
+                } else {
+                    fetch_version(&channel, is_daily, &update_id, server_api)
+                        .await
+                        .context("Error checking for new version")
+                };
                 report_if_error!(version);
                 (update_id, version)
             },
@@ -373,6 +392,77 @@ impl AutoupdateState {
         }
     }
 
+    fn assess_update(&mut self, version: VersionInfo, update_id: String) -> Result<UpdateReady> {
+        if !github::is_galaxy_updater() {
+            return Ok(self.should_update(version, update_id));
+        }
+        if !github::should_update(&version)? {
+            return Ok(UpdateReady::No);
+        }
+        Ok(match &self.downloaded_update {
+            Some(download) if download.version.galaxy_update == version.galaxy_update => {
+                UpdateReady::Yes {
+                    new_version: download.version.clone(),
+                    update_id: download.update_id.clone(),
+                }
+            }
+            _ => UpdateReady::CanDownload {
+                new_version: version,
+                update_id,
+            },
+        })
+    }
+
+    pub fn is_busy(&self) -> bool {
+        matches!(
+            self.stage,
+            AutoupdateStage::CheckingForUpdate
+                | AutoupdateStage::DownloadingUpdate
+                | AutoupdateStage::Updating { .. }
+                | AutoupdateStage::UpdatedPendingRestart { .. }
+        )
+    }
+
+    pub fn status_message(&self) -> String {
+        match &self.stage {
+            AutoupdateStage::CheckingForUpdate => "Checking for updates…".to_owned(),
+            AutoupdateStage::DownloadingUpdate => {
+                "Downloading and verifying the update…".to_owned()
+            }
+            AutoupdateStage::Updating { .. } => "Installing the update…".to_owned(),
+            AutoupdateStage::UpdateReady { new_version, .. }
+            | AutoupdateStage::UpdatedPendingRestart { new_version } => {
+                let ready = format!(
+                    "{} is ready to install and restart.",
+                    update_version_label(new_version)
+                );
+                match &self.last_check_error {
+                    Some(error) => format!("{ready} {error}"),
+                    None => ready,
+                }
+            }
+            AutoupdateStage::UnableToUpdateToNewVersion { .. } => {
+                "The update is available. Download the release to install it manually.".to_owned()
+            }
+            AutoupdateStage::UnableToLaunchNewVersion { .. } => {
+                self.last_check_error.clone().unwrap_or_else(|| {
+                    "Galaxy could not restart after updating. Download the release to try again."
+                        .to_owned()
+                })
+            }
+            AutoupdateStage::NoUpdateAvailable => {
+                self.last_check_error.clone().unwrap_or_else(|| {
+                    if self.checked_successfully {
+                        "Galaxy is up to date."
+                    } else {
+                        "Updates are checked automatically."
+                    }
+                    .to_owned()
+                })
+            }
+        }
+    }
+
     /// Returns whether the current version is ahead of the version reported by the server as the "latest" version
     /// in channel versions.
     fn is_current_version_ahead_of_latest_version(
@@ -402,7 +492,7 @@ impl AutoupdateState {
             return;
         }
 
-        let update_available = version.map(|version| self.should_update(version, update_id));
+        let update_available = version.and_then(|version| self.assess_update(version, update_id));
         match &update_available {
             Ok(UpdateReady::CanDownload {
                 new_version,
@@ -449,7 +539,7 @@ impl AutoupdateState {
                 // We commonly get errors as the autoupdate code runs when a laptop wakes up
                 // briefly while asleep, but the network call to check for updates gets cancelled
                 // when returning to sleep. So we fail silently and wait for the next update poll.
-                self.stage = AutoupdateStage::NoUpdateAvailable;
+                self.stage = self.retained_download_stage();
                 log::warn!("Error checking for update {e:#}");
             }
         };
@@ -537,7 +627,7 @@ impl AutoupdateState {
                 // We commonly get errors as the autoupdate code runs when a laptop wakes up
                 // briefly while asleep, but the network call to download gets cancelled when
                 // returning to sleep. So we fail silently and wait for the next update poll.
-                self.stage = AutoupdateStage::NoUpdateAvailable;
+                self.stage = self.retained_download_stage();
                 Err(e)
             }
         };
@@ -568,7 +658,27 @@ impl AutoupdateState {
         request_type: RequestType,
         ctx: &mut ModelContext<AutoupdateState>,
     ) {
-        if let Some(content) = accessibility_content(&update_available, request_type) {
+        self.checked_successfully = update_available.is_ok();
+        self.last_check_error = update_available.as_ref().err().map(|error| {
+            format!("Could not complete the update check: {}", error)
+                .chars()
+                .filter(|character| !character.is_control())
+                .take(300)
+                .collect()
+        });
+        let announcement = if request_type == RequestType::ManualCheck
+            && matches!(
+                self.stage,
+                AutoupdateStage::UnableToUpdateToNewVersion { .. }
+            ) {
+            Some(AccessibilityContent::new_without_help(
+                "An update is available. Download the release to install it manually.",
+                GalaxyA11yRole::HelpRole,
+            ))
+        } else {
+            accessibility_content(&update_available, request_type)
+        };
+        if let Some(content) = announcement {
             ctx.emit_a11y_content(content);
         }
 
@@ -581,6 +691,18 @@ impl AutoupdateState {
         // A request might've gotten queued while this last one was in-flight. This point is when
         // we'd begin the next one.
         self.try_execute_request(ctx);
+    }
+
+    fn retained_download_stage(&self) -> AutoupdateStage {
+        if github::is_galaxy_updater() {
+            if let Some(download) = &self.downloaded_update {
+                return AutoupdateStage::UpdateReady {
+                    new_version: download.version.clone(),
+                    update_id: download.update_id.clone(),
+                };
+            }
+        }
+        AutoupdateStage::NoUpdateAvailable
     }
 
     // Reset the most-recently-downloaded update.
@@ -601,6 +723,45 @@ impl AutoupdateState {
     fn set_autoupdate_stage(&mut self, stage: AutoupdateStage, ctx: &mut ModelContext<Self>) {
         self.stage = stage;
         ctx.notify();
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) fn native_install_finished(
+        &mut self,
+        update_id: &str,
+        result: Result<()>,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        let AutoupdateStage::Updating {
+            new_version,
+            update_id: active_id,
+        } = &self.stage
+        else {
+            return false;
+        };
+        if active_id != update_id {
+            return false;
+        }
+        let new_version = new_version.clone();
+        match result {
+            Ok(()) => {
+                self.last_check_error = None;
+                self.set_autoupdate_stage(
+                    AutoupdateStage::UpdatedPendingRestart { new_version },
+                    ctx,
+                );
+                true
+            }
+            Err(error) => {
+                log::warn!("Galaxy update installation failed: {error:#}");
+                self.last_check_error = Some("Galaxy could not install the update. Check for updates to try again, or download the release from GitHub.".to_owned());
+                self.set_autoupdate_stage(
+                    AutoupdateStage::UnableToLaunchNewVersion { new_version },
+                    ctx,
+                );
+                false
+            }
+        }
     }
 
     /// Record that we did not successfully relaunch to update.
@@ -740,7 +901,10 @@ pub fn accessibility_content(
             "Use the command palette to install and relaunch Galaxy",
             GalaxyA11yRole::HelpRole,
         )),
-        // Any non-successful autoupdate check
+        (RequestType::ManualCheck, Err(_)) => Some(AccessibilityContent::new_without_help(
+            "Could not check for updates. Try again later.",
+            GalaxyA11yRole::HelpRole,
+        )),
         (RequestType::ManualCheck, _) => Some(AccessibilityContent::new_without_help(
             "No updates available",
             GalaxyA11yRole::HelpRole,
@@ -751,6 +915,34 @@ pub fn accessibility_content(
 
 pub fn get_update_state(app: &AppContext) -> AutoupdateStage {
     AutoupdateState::as_ref(app).stage.clone()
+}
+
+pub fn is_available() -> bool {
+    cfg!(not(target_family = "wasm"))
+        && FeatureFlag::Autoupdate.is_enabled()
+        && match ChannelState::channel() {
+            Channel::Oss => github::is_galaxy_updater(),
+            Channel::Stable | Channel::Preview | Channel::Dev => true,
+            Channel::Local | Channel::Integration => false,
+        }
+}
+
+pub fn update_version_label(version: &VersionInfo) -> String {
+    version
+        .galaxy_update
+        .as_ref()
+        .filter(|update| update.channel == "nightly")
+        .map(|update| update.artifact_identity.replace('_', " "))
+        .unwrap_or_else(|| version.version.clone())
+}
+
+pub async fn get_current_changelog(
+    server_api: Arc<ServerApi>,
+) -> Result<Option<::channel_versions::Changelog>> {
+    if ChannelState::channel() == Channel::Oss {
+        return Ok(None);
+    }
+    self::changelog::get_current_changelog(server_api).await
 }
 
 fn get_curr_parsed_version() -> Option<ParsedVersion> {
@@ -807,7 +999,7 @@ async fn download_update(
     last_successful_update_id: Option<String>,
     server_api: Arc<ServerApi>,
 ) -> Result<DownloadReady> {
-    if ChannelState::app_version().is_none() {
+    if !github::is_galaxy_updater() && ChannelState::app_version().is_none() {
         log::info!("No tag set, not performing autoupdate.");
         return Ok(DownloadReady::No);
     }
@@ -840,6 +1032,12 @@ pub fn apply_update(
     _initiating_workspace: &mut Workspace,
     _ctx: &mut ViewContext<Workspace>,
 ) -> Result<ReadyForRelaunch> {
+    if matches!(
+        get_update_state(_ctx),
+        AutoupdateStage::UpdatedPendingRestart { .. }
+    ) {
+        return Ok(ReadyForRelaunch::Yes);
+    }
     cfg_if::cfg_if! {
         if #[cfg(any(target_os = "macos", windows))] {
             // macOS applies the update during the download step. Windows does it during
@@ -1060,6 +1258,10 @@ pub fn manually_download_new_version(ctx: &mut AppContext) {
 
 #[allow(unused_variables)]
 fn manually_download_version(channel: &Channel, version: &VersionInfo, ctx: &mut AppContext) {
+    if github::is_galaxy_updater() {
+        ctx.open_url(&github::release_page(Some(version)));
+        return;
+    }
     #[cfg(target_os = "macos")]
     mac::manually_download_version(channel, version, ctx);
 }

@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::Write as _;
+use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,7 +13,7 @@ use galaxy_core::channel::{Channel, ChannelState};
 use galaxyui::AppContext;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
-use tempfile::TempPath;
+use tempfile::{TempDir, TempPath};
 
 use super::{release_assets_directory_url, DownloadReady};
 use crate::server::telemetry::TelemetryEvent;
@@ -21,6 +22,116 @@ use crate::util::windows::install_dir;
 lazy_static! {
     /// The path to the temporary file that stores the installer for the new update.
     static ref INSTALLER_PATH: Arc<Mutex<Option<TempPath>>> = Default::default();
+    static ref GALAXY_INSTALLER: Mutex<Option<GalaxyInstaller>> = Mutex::new(None);
+}
+
+struct GalaxyInstaller {
+    // Keep the ownership lock for the entire candidate lifetime. A fresh
+    // process can reclaim a completed handoff only after this handle closes.
+    _owner: File,
+    directory: Option<TempDir>,
+    path: PathBuf,
+    version: VersionInfo,
+}
+
+impl Drop for GalaxyInstaller {
+    fn drop(&mut self) {
+        // Cleanup below preserves owner.lock until every other file is gone.
+        // TempDir's recursive drop could remove that marker before encountering
+        // a still-running installer or scanner's Windows file lock.
+        if let Some(directory) = self.directory.take() {
+            let _ = directory.keep();
+        }
+    }
+}
+
+fn installer_cache_directory() -> Result<PathBuf> {
+    let directory = galaxy_core::paths::cache_dir().join("github-update-installers");
+    fs::create_dir_all(&directory)?;
+    let metadata = fs::symlink_metadata(&directory)?;
+    if !metadata.is_dir() || metadata.file_attributes() & 0x400 != 0 {
+        bail!("Galaxy installer cache must be a regular directory");
+    }
+    Ok(directory)
+}
+
+fn cleanup_completed_galaxy_installers() {
+    let Ok(directory) = installer_cache_directory() else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.take(64).flatten() {
+        let name = entry.file_name();
+        let Some(suffix) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix("installer-"))
+        else {
+            continue;
+        };
+        if !(6..=64).contains(&suffix.len())
+            || !suffix.bytes().all(|byte| byte.is_ascii_alphanumeric())
+        {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !metadata.is_dir() || metadata.file_attributes() & 0x400 != 0 {
+            continue;
+        }
+        let owner = path.join("owner.lock");
+        let Ok(metadata) = fs::symlink_metadata(&owner) else {
+            continue;
+        };
+        if !metadata.is_file() || metadata.file_attributes() & 0x400 != 0 {
+            continue;
+        }
+        let Ok(lock) = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&owner)
+        else {
+            continue;
+        };
+        let Ok(children) = fs::read_dir(&path) else {
+            continue;
+        };
+        let children: Vec<_> = children.take(17).collect();
+        if children.len() > 16 {
+            continue;
+        }
+        let regular = children
+            .into_iter()
+            .map(|entry| {
+                let entry = entry?;
+                let metadata = fs::symlink_metadata(entry.path())?;
+                if !metadata.is_file() || metadata.file_attributes() & 0x400 != 0 {
+                    return Err(io::Error::other("Unexpected installer cache entry"));
+                }
+                Ok(entry.path())
+            })
+            .collect::<io::Result<Vec<_>>>();
+        let Ok(files) = regular else {
+            continue;
+        };
+        // The executable can remain locked by Inno Setup after Galaxy exits.
+        // Preserve the marker on any failure so a later cleanup can retry.
+        if files
+            .iter()
+            .filter(|file| **file != owner)
+            .any(|file| fs::remove_file(file).is_err())
+        {
+            continue;
+        }
+        drop(lock);
+        if fs::remove_file(&owner).is_ok() {
+            let _ = fs::remove_dir(&path);
+        }
+    }
 }
 
 /// Download the Inno Setup install wizard, the same one users run on the first Warp install, and
@@ -30,6 +141,33 @@ pub(super) async fn download_update_and_cleanup(
     _update_id: &str,
     client: &http_client::Client,
 ) -> Result<DownloadReady> {
+    if version_info.galaxy_update.is_some() {
+        cleanup_completed_galaxy_installers();
+        let directory = tempfile::Builder::new()
+            .prefix("installer-")
+            .tempdir_in(installer_cache_directory()?)?;
+        let path = directory.path().join("GalaxySetup.exe");
+        let owner = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .share_mode(0)
+            .open(directory.path().join("owner.lock"))?;
+        let installer = GalaxyInstaller {
+            _owner: owner,
+            directory: Some(directory),
+            path,
+            version: version_info.clone(),
+        };
+        super::github::download_verified(version_info, &installer.path).await?;
+        // Keep the last verified installer until its replacement is complete.
+        *GALAXY_INSTALLER.lock() = Some(installer);
+        cleanup_completed_galaxy_installers();
+        return Ok(DownloadReady::Yes);
+    }
+    if super::github::is_galaxy_updater() {
+        bail!("Galaxy updates require signed release metadata");
+    }
     const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 
     let installer_file_name = installer_file_name()?;
@@ -207,12 +345,19 @@ pub(super) fn check_and_report_update_errors(ctx: &mut AppContext) {
 
 pub(super) fn relaunch() -> Result<()> {
     let install_dir = install_dir()?;
-    let Some(installer_path) = INSTALLER_PATH
-        .lock()
-        .as_ref()
-        .map(|path| path.to_path_buf())
-    else {
-        bail!("No installer path");
+    let installer_path = if super::github::is_galaxy_updater() {
+        let pending = GALAXY_INSTALLER.lock();
+        let installer = pending
+            .as_ref()
+            .ok_or_else(|| anyhow!("No verified Galaxy installer"))?;
+        super::github::verify_download(&installer.version, &installer.path)?;
+        installer.path.clone()
+    } else {
+        INSTALLER_PATH
+            .lock()
+            .as_ref()
+            .map(|path| path.to_path_buf())
+            .ok_or_else(|| anyhow!("No installer path"))?
     };
 
     let log_arg = match autoupdate_log_file() {

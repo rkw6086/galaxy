@@ -1,8 +1,8 @@
 #![allow(deprecated)]
 
-use std::ffi::{CString, OsString};
+use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt as _;
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::io::AsRawFd as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -75,6 +75,10 @@ pub(super) fn manually_download_version(
     version_info: &VersionInfo,
     ctx: &mut AppContext,
 ) {
+    if version_info.galaxy_update.is_some() {
+        ctx.open_url(&super::github::release_page(Some(version_info)));
+        return;
+    }
     let url = update_url(*channel, version_info.version.as_str());
     ctx.open_url(&url);
 }
@@ -110,7 +114,9 @@ where
                             apply_update(ChannelState::channel(), &new_version, &update_id)
                                 .await
                                 .map(|_| Some(new_version));
-                        cleanup(&update_id).await;
+                        if result.is_ok() {
+                            cleanup(&update_id).await;
+                        }
                         result
                     },
                     move |autoupdate_state, result, ctx| {
@@ -118,7 +124,9 @@ where
                             // Reset app icon to previously selected app icon
                             AppearanceManager::as_ref(ctx).set_app_icon(ctx);
                         }
-                        autoupdate_state.clear_downloaded_update(&update_id_clone, ctx);
+                        if result.is_ok() {
+                            autoupdate_state.clear_downloaded_update(&update_id_clone, ctx);
+                        }
                         callback(autoupdate_state, result, ctx);
                     },
                 );
@@ -132,39 +140,27 @@ where
 
 pub(super) fn relaunch() -> Result<()> {
     let bundle_path = PathBuf::from(get_bundle_path()?);
-    // Set the -n option to open a new instance of the app even if one is
-    // running so we still launch the new version even if the user was running
-    // multiple instances of Warp.
-    let mut launch_command = OsString::from("/usr/bin/open -n ");
-    launch_command.push(bundle_path.as_os_str());
-    // Pass a flag to the app to let it know it was restarted as part of the
-    // autoupdate process.
-    launch_command.push(format!(" --args {}", galaxy_cli::finish_update_flag()));
-    // If we're testing with a local copy of channel_versions.json, have the
-    // newly-started binary also reference that same file (so we can test
-    // displaying an updated changelog after an autoupdate).
-    if let Ok(path) = env::var("WARP_CHANNEL_VERSIONS_PATH") {
-        launch_command.push(format!(" --env WARP_CHANNEL_VERSIONS_PATH={path}"));
-    }
-
-    // We need to make sure that the current Warp process is no longer running
-    // before we spawn the new one, otherwise we can end up showing multiple
-    // icons in the macOS dock.  To do this, we use an intermediary /bin/sh
-    // process that watches for this process to terminate, and then spawns a
-    // new Warp process.
-    //
-    // Wait until the current process is no longer running, checking every
-    // 200ms.  Once the current process has terminated, launch the new one.
-    let pid = std::process::id();
-    let mut relaunch_command = OsString::from(format!(
-        "while ps -p {pid} >/dev/null 2>&1; do sleep 0.2; done; "
-    ));
-    relaunch_command.push(launch_command);
-
-    log::info!("Executing relaunch command {relaunch_command:?}");
-    blocking::Command::new("sh")
+    // The script is constant; every path and flag is passed separately so an
+    // installation path containing spaces or shell syntax is never evaluated.
+    let mut command = blocking::Command::new("/bin/sh");
+    command
         .arg("-c")
-        .arg(relaunch_command)
+        .arg("while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.2; done; shift; exec /usr/bin/open -n \"$@\"")
+        .arg("galaxy-update-relaunch")
+        .arg(std::process::id().to_string());
+    if let Ok(path) = env::var("WARP_CHANNEL_VERSIONS_PATH") {
+        command
+            .arg("--env")
+            .arg(format!("WARP_CHANNEL_VERSIONS_PATH={path}"));
+    }
+    command
+        .arg(&bundle_path)
+        .arg("--args")
+        .arg(galaxy_cli::finish_update_flag());
+    command
+        .stdin(command::Stdio::null())
+        .stdout(command::Stdio::null())
+        .stderr(command::Stdio::null())
         .spawn()?;
     Ok(())
 }
@@ -271,6 +267,14 @@ async fn needs_authorization(bundle_path: &Path) -> Result<bool> {
 /// * Warp can create files in the directory
 /// * Warp can modify the permissions of created files
 async fn is_directory_writable(directory: &Path) -> Result<bool> {
+    if super::github::is_galaxy_updater() {
+        return Ok(tempfile::Builder::new()
+            .prefix(".galaxy-update-permission-")
+            .tempfile_in(directory)
+            .is_ok_and(|file| {
+                fchown(file.as_file().as_raw_fd(), Some(getuid()), Some(getgid())).is_ok()
+            }));
+    }
     // Just because we have writability access does not mean we can set the correct owner/group.
     // Test if we can set the owner/group on a temporarily created file. If we can, then we can
     // probably perform an update without authorization.
@@ -306,6 +310,74 @@ async fn is_directory_writable(directory: &Path) -> Result<bool> {
 /// Verifies that the staged bundle path has a valid macOS code signature, and that its
 /// team identifier matches Warp's team identifier.
 async fn verify_code_signature(component: &str, path: &Path) -> Result<()> {
+    if super::github::is_galaxy_updater() {
+        const BUNDLE_ID: &str = "com.galaxy.GalaxyOss";
+        let current = PathBuf::from(get_bundle_path()?);
+        let display = Command::new("/usr/bin/codesign")
+            .args(["-d", "-r-", "--verbose=4"])
+            .arg(&current)
+            .output()
+            .await?;
+        ensure!(
+            display.status.success(),
+            "Cannot determine the installed Galaxy signing identity"
+        );
+        let details = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&display.stdout),
+            String::from_utf8_lossy(&display.stderr)
+        );
+        let team = details
+            .lines()
+            .find_map(|line| line.strip_prefix("TeamIdentifier="))
+            .filter(|team| {
+                team.len() == 10
+                    && team
+                        .bytes()
+                        .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+            })
+            .context("The installed Galaxy app has no valid Apple signing team")?;
+        let designated = details
+            .lines()
+            .find_map(|line| line.strip_prefix("designated => "))
+            .filter(|requirement| !requirement.is_empty())
+            .context("The installed Galaxy designated requirement is unavailable")?;
+        let identity =
+            format!("anchor apple generic and certificate leaf[subject.OU] = \"{team}\"");
+        let requirement = if component == "bundle" {
+            let info = plist::Value::from_file(path.join("Contents/Info.plist"))?;
+            ensure!(
+                info.as_dictionary()
+                    .and_then(|info| info.get("CFBundleIdentifier"))
+                    .and_then(plist::Value::as_string)
+                    == Some(BUNDLE_ID),
+                "The update has another application identity"
+            );
+            format!("({designated}) and {identity} and identifier \"{BUNDLE_ID}\"")
+        } else {
+            identity
+        };
+        let output = Command::new("/usr/bin/codesign")
+            .args(["--verify", "--deep", "--strict", "--all-architectures"])
+            .arg(path)
+            .output()
+            .await?;
+        ensure!(
+            output.status.success(),
+            "Galaxy update {component} has an invalid code signature"
+        );
+        let output = Command::new("/usr/bin/codesign")
+            .args(["--verify", "--strict"])
+            .arg(format!("-R={requirement}"))
+            .arg(path)
+            .output()
+            .await?;
+        ensure!(
+            output.status.success(),
+            "Galaxy update {component} does not match the installed Apple signing identity"
+        );
+        return Ok(());
+    }
     // Verify the signature of the staged update bundle with team identifier
     let codesign_verify_output = Command::new("/usr/bin/codesign")
         .arg("-v")
@@ -326,6 +398,30 @@ async fn verify_code_signature(component: &str, path: &Path) -> Result<()> {
         full: ("Code signature is valid for {}", path.display())
     );
 
+    Ok(())
+}
+
+fn verify_galaxy_bundle_metadata(version: &VersionInfo, path: &Path) -> Result<()> {
+    let Some(update) = &version.galaxy_update else {
+        return Ok(());
+    };
+    let info = plist::Value::from_file(path.join("Contents/Info.plist"))?;
+    let info = info
+        .as_dictionary()
+        .context("The Galaxy update bundle has no property dictionary")?;
+    for (key, expected) in [
+        ("CFBundleIdentifier", "com.galaxy.GalaxyOss"),
+        ("CFBundleShortVersionString", version.version.as_str()),
+        ("GalaxySourceCommit", update.source_commit.as_str()),
+        ("GalaxyBuildChannel", update.channel.as_str()),
+        ("GalaxyBuildId", update.build_id.as_deref().unwrap_or("")),
+        ("GalaxyArtifactIdentity", update.artifact_identity.as_str()),
+    ] {
+        ensure!(
+            info.get(key).and_then(plist::Value::as_string) == Some(expected),
+            "Galaxy update bundle metadata differs from its signed manifest ({key})"
+        );
+    }
     Ok(())
 }
 
@@ -370,9 +466,12 @@ async fn apply_update(channel: Channel, version_info: &VersionInfo, update_id: &
     }
 
     let dmg_path = dmg_path(&channel, version_info, update_id);
+    if version_info.galaxy_update.is_some() {
+        super::github::verify_download(version_info, &dmg_path)?;
+    }
     let temp_app_path = temporary_target_path(channel, version_info, &dmg_path)?;
 
-    let staged_bundle =
+    let mut staged_bundle =
         StagedBundle::for_bundle_path(channel, version_info, temp_app_path, &bundle_path).await?;
 
     // Copy permissions to new app
@@ -387,6 +486,14 @@ async fn apply_update(channel: Channel, version_info: &VersionInfo, update_id: &
             executable_path_buf
         );
     }
+    if version_info.galaxy_update.is_some() {
+        verify_galaxy_bundle_metadata(version_info, &staged_bundle.path)?;
+        future::try_zip(
+            verify_code_signature("bundle", &staged_bundle.path),
+            verify_code_signature("executable", &executable_path_buf),
+        )
+        .await?;
+    }
 
     // Atomically rename the new app to have the same name as the old one.
     log::info!("Renaming new app to original app name");
@@ -395,6 +502,9 @@ async fn apply_update(channel: Channel, version_info: &VersionInfo, update_id: &
 
     Errno::result(unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_SWAP) })
         .context("Error swapping old and new app bundles")?;
+    // After the swap this path holds the running old bundle. Preserve it if
+    // saving its executable fails; deleting it could break live shell workers.
+    staged_bundle.preserve_on_drop = true;
 
     // Move the current running executable into a temporary directory so we can delete the
     // rest of the old bundle without removing the running executable (since removing it
@@ -415,17 +525,24 @@ async fn apply_update(channel: Channel, version_info: &VersionInfo, update_id: &
         log::info!(
             "Moving old executable at path {new_app_executable_path:?} into user application data dir at path {executable_temp_file:?}"
         );
-        let mv_output = Command::new("mv")
+        let move_result = Command::new("mv")
             .arg(new_app_executable_path)
             .arg(executable_temp_file)
             .output()
-            .await?;
+            .await;
 
-        ensure!(
-            mv_output.status.success(),
-            "Failed to move old executable: {mv_output:?}"
-        );
+        if !move_result.is_ok_and(|output| output.status.success()) {
+            // Restore the old application atomically while retaining both
+            // bundles if rollback itself fails.
+            Errno::result(unsafe {
+                libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_SWAP)
+            })
+            .context("Could not restore the original app after saving its executable failed")?;
+            staged_bundle.preserve_on_drop = false;
+            bail!("Failed to preserve the running Galaxy executable");
+        }
     }
+    staged_bundle.preserve_on_drop = false;
 
     log::info!("Setting installed version to {:?}", version_info);
     log::info!("Applied update in {:?}", update_start.elapsed());
@@ -441,6 +558,8 @@ struct StagedBundle {
     /// Whether or not the temporary bundle was copied into the same directory as the existing app.
     /// This is only necessary if `$TMPDIR` and the app are on different filesystems.
     in_app_directory: bool,
+    preserve_on_drop: bool,
+    owned_directory: Option<tempfile::TempDir>,
 }
 
 impl StagedBundle {
@@ -464,11 +583,35 @@ impl StagedBundle {
             Ok(Self {
                 path: temp_app_path,
                 in_app_directory: false,
+                preserve_on_drop: false,
+                owned_directory: None,
             })
         } else {
             let bundle_parent_path = bundle_path
                 .parent()
                 .ok_or_else(|| anyhow!("Could not get parent directory of application bundle"))?;
+            if version_info.galaxy_update.is_some() {
+                let directory = tempfile::Builder::new()
+                    .prefix(".galaxy-update-")
+                    .tempdir_in(bundle_parent_path)?;
+                let path = directory.path().join("Galaxy.app");
+                let output = Command::new("/bin/cp")
+                    .arg("-R")
+                    .arg(&temp_app_path)
+                    .arg(&path)
+                    .output()
+                    .await?;
+                ensure!(
+                    output.status.success(),
+                    "Failed to stage Galaxy on the application filesystem"
+                );
+                return Ok(Self {
+                    path,
+                    in_app_directory: false,
+                    preserve_on_drop: false,
+                    owned_directory: Some(directory),
+                });
+            }
             log::info!("Copying app contents from {temp_app_path:?} to {bundle_parent_path:?}");
 
             let cp_output = Command::new("cp")
@@ -489,6 +632,8 @@ impl StagedBundle {
             Ok(Self {
                 path: bundle_parent_path.join(versioned_app_name(channel, &version_info.version)),
                 in_app_directory: true,
+                preserve_on_drop: false,
+                owned_directory: None,
             })
         }
     }
@@ -496,10 +641,16 @@ impl StagedBundle {
 
 impl Drop for StagedBundle {
     fn drop(&mut self) {
+        if self.preserve_on_drop {
+            if let Some(directory) = self.owned_directory.take() {
+                let _ = directory.into_path();
+            }
+            return;
+        }
         // Clean up in the destructor so that it happens even if the installation errors.
         // If we used the original temporary app bundle, it'll get removed by the final cleanup
         // step, along with the dmg.
-        if self.in_app_directory {
+        if self.in_app_directory && !self.preserve_on_drop {
             log::info!("Removing temporary app bundle");
             if let Err(err) = fs::remove_dir_all(&self.path) {
                 log::error!("Failed to remove temporary bundle: {err:#}");
@@ -514,6 +665,9 @@ async fn download_and_extract_binary(
     update_id: &str,
     client: &http_client::Client,
 ) -> Result<DownloadReady> {
+    if version_info.galaxy_update.is_none() && super::github::is_galaxy_updater() {
+        bail!("Galaxy updates require signed release metadata");
+    }
     let bundle_path = PathBuf::from(get_bundle_path()?);
     let needs_authorization = needs_authorization(bundle_path.as_path())
         .await
@@ -529,23 +683,48 @@ async fn download_and_extract_binary(
 
     let download_dir = get_download_dir(update_id);
     log::info!("Creating download dir {:?}", download_dir);
-    async_fs::create_dir_all(&download_dir).await?;
+    if version_info.galaxy_update.is_some() {
+        let parent = download_dir
+            .parent()
+            .context("Missing Galaxy update cache parent")?;
+        fs::create_dir_all(parent)?;
+        let metadata = fs::symlink_metadata(parent)?;
+        ensure!(
+            metadata.is_dir()
+                && !metadata.file_type().is_symlink()
+                && metadata.uid() == getuid().as_raw(),
+            "Galaxy update cache is not an owned directory"
+        );
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+        fs::create_dir(&download_dir)?;
+        fs::set_permissions(&download_dir, fs::Permissions::from_mode(0o700))?;
+    } else {
+        async_fs::create_dir_all(&download_dir).await?;
+    }
 
     let dmg_path = download_dmg(&channel, version_info, update_id, client).await?;
 
     // Mount the downloaded dmg so we can copy out the binary.
+    let mut mounted = MountedDmg {
+        path: get_mountpoint(update_id),
+        detached: false,
+    };
     let mountpoint = mount_dmg(&dmg_path, update_id).await?;
 
     let target = temporary_target_path(channel, version_info, &dmg_path)?;
     // Copy the binary into the temporary directory where we downloaded the dmg.
-    copy_app_from_dmg(&channel, &mountpoint, &target).await?;
+    let copy_result = copy_app_from_dmg(&channel, &mountpoint, &target).await;
 
     // Unmount the dmg once we no longer need it. This prevents lingering images from unapplied
     // updates.
     if let Err(err) = unmount_dmg(mountpoint).await {
         let err = err.context("Error unmounting dmg for update");
         crate::report_error!(&err);
+    } else {
+        mounted.detached = true;
     }
+    copy_result?;
+    verify_galaxy_bundle_metadata(version_info, &target)?;
 
     // Ensure that the new app we just downloaded has both integrity (e.g. no corrupted files)
     // and validity (it was signed by us).
@@ -564,6 +743,27 @@ async fn download_and_extract_binary(
     );
 
     Ok(DownloadReady::Yes)
+}
+
+struct MountedDmg {
+    path: PathBuf,
+    detached: bool,
+}
+
+impl Drop for MountedDmg {
+    fn drop(&mut self) {
+        if !self.detached {
+            // Also detach if copying, verification, or the async task is cancelled.
+            let _ = blocking::Command::new("/usr/bin/hdiutil")
+                .arg("detach")
+                .arg(&self.path)
+                .arg("-force")
+                .stdin(command::Stdio::null())
+                .stdout(command::Stdio::null())
+                .stderr(command::Stdio::null())
+                .spawn();
+        }
+    }
 }
 
 async fn unmount_dmg(mountpoint: PathBuf) -> Result<()> {
@@ -631,6 +831,11 @@ async fn download_dmg(
     update_id: &str,
     client: &http_client::Client,
 ) -> Result<PathBuf> {
+    let dmg_file = dmg_path(channel, version_info, update_id);
+    if version_info.galaxy_update.is_some() {
+        super::github::download_verified(version_info, &dmg_file).await?;
+        return Ok(dmg_file);
+    }
     // TODO: Use a streaming fetch and and provide an api for tracking progress
     let update_url = update_url(*channel, &version_info.version);
     log::info!("Fetching new dmg at {update_url}");
@@ -639,7 +844,6 @@ async fn download_dmg(
         .timeout(Duration::from_secs(DMG_TIMEOUT_S))
         .send()
         .await?;
-    let dmg_file = dmg_path(channel, version_info, update_id);
 
     let mut file = async_fs::File::create(&dmg_file).await?;
     futures_lite::io::copy(
@@ -729,7 +933,7 @@ fn app_name_prefix(channel: Channel) -> &'static str {
         Channel::Local => "galaxy-ai",
         Channel::Integration => "integration",
         Channel::Dev => "GalaxyDev",
-        Channel::Oss => "galaxy-ai-oss",
+        Channel::Oss => "Galaxy",
     }
 }
 
@@ -740,7 +944,7 @@ fn executable_name(channel: Channel) -> &'static str {
         Channel::Local => "warp",
         Channel::Integration => "integration",
         Channel::Dev => "dev",
-        Channel::Oss => "warp-oss",
+        Channel::Oss => "galaxy-oss",
     }
 }
 

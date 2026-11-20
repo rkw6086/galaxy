@@ -46,16 +46,19 @@ function Confirm-Source {
     }
 }
 Confirm-Source
+& node script/ci/release-identity.mjs
+if ($LASTEXITCODE -ne 0) { throw 'Prepared build identity verification failed.' }
 $env:GIT_RELEASE_TAG = $version
 $env:GALAXY_GIT_COMMIT = $sha
 $env:GALAXY_GIT_DIRTY = 'false'
 $env:GALAXY_BUILD_CHANNEL = if ($channel -eq 'ci') { 'release' } else { $channel }
+if ($channel -eq 'ci') { $env:GALAXY_GITHUB_CI = '0' }
 $env:GALAXY_APP_NAME = 'Galaxy'
 $env:CARGO_FULL_PROFILE = 'release'
 $env:CARGO_BUILD_JOBS = '2'
 $env:CARGO_INCREMENTAL = '0'
 $target = 'x86_64-pc-windows-msvc'
-$features = 'release_bundle,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli'
+$features = 'autoupdate,release_bundle,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli'
 # app/build.rs stages native resource-compiler inputs here independently of
 # CARGO_TARGET_DIR. This remains inside the disposable checkout's ignored target.
 New-Item -ItemType Directory (Join-Path $root 'target\release') -Force | Out-Null
@@ -85,7 +88,7 @@ $verification | & node --input-type=module - $root (Join-Path $resources 'wormho
 if ($LASTEXITCODE -ne 0) { throw 'Bundled Wormhole helpers did not match their sources.' }
 if (Test-Path $env:GALAXY_RELEASE_DIR) { throw 'Use a fresh artifact directory.' }
 New-Item -ItemType Directory $env:GALAXY_RELEASE_DIR | Out-Null
-$stem = if ($channel -eq 'release') { "Galaxy_$version" } elseif ($channel -eq 'nightly') { "Galaxy_nightly_$env:GALAXY_NIGHTLY_ID" } else { "Galaxy_ci_$sha" }
+$stem = if ($channel -eq 'release') { "Galaxy_$version" } elseif ($channel -eq 'nightly') { "Galaxy_$env:GALAXY_ARTIFACT_IDENTITY" } else { "Galaxy_ci_$sha" }
 $name = "${stem}_x86_64-setup"
 $arguments = @(
     (Join-Path $root 'script\windows\windows-installer.iss')

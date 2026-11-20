@@ -27,7 +27,12 @@ time, even when `master` has not changed. GitHub schedules can be delayed by
 runner demand. A manual **Build Galaxy** run on `master` also creates a Nightly.
 One rolling **Nightly** release contains the newest complete downloads and changes
 since the previous Nightly. About displays its source commit. Download names
-include `nightly_FULL_COMMIT_SHA_RUN_ID-ATTEMPT`.
+use a readable Chicago date/time and workflow sequence, such as
+`Galaxy_Nightly_11202026_040000_CT_r8-1_aarch64.dmg`. The `r8-1` suffix identifies
+the workflow run number and preparation attempt, so separate builds never reuse
+the same filenames. The timestamp comes from the trusted workflow creation time
+and stays unchanged when failed jobs are retried. The complete source commit,
+run ID and preparation attempt remain the internal build identity.
 Preparation binds the exact snapshot to both repository masters. Ordinary master
 advances during compilation do not discard that snapshot: a new publication
 requires it to remain an ancestor of both freshly fetched masters. Rewritten or
@@ -71,10 +76,32 @@ artifacts or Git history.
 Native platform jobs run concurrently. Publication waits for all three, validates
 each platform checksum and verifies uploaded bytes before exposing the complete
 release. Stable downloads include a combined `SHA256SUMS`; Nightly uses a unique
-`SHA256SUMS_nightly_FULL_COMMIT_SHA_RUN_ID-ATTEMPT`. A Nightly uploads its complete
+`SHA256SUMS_Nightly_MMDDYYYY_HHMMSS_CT_rRUN_NUMBER-PREPARE_ATTEMPT`.
+Each release also includes `Galaxy_Update_IDENTITY.json` and its raw Ed25519
+signature, `Galaxy_Update_IDENTITY.sig`. Their hashes are included in the combined
+checksums with the four installers/packages, giving seven public assets.
+The signed JSON binds channel, base version, source commit, internal build ID,
+readable artifact identity, build time and each platform payload's name, size
+and SHA-256. `built_at` is the prepared workflow creation time in UTC, so metadata
+and signature bytes remain identical on publication retries.
+
+Only the publication step receives `GALAXY_UPDATE_SIGNING_KEY`, a base64-encoded
+Ed25519 PKCS8 PEM key. Its derived public key must match the committed raw public
+key in `resources/galaxy-update-ed25519.pub`. Signing uses a private temporary file
+removed after use. The app trusts that public key and verifies the metadata
+signature and selected payload before installing an update. Beta and Nightly
+builds follow the rolling Nightly; stable builds follow published stable tags.
+Unsigned pull-request builds and the independent Windows validation installer
+are not official automatic-update builds. Existing versions without the updater
+need one manual installation of an updater-enabled build.
+
+A Nightly uploads its complete
 new set alongside the previous files, verifies it, updates the source tag and
 release notes, then removes only older owned Nightly assets. Failed builds
 preserve the previous downloads, and interrupted publication can resume safely.
+The first replacement also recognizes the original full-commit Nightly filenames
+and provenance markers, allowing their verified retirement without changing the
+rolling release record. Tagged releases retain their original assets forever.
 
 Keep one rolling **Nightly** and every **tagged release**, including its assets.
 The publisher never deletes release records or tagged release assets. Numeric

@@ -114,6 +114,24 @@ impl ChannelVersion {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct GalaxyUpdate {
+    pub channel: String,
+    pub tag: String,
+    pub release_id: u64,
+    pub source_commit: String,
+    pub build_id: Option<String>,
+    pub artifact_identity: String,
+    /// Exact signed manifest bytes retained for verification before installation.
+    pub manifest: Vec<u8>,
+    pub signature: Vec<u8>,
+    pub asset_id: u64,
+    pub asset_name: String,
+    pub asset_size: u64,
+    pub asset_sha256: String,
+    pub asset_url: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct VersionInfo {
     pub version: String,
     /// The version to download for new users from the download page. This is not used on the client
@@ -137,6 +155,8 @@ pub struct VersionInfo {
     /// The version to use for CLI downloads, falling back to `version` if not set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub galaxy_update: Option<GalaxyUpdate>,
 }
 
 impl VersionInfo {
@@ -149,6 +169,7 @@ impl VersionInfo {
             version_for_new_users: None,
             is_rollback: None,
             cli_version: None,
+            galaxy_update: None,
         }
     }
 

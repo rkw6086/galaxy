@@ -18,7 +18,8 @@ if [[ $channel == nightly ]]; then
   [[ ${GALAXY_NIGHTLY_ID:-} =~ $nightly_pattern ]] || fail 'Nightly identity differs from its prepared source and run.'
   (( ${BASH_REMATCH[1]} <= GITHUB_RUN_ATTEMPT )) || fail 'Nightly preparation attempt exceeds this run attempt.'
   [[ -z $(git status --porcelain) ]] || fail 'Nightly signing requires an unchanged source checkout.'
-  artifact_version="nightly_$GALAXY_NIGHTLY_ID"
+  node script/ci/release-identity.mjs
+  artifact_version="$GALAXY_ARTIFACT_IDENTITY"
   volume_name='Galaxy Nightly'
 elif [[ $channel == beta ]]; then
   [[ ( ${GITHUB_EVENT_NAME:-} == schedule || ${GITHUB_EVENT_NAME:-} == workflow_dispatch ) && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Beta signing requires a scheduled or manual master run.'

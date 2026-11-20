@@ -8109,12 +8109,12 @@ impl Workspace {
                 match autoupdate::get_update_state(ctx) {
                     AutoupdateStage::UpdateReady { new_version, .. }
                     | AutoupdateStage::UpdatedPendingRestart { new_version } => menu_items.push(
-                        MenuItemFields::new(format!("Install update ({})", new_version.version))
+                        MenuItemFields::new(format!("Install update ({})", autoupdate::update_version_label(&new_version)))
                             .with_on_select_action(WorkspaceAction::ApplyUpdate)
                             .into_item(),
                     ),
                     AutoupdateStage::Updating { new_version, .. } => menu_items.push(
-                        MenuItemFields::new(format!("Updating to ({})", new_version.version))
+                        MenuItemFields::new(format!("Updating to ({})", autoupdate::update_version_label(&new_version)))
                             .with_disabled(true)
                             .into_item(),
                     ),
@@ -10061,7 +10061,7 @@ impl Workspace {
                     ) =>
                 {
                     items.push(
-                        MenuItemFields::new(format!("Updating to ({})", new_version.version))
+                        MenuItemFields::new(format!("Updating to ({})", autoupdate::update_version_label(&new_version)))
                             .with_disabled(true)
                             .into_item(),
                     )
@@ -12801,6 +12801,11 @@ impl Workspace {
     }
 
     pub fn open_autoupdate_failure_link(&mut self, ctx: &mut ViewContext<Self>) {
+        if crate::autoupdate::github::is_galaxy_updater() {
+            let stage = autoupdate::get_update_state(ctx);
+            ctx.open_url(&crate::autoupdate::github::release_page(stage.available_new_version()));
+            return;
+        }
         ctx.open_url(
             "https://docs.warp.dev/support-and-community/troubleshooting-and-support/updating-warp",
         );

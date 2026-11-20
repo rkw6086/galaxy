@@ -1,6 +1,6 @@
 use galaxy_core::channel::ChannelState;
 use galaxyui::elements::{
-    Align, CacheOption, ConstrainedBox, Container, CrossAxisAlignment, Element, Flex,
+    Align, CacheOption, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Element, Flex,
     FormattedTextElement, Image, Padding, ParentElement, Text,
 };
 use galaxyui::fonts::Weight;
@@ -16,17 +16,65 @@ use super::settings_page::{
 };
 use super::SettingsSection;
 use crate::appearance::Appearance;
+use crate::autoupdate::{self, AutoupdateStage, AutoupdateState};
 use crate::settings::app_icon::AppIconSettings;
+use crate::view_components::action_button::{ActionButton, SecondaryTheme};
+use crate::workspace::WorkspaceAction;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum AboutPageAction {
+    CheckForUpdates,
+}
 
 pub struct AboutPageView {
     page: PageType<Self>,
+    check_button: ViewHandle<ActionButton>,
+    restart_button: ViewHandle<ActionButton>,
+    download_button: ViewHandle<ActionButton>,
 }
 
 impl AboutPageView {
-    pub fn new(_ctx: &mut ViewContext<AboutPageView>) -> Self {
-        AboutPageView {
+    pub fn new(ctx: &mut ViewContext<AboutPageView>) -> Self {
+        let check_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Check for updates", SecondaryTheme)
+                .on_click(|ctx| ctx.dispatch_typed_action(AboutPageAction::CheckForUpdates))
+        });
+        let restart_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Install update and restart", SecondaryTheme)
+                .on_click(|ctx| ctx.dispatch_typed_action(WorkspaceAction::ApplyUpdate))
+        });
+        let download_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Download update", SecondaryTheme)
+                .on_click(|ctx| ctx.dispatch_typed_action(WorkspaceAction::DownloadNewVersion))
+        });
+        ctx.observe(&AutoupdateState::handle(ctx), |view, _, ctx| {
+            view.update_check_button(ctx);
+            ctx.notify();
+        });
+        let view = AboutPageView {
             page: PageType::new_monolith(AboutPageWidget, None, false),
-        }
+            check_button,
+            restart_button,
+            download_button,
+        };
+        view.update_check_button(ctx);
+        view
+    }
+
+    fn update_check_button(&self, ctx: &mut ViewContext<Self>) {
+        let disabled = !autoupdate::is_available() || AutoupdateState::as_ref(ctx).is_busy();
+        self.check_button
+            .update(ctx, |button, ctx| button.set_disabled(disabled, ctx));
+        let label = if matches!(
+            autoupdate::get_update_state(ctx),
+            AutoupdateStage::UpdatedPendingRestart { .. }
+        ) {
+            "Restart Galaxy"
+        } else {
+            "Install update and restart"
+        };
+        self.restart_button
+            .update(ctx, |button, ctx| button.set_label(label, ctx));
     }
 }
 
@@ -34,7 +82,16 @@ impl Entity for AboutPageView {
     type Event = SettingsPageEvent;
 }
 impl TypedActionView for AboutPageView {
-    type Action = ();
+    type Action = AboutPageAction;
+
+    fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
+        match action {
+            AboutPageAction::CheckForUpdates => {
+                AutoupdateState::handle(ctx)
+                    .update(ctx, |state, ctx| state.manually_check_for_update(ctx));
+            }
+        }
+    }
 }
 
 impl View for AboutPageView {
@@ -58,7 +115,7 @@ impl SettingsWidget for AboutPageWidget {
 
     fn render(
         &self,
-        _view: &AboutPageView,
+        view: &AboutPageView,
         appearance: &Appearance,
         app: &AppContext,
     ) -> Box<dyn Element> {
@@ -122,20 +179,38 @@ impl SettingsWidget for AboutPageWidget {
         .with_line_height_ratio(1.35)
         .finish();
 
+        let mut content = Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_spacing(12.)
+            .with_child(icon)
+            .with_child(title)
+            .with_child(build_details)
+            .with_child(description);
+        if autoupdate::is_available() {
+            let state = AutoupdateState::as_ref(app);
+            content.add_child(
+                Text::new(state.status_message(), appearance.ui_font_family(), 12.)
+                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                    .finish(),
+            );
+            content.add_child(ChildView::new(&view.check_button).finish());
+            match autoupdate::get_update_state(app) {
+                AutoupdateStage::UpdateReady { .. }
+                | AutoupdateStage::UpdatedPendingRestart { .. } => {
+                    content.add_child(ChildView::new(&view.restart_button).finish());
+                }
+                AutoupdateStage::UnableToUpdateToNewVersion { .. }
+                | AutoupdateStage::UnableToLaunchNewVersion { .. } => {
+                    content.add_child(ChildView::new(&view.download_button).finish());
+                }
+                _ => {}
+            }
+        }
         Align::new(
             ConstrainedBox::new(
-                Container::new(
-                    Flex::column()
-                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                        .with_spacing(12.)
-                        .with_child(icon)
-                        .with_child(title)
-                        .with_child(build_details)
-                        .with_child(description)
-                        .finish(),
-                )
-                .with_padding(Padding::uniform(24.))
-                .finish(),
+                Container::new(content.finish())
+                    .with_padding(Padding::uniform(24.))
+                    .finish(),
             )
             .with_max_width(560.)
             .finish(),

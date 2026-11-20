@@ -47,6 +47,8 @@ jobs:
       version: ${{ steps.prepare.outputs.version }}
       sha: ${{ steps.prepare.outputs.sha }}
       nightly_id: ${{ steps.prepare.outputs.nightly_id }}
+      artifact_identity: ${{ steps.prepare.outputs.artifact_identity }}
+      release_timestamp: ${{ steps.prepare.outputs.release_timestamp }}
       previous_nightly_sha: ${{ steps.prepare.outputs.previous_nightly_sha }}
       previous_nightly_build: ${{ steps.prepare.outputs.previous_nightly_build }}
       previous_nightly_release_id: ${{ steps.prepare.outputs.previous_nightly_release_id }}
@@ -88,6 +90,8 @@ jobs:
       channel: ${{ steps.prepare.outputs.channel }}
       version: ${{ steps.prepare.outputs.version }}
       sha: ${{ steps.prepare.outputs.sha }}
+      artifact_identity: ${{ steps.prepare.outputs.artifact_identity }}
+      release_timestamp: ${{ steps.prepare.outputs.release_timestamp }}
     steps:
       - name: Check out the pull request and immutable tag history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,6 +123,8 @@ jobs:
       version: ${{ needs['prepare-publication'].outputs.version || needs['prepare-pr'].outputs.version }}
       sha: ${{ needs['prepare-publication'].outputs.sha || needs['prepare-pr'].outputs.sha }}
       nightly_id: ${{ needs['prepare-publication'].outputs.nightly_id }}
+      artifact_identity: ${{ needs['prepare-publication'].outputs.artifact_identity || needs['prepare-pr'].outputs.artifact_identity }}
+      release_timestamp: ${{ needs['prepare-publication'].outputs.release_timestamp }}
       previous_nightly_sha: ${{ needs['prepare-publication'].outputs.previous_nightly_sha }}
       previous_nightly_build: ${{ needs['prepare-publication'].outputs.previous_nightly_build }}
       previous_nightly_release_id: ${{ needs['prepare-publication'].outputs.previous_nightly_release_id }}
@@ -138,6 +144,8 @@ jobs:
       GALAXY_RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
       GALAXY_BUILD_CHANNEL: ${{ needs.prepare.outputs.channel }}
       GALAXY_NIGHTLY_ID: ${{ needs.prepare.outputs.nightly_id }}
+      GALAXY_ARTIFACT_IDENTITY: ${{ needs.prepare.outputs.artifact_identity }}
+      GALAXY_RELEASE_TIMESTAMP: ${{ needs.prepare.outputs.release_timestamp }}
     steps:
       - name: Check out the validated source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -208,6 +216,8 @@ jobs:
       GALAXY_RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
       GALAXY_BUILD_CHANNEL: ${{ needs.prepare.outputs.channel }}
       GALAXY_NIGHTLY_ID: ${{ needs.prepare.outputs.nightly_id }}
+      GALAXY_ARTIFACT_IDENTITY: ${{ needs.prepare.outputs.artifact_identity }}
+      GALAXY_RELEASE_TIMESTAMP: ${{ needs.prepare.outputs.release_timestamp }}
     steps:
       - name: Check out the validated source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -253,6 +263,8 @@ jobs:
       GALAXY_RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
       GALAXY_BUILD_CHANNEL: ${{ needs.prepare.outputs.channel }}
       GALAXY_NIGHTLY_ID: ${{ needs.prepare.outputs.nightly_id }}
+      GALAXY_ARTIFACT_IDENTITY: ${{ needs.prepare.outputs.artifact_identity }}
+      GALAXY_RELEASE_TIMESTAMP: ${{ needs.prepare.outputs.release_timestamp }}
     defaults:
       run:
         shell: pwsh
@@ -308,6 +320,8 @@ jobs:
       GALAXY_RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
       GALAXY_BUILD_CHANNEL: ${{ needs.prepare.outputs.channel }}
       GALAXY_NIGHTLY_ID: ${{ needs.prepare.outputs.nightly_id }}
+      GALAXY_ARTIFACT_IDENTITY: ${{ needs.prepare.outputs.artifact_identity }}
+      GALAXY_RELEASE_TIMESTAMP: ${{ needs.prepare.outputs.release_timestamp }}
       GALAXY_PREVIOUS_NIGHTLY_SHA: ${{ needs.prepare.outputs.previous_nightly_sha }}
       GALAXY_PREVIOUS_NIGHTLY_BUILD: ${{ needs.prepare.outputs.previous_nightly_build }}
       GALAXY_PREVIOUS_NIGHTLY_RELEASE_ID: ${{ needs.prepare.outputs.previous_nightly_release_id }}
@@ -349,6 +363,7 @@ jobs:
       - name: Publish verified downloads and update only rolling Nightly assets
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GALAXY_UPDATE_SIGNING_KEY: ${{ secrets.GALAXY_UPDATE_SIGNING_KEY }}
         run: python3 script/ci/publish-github-release.py
       - name: Remove this run's temporary package transfers
         # Retention remains bounded to one day if cleanup is unavailable.

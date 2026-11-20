@@ -7,6 +7,8 @@ or source alias. Only verified older Nightly assets may be retired afterward.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import base64
+from datetime import datetime
 import hashlib
 import hmac
 import json
@@ -19,6 +21,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
@@ -27,9 +30,16 @@ BUILD = re.compile(r"([0-9a-f]{40})_([1-9][0-9]{0,18})-([1-9][0-9]{0,8})\Z")
 NIGHTLY = re.compile(r"<!-- galaxy-nightly:v1 commit=([0-9a-f]{40}) build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) -->")
 TRANSITION = re.compile(r"<!-- galaxy-nightly-transition:v1 release=(new|[1-9][0-9]{0,18}) previous=([0-9a-f]{40}|none) build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}|none) ref=([0-9a-f]{40}|none) candidate=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) -->")
 PLACEHOLDER = re.compile(r"untagged-[0-9a-f]{20}\Z")
-OWNED_ASSET = re.compile(r"(?:Galaxy_nightly_([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8})_(?:aarch64\.dmg|x86_64-setup\.exe|amd64\.deb|linux_x86_64\.tar\.gz)|SHA256SUMS_nightly_([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}))\Z")
+LABEL_PATTERN = r"Nightly_[0-9]{8}_[0-9]{6}_CT_r[1-9][0-9]{0,18}-[1-9][0-9]{0,8}"
+LABEL = re.compile(LABEL_PATTERN + r"\Z")
+NIGHTLY_ASSETS = re.compile(r"<!-- galaxy-nightly-assets:v1 build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) identity=(" + LABEL_PATTERN + r") -->")
+UPDATE = re.compile(r"<!-- galaxy-update:v1 manifest=(Galaxy_Update_[A-Za-z0-9_.-]+\.json) signature=(Galaxy_Update_[A-Za-z0-9_.-]+\.sig) -->")
+OWNED_IDENTITY = r"(?:nightly_[0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}|" + LABEL_PATTERN + r")"
+OWNED_ASSET = re.compile(r"(?:Galaxy_" + OWNED_IDENTITY + r"_(?:aarch64\.dmg|x86_64-setup\.exe|amd64\.deb|linux_x86_64\.tar\.gz)|SHA256SUMS_" + OWNED_IDENTITY + r"|Galaxy_Update_" + LABEL_PATTERN + r"\.(?:json|sig))\Z")
 MAX_ASSET = 2 * 1024 * 1024 * 1024
 MAX_MANIFEST = 8192
+MAX_UPDATE = 64 * 1024
+ED25519_SPKI = bytes.fromhex("302a300506032b6570032100")
 
 
 class PublishError(Exception):
@@ -53,6 +63,8 @@ class Config:
     previous_id: int | None = None
     previous_ref: str | None = None
     notes: str = ""
+    artifact_identity: str = ""
+    built_at: str = ""
     repository: str = "rkw6086/galaxy"
 
     @property
@@ -61,11 +73,11 @@ class Config:
 
     @property
     def identity(self):
-        return "nightly_" + self.nightly_id if self.channel == "nightly" else self.version
+        return self.artifact_identity
 
     @property
     def manifest(self):
-        return "SHA256SUMS_nightly_" + self.nightly_id if self.channel == "nightly" else "SHA256SUMS"
+        return "SHA256SUMS_" + self.identity if self.channel == "nightly" else "SHA256SUMS"
 
     @classmethod
     def from_env(cls, env):
@@ -85,12 +97,23 @@ class Config:
         if not directory.is_absolute() or not directory.is_dir() or directory.is_symlink():
             raise PublishError("Release artifacts need an absolute regular job directory.")
         nightly_id = env.get("GALAXY_NIGHTLY_ID", "") if channel == "nightly" else ""
+        built_at = env.get("GALAXY_RELEASE_TIMESTAMP", "")
+        timestamp = parse_timestamp(built_at)
+        identity = env.get("GALAXY_ARTIFACT_IDENTITY", "")
         if channel == "nightly":
             match = BUILD.fullmatch(nightly_id)
             attempt = env.get("GITHUB_RUN_ATTEMPT", "")
             if (not match or match[1] != commit or match[2] != env.get("GITHUB_RUN_ID")
                     or not re.fullmatch(r"[1-9][0-9]{0,8}", attempt) or int(match[3]) > int(attempt)):
                 raise PublishError("Nightly identity differs from its prepared source/run/attempt.")
+            run_number = env.get("GITHUB_RUN_NUMBER", "")
+            if not re.fullmatch(r"[1-9][0-9]{0,18}", run_number):
+                raise PublishError("Nightly workflow sequence is invalid.")
+            expected = timestamp.astimezone(ZoneInfo("America/Chicago")).strftime("Nightly_%m%d%Y_%H%M%S_CT_r") + run_number + "-" + match[3]
+            if identity != expected or not LABEL.fullmatch(identity):
+                raise PublishError("Readable Nightly identity differs from its prepared build.")
+        elif identity != version:
+            raise PublishError("Stable artifact identity differs from its selected version.")
         previous_sha = env.get("GALAXY_PREVIOUS_NIGHTLY_SHA", "")
         previous_build = env.get("GALAXY_PREVIOUS_NIGHTLY_BUILD", "")
         previous_id = env.get("GALAXY_PREVIOUS_NIGHTLY_RELEASE_ID", "")
@@ -110,7 +133,7 @@ class Config:
                 raise PublishError("Release notes must be a bounded regular file.")
             notes = path.read_text(encoding="utf-8").strip()
         return cls(channel, version, commit, directory, token, nightly_id, previous_sha, previous_build,
-                   int(previous_id) if previous_id else None, previous_ref or None, notes)
+                   int(previous_id) if previous_id else None, previous_ref or None, notes, identity, built_at)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -230,6 +253,111 @@ def payload_names(identity):
             f"Galaxy_{identity}_amd64.deb", f"Galaxy_{identity}_linux_x86_64.tar.gz"}
 
 
+def update_names(identity):
+    return f"Galaxy_Update_{identity}.json", f"Galaxy_Update_{identity}.sig"
+
+
+def parse_timestamp(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", value):
+        raise PublishError("Prepared release timestamp is invalid.")
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=ZoneInfo("UTC"))
+    except ValueError:
+        raise PublishError("Prepared release timestamp is invalid.") from None
+
+
+def public_key_der():
+    path = ROOT / "resources/galaxy-update-ed25519.pub"
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 128:
+        raise PublishError("The committed update public key is unavailable.")
+    value = path.read_text(encoding="ascii").strip()
+    if not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise PublishError("The committed update public key is invalid.")
+    return ED25519_SPKI + bytes.fromhex(value)
+
+
+def openssl(arguments):
+    # No child process needs the publication token or private key environment.
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("GALAXY_UPDATE_SIGNING_KEY", "GITHUB_TOKEN", "GH_TOKEN")}
+    try:
+        result = subprocess.run(["openssl", *arguments], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                env=env, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        raise PublishError("Update signature operation failed; key details withheld.") from None
+    if result.returncode:
+        raise PublishError("Update signature operation failed; key details withheld.")
+
+
+def write_exact(path, data):
+    if path.exists() or path.is_symlink():
+        if path.is_symlink() or not path.is_file() or path.stat().st_size != len(data) or path.read_bytes() != data:
+            raise AssetMismatch("A generated update file differs from this exact candidate; it will not be replaced.")
+        return
+    with path.open("xb") as stream:
+        stream.write(data)
+
+
+def signed_update_files(config, files):
+    expected_public = public_key_der()
+    key = os.environ.pop("GALAXY_UPDATE_SIGNING_KEY", "")
+    if not 0 < len(key) <= 32768:
+        raise PublishError("The update signing key is unavailable or oversized.")
+    try:
+        private = base64.b64decode(key, validate=True)
+    except ValueError:
+        raise PublishError("The update signing key is malformed.") from None
+    if not private.startswith(b"-----BEGIN PRIVATE KEY-----\n") or not private.rstrip().endswith(b"-----END PRIVATE KEY-----"):
+        raise PublishError("Use the configured Ed25519 PKCS8 update signing key.")
+    suffixes = {"macos-aarch64": "aarch64.dmg", "windows-x86_64": "x86_64-setup.exe",
+                "linux-x86_64": "amd64.deb", "linux-portable-x86_64": "linux_x86_64.tar.gz"}
+    assets_value = {}
+    for platform, suffix in suffixes.items():
+        name = f"Galaxy_{config.identity}_{suffix}"
+        path, digest = files[name]
+        assets_value[platform] = {"name": name, "size": path.stat().st_size, "sha256": digest}
+    document = {"schema": 1, "channel": config.channel, "version": config.version,
+                "source_commit": config.commit, "build_id": config.nightly_id or None,
+                "artifact_identity": config.identity, "built_at": config.built_at, "assets": assets_value}
+    raw = (json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
+    if len(raw) > MAX_UPDATE:
+        raise PublishError("Update metadata exceeds its safe bound.")
+    metadata_name, signature_name = update_names(config.identity)
+    with tempfile.TemporaryDirectory(prefix="galaxy-update-sign-") as temporary:
+        directory = Path(temporary)
+        key_path, public_path = directory / "private.pem", directory / "public.der"
+        key_path.touch(mode=0o600)
+        key_path.write_bytes(private)
+        openssl(["pkey", "-in", str(key_path), "-pubout", "-outform", "DER", "-out", str(public_path)])
+        if public_path.read_bytes() != expected_public:
+            raise PublishError("The update signing key does not match the committed public key.")
+        metadata, signature = directory / "metadata.json", directory / "signature.bin"
+        metadata.write_bytes(raw)
+        openssl(["pkeyutl", "-sign", "-rawin", "-inkey", str(key_path), "-in", str(metadata), "-out", str(signature)])
+        signature_bytes = signature.read_bytes()
+        if len(signature_bytes) != 64:
+            raise PublishError("The Ed25519 update signature has an invalid size.")
+        openssl(["pkeyutl", "-verify", "-rawin", "-pubin", "-keyform", "DER", "-inkey", str(public_path),
+                 "-in", str(metadata), "-sigfile", str(signature)])
+    for name, value in ((metadata_name, raw), (signature_name, signature_bytes)):
+        path = config.directory / name
+        write_exact(path, value)
+        files[name] = (path, hashlib.sha256(value).hexdigest())
+
+
+def verify_prepared_identity(client, config):
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    if not re.fullmatch(r"[1-9][0-9]{0,18}", run_id):
+        raise PublishError("Publication workflow identity is unavailable.")
+    run = client.request("GET", f"/actions/runs/{run_id}")
+    if (str(run.get("id")) != run_id or run.get("head_sha") != config.commit
+            or run.get("path") != ".github/workflows/build.yml" or run.get("created_at") != config.built_at
+            or str(run.get("run_number")) != os.environ.get("GITHUB_RUN_NUMBER")
+            or run.get("repository", {}).get("full_name") != config.repository):
+        raise PublishError("Prepared update metadata differs from the trusted workflow source.")
+
+
 def digest_file(path):
     value = hashlib.sha256()
     with path.open("rb") as stream:
@@ -255,7 +383,7 @@ def release_files(config):
             files[path.name] = (path, digest_file(path))
         elif path.name == "SHA256SUMS" and path.parent != config.directory:
             manifests.append(path)
-        elif path == config.directory / config.manifest:
+        elif path.parent == config.directory and path.name in {config.manifest, *update_names(config.identity)}:
             pass  # This job's previously generated combined manifest.
         else:
             raise PublishError("Artifact directory contains an unexpected file.")
@@ -275,8 +403,9 @@ def release_files(config):
             checked.add(match[2])
     if checked != expected:
         raise PublishError("Checksums do not cover every platform.")
+    signed_update_files(config, files)
     checksum = config.directory / config.manifest
-    checksum.write_text("".join(f"{files[name][1]}  {name}\n" for name in sorted(files)), encoding="ascii")
+    write_exact(checksum, "".join(f"{files[name][1]}  {name}\n" for name in sorted(files)).encode("ascii"))
     files[checksum.name] = (checksum, digest_file(checksum))
     return files
 
@@ -457,9 +586,72 @@ def upload_files(client, release, files):
     return verify_local(client, release, files, complete=True)
 
 
+def update_binding(release, identity, required=False):
+    body = release.get("body") or ""
+    markers = UPDATE.findall(body)
+    if len(markers) > 1 or body.count("<!-- galaxy-update:") != len(markers):
+        raise PublishError("Signed update metadata binding is invalid.")
+    if markers and markers != [update_names(identity)]:
+        raise PublishError("Signed update metadata belongs to another artifact identity.")
+    if required and not markers:
+        raise PublishError("Signed update metadata binding is missing.")
+    return bool(markers)
+
+
+def unique_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise PublishError("Signed update metadata contains duplicate fields.")
+        value[key] = item
+    return value
+
+
+def verify_signed_document(client, release, identity, found, checksums):
+    metadata_name, signature_name = update_names(identity)
+    raw = client.download(found[metadata_name], MAX_UPDATE)
+    signature = client.download(found[signature_name], 64)
+    if len(signature) != 64:
+        raise PublishError("Downloaded update signature has an invalid size.")
+    with tempfile.TemporaryDirectory(prefix="galaxy-update-verify-") as temporary:
+        directory = Path(temporary)
+        public, metadata, signature_path = (directory / name for name in ("public.der", "metadata.json", "signature.bin"))
+        public.write_bytes(public_key_der())
+        metadata.write_bytes(raw)
+        signature_path.write_bytes(signature)
+        openssl(["pkeyutl", "-verify", "-rawin", "-pubin", "-keyform", "DER", "-inkey", str(public),
+                 "-in", str(metadata), "-sigfile", str(signature_path)])
+    value = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
+    if not isinstance(value, dict) or set(value) != {"schema", "channel", "version", "source_commit", "build_id", "artifact_identity", "built_at", "assets"}:
+        raise PublishError("Signed update metadata schema is invalid.")
+    if type(value["schema"]) is not int or value["schema"] != 1 or not isinstance(value["version"], str) or not VERSION.fullmatch(value["version"]) or value["artifact_identity"] != identity:
+        raise PublishError("Signed update version or artifact identity is invalid.")
+    parse_timestamp(value["built_at"])
+    if LABEL.fullmatch(identity):
+        markers = NIGHTLY.findall(release.get("body") or "")
+        if len(markers) != 1 or (value["channel"], value["source_commit"], value["build_id"]) != ("nightly", markers[0][0], markers[0][1]):
+            raise PublishError("Signed Nightly metadata differs from its source/build marker.")
+    else:
+        markers = re.findall(r"<!-- galaxy-release:v1 tag=([0-9.]+) commit=([0-9a-f]{40}) -->", release.get("body") or "")
+        if markers != [(identity, value["source_commit"])] or (value["channel"], value["version"], value["build_id"]) != ("release", identity, None):
+            raise PublishError("Signed stable metadata differs from its version/source marker.")
+    suffixes = {"macos-aarch64": "aarch64.dmg", "windows-x86_64": "x86_64-setup.exe",
+                "linux-x86_64": "amd64.deb", "linux-portable-x86_64": "linux_x86_64.tar.gz"}
+    if not isinstance(value["assets"], dict) or set(value["assets"]) != set(suffixes):
+        raise PublishError("Signed update metadata does not cover all platform payloads.")
+    for platform, suffix in suffixes.items():
+        name = f"Galaxy_{identity}_{suffix}"
+        expected = {"name": name, "size": found[name]["size"], "sha256": checksums[name]}
+        if not isinstance(value["assets"][platform], dict) or value["assets"][platform] != expected or type(value["assets"][platform].get("size")) is not int:
+            raise PublishError("Signed update asset differs from its verified download.")
+
+
 def verify_subset(client, release, identity, manifest):
     found = assets(client, release)
     expected = payload_names(identity)
+    signed = update_binding(release, identity, required=not identity.startswith("nightly_"))
+    if signed:
+        expected.update(update_names(identity))
     if not expected | {manifest} <= set(found):
         raise PublishError("Nightly candidate is missing downloads or its unique checksums.")
     raw = client.download(found[manifest], MAX_MANIFEST)
@@ -472,8 +664,11 @@ def verify_subset(client, release, identity, manifest):
     if set(checksums) != expected:
         raise PublishError("Combined checksums do not cover all platforms.")
     for name in expected:
-        if not hmac.compare_digest(client.download(found[name], MAX_ASSET, digest=True), checksums[name]):
+        limit = MAX_UPDATE if name.endswith(".json") else 64 if name.endswith(".sig") else MAX_ASSET
+        if not hmac.compare_digest(client.download(found[name], limit, digest=True), checksums[name]):
             raise PublishError("Candidate download failed checksum verification.")
+    if signed:
+        verify_signed_document(client, release, identity, found, checksums)
     return {name: found[name] for name in expected | {manifest}}
 
 
@@ -489,6 +684,11 @@ def nightly_state(release, ref):
     commit, build = markers[0]
     if not BUILD.fullmatch(build) or BUILD.fullmatch(build)[1] != commit:
         raise PublishError("Nightly source/build identity is invalid.")
+    artifact_markers = NIGHTLY_ASSETS.findall(release.get("body") or "")
+    if len(artifact_markers) > 1 or (release.get("body") or "").count("<!-- galaxy-nightly-assets:") != len(artifact_markers) or (artifact_markers and artifact_markers[0][0] != build):
+        raise PublishError("Nightly artifact identity marker is invalid.")
+    identity = artifact_markers[0][1] if artifact_markers else "nightly_" + build
+    update_binding(release, identity, required=bool(artifact_markers))
     transition = transitions[0] if transitions else None
     initial = False
     if transition:
@@ -506,21 +706,25 @@ def nightly_state(release, ref):
     elif release.get("draft") or ref != commit:
         raise PublishError("Nightly record and alias do not agree.")
     return {"id": release["id"], "commit": commit, "build": build, "transition": transition,
-            "initial": initial, "draft": bool(release.get("draft"))}
+            "initial": initial, "draft": bool(release.get("draft")), "identity": identity}
 
 
 def state_key(state):
-    return state["id"], state["commit"], state["build"], state["transition"], state["draft"]
+    return state["id"], state["commit"], state["build"], state["transition"], state["draft"], state["identity"]
 
 
 def body_for(config, notes, transition=None):
-    names = payload_names(config.identity) | {config.manifest}
+    names = payload_names(config.identity) | {config.manifest, *update_names(config.identity)}
     links = "\n".join(f"- [{name}](https://github.com/{config.repository}/releases/download/{config.tag}/{name})" for name in sorted(names))
     marker = (f"<!-- galaxy-nightly:v1 commit={config.commit} build={config.nightly_id} -->" if config.channel == "nightly"
               else f"<!-- galaxy-release:v1 tag={config.version} commit={config.commit} -->")
     body = (notes.strip() + "\n\nDownloads: Apple Silicon macOS DMG (signed and notarized), Windows installer, "
             "and Linux packages. Verify each download with the linked checksum manifest.\n\n" + links
             + f"\n\nSource commit: `{config.commit}`\n\n{marker}")
+    if config.channel == "nightly":
+        body += f"\n\n<!-- galaxy-nightly-assets:v1 build={config.nightly_id} identity={config.identity} -->"
+    metadata_name, signature_name = update_names(config.identity)
+    body += f"\n\n<!-- galaxy-update:v1 manifest={metadata_name} signature={signature_name} -->"
     if transition:
         body += "\n\n" + transition
     return body
@@ -567,7 +771,7 @@ def move_nightly_ref(client, config, expected):
 def finish_nightly(client, config, release, files):
     ref = nightly_ref(client)
     state = nightly_state(release, ref)
-    if (state["commit"], state["build"]) != (config.commit, config.nightly_id) or state["initial"]:
+    if (state["commit"], state["build"], state["identity"]) != (config.commit, config.nightly_id, config.identity) or state["initial"]:
         raise PublishError("Cannot finalize another or unprepared Nightly candidate.")
     verify_local(client, release, files, complete=True)
     verify_subset(client, release, config.identity, config.manifest)
@@ -586,7 +790,7 @@ def finish_nightly(client, config, release, files):
         release = client.request("PATCH", f"/releases/{release['id']}", body={"tag_name": "nightly", "body": body, "draft": False,
             "name": "Nightly", "prerelease": True, "make_latest": "false", "target_commitish": config.commit})
     state = nightly_state(release, nightly_ref(client))
-    if state["draft"] or state["transition"] or (state["commit"], state["build"]) != (config.commit, config.nightly_id):
+    if state["draft"] or state["transition"] or (state["commit"], state["build"], state["identity"]) != (config.commit, config.nightly_id, config.identity):
         raise PublishError("Nightly completion was not confirmed.")
     verify_subset(client, release, config.identity, config.manifest)
     retire_nightly_assets(client, config, release)
@@ -595,7 +799,7 @@ def finish_nightly(client, config, release, files):
 def retire_nightly_assets(client, config, release):
     if config.channel != "nightly":
         raise PublishError("Tagged release assets can never be retired by this publisher.")
-    current_names = payload_names(config.identity) | {config.manifest}
+    current_names = payload_names(config.identity) | {config.manifest, *update_names(config.identity)}
     for name, value in assets(client, release).items():
         if name in current_names or not OWNED_ASSET.fullmatch(name):
             continue
@@ -604,7 +808,7 @@ def retire_nightly_assets(client, config, release):
             continue
         current = client.request("GET", f"/releases/{release['id']}")
         state = nightly_state(current, nightly_ref(client))
-        if state["draft"] or state["transition"] or (state["commit"], state["build"]) != (config.commit, config.nightly_id):
+        if state["draft"] or state["transition"] or (state["commit"], state["build"], state["identity"]) != (config.commit, config.nightly_id, config.identity):
             raise PublishError("Nightly changed before old-asset cleanup; stopped.")
         fresh = client.request("GET", f"/releases/assets/{value['id']}", missing=True)
         if fresh is None:
@@ -646,7 +850,7 @@ def publish_nightly(config, client, files, notes):
     if state["transition"] and not state["initial"]:
         # A previous body's complete downloads establish the recorded ownership
         # of an older alias even if that previous alias update was interrupted.
-        verify_subset(client, release, "nightly_" + state["build"], "SHA256SUMS_nightly_" + state["build"])
+        verify_subset(client, release, state["identity"], "SHA256SUMS_" + state["identity"])
     upload_files(client, release, files)
     primary_source(config)
     current = client.request("GET", f"/releases/{release['id']}")
@@ -728,9 +932,11 @@ def notes_for(config):
 
 def main():
     try:
+        os.umask(0o077)
         config = Config.from_env(os.environ)
-        files = release_files(config)
         client = GitHub(config)
+        verify_prepared_identity(client, config)
+        files = release_files(config)
         notes = notes_for(config)
         if not notes.strip() or len(notes.encode("utf-8")) > 128 * 1024:
             raise PublishError("Publication notes must be nonempty and bounded.")
