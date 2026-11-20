@@ -12,6 +12,17 @@ test "$(uname -m)" = arm64
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
 command -v rustup >/dev/null || { echo 'Install rustup for the runner user first.' >&2; exit 1; }
 command -v brew >/dev/null || { echo 'Install Homebrew for the runner user first.' >&2; exit 1; }
+# Bindgen must parse Xcode's SIMD headers with the matching libclang. Selecting
+# only a Homebrew library can mix different Clang versions in one invocation.
+export CLANG_PATH=$(xcrun --sdk macosx --find clang)
+export CC="$CLANG_PATH" CXX=$(xcrun --sdk macosx --find clang++)
+xcode_bin=$(dirname "$CLANG_PATH")
+export LIBCLANG_PATH=$(cd "$xcode_bin/../lib" && pwd)
+export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
+xcode_resource=$("$CLANG_PATH" -print-resource-dir)
+[[ -x "$CC" && -x "$CXX" && -f "$LIBCLANG_PATH/libclang.dylib" && -f "$xcode_resource/include/arm_neon.h" && -d "$SDKROOT" ]] || { echo 'A complete matching Xcode compiler, libclang, headers, and macOS SDK are required.' >&2; exit 1; }
+export PATH="$xcode_bin:$PATH"
+"$CLANG_PATH" --version
 protobuf_prefix=$(brew --prefix protobuf 2>/dev/null || true)
 protobuf_complete() {
   [[ -n $protobuf_prefix && -x $protobuf_prefix/bin/protoc ]] || return 1
@@ -37,7 +48,7 @@ if ! xcrun -sdk macosx metal --version >/dev/null 2>&1; then
 fi
 xcrun -sdk macosx metal --version
 xcrun -sdk macosx --find metallib
-for package in cmake pkgconf llvm; do
+for package in cmake pkgconf; do
   brew list --versions "$package" >/dev/null 2>&1 || brew install "$package"
 done
 [[ "$RUNNER_TEMP" == /* && "$GALAXY_JOB_ID" =~ ^[0-9]+-[0-9]*$ ]]
@@ -59,7 +70,13 @@ rm -rf -- "$tools/build"
 echo "$tools/bin" >> "$GITHUB_PATH"
 echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 echo '/opt/homebrew/bin' >> "$GITHUB_PATH"
+echo "$xcode_bin" >> "$GITHUB_PATH"
 echo 'RUSTUP_TOOLCHAIN=1.97.1' >> "$GITHUB_ENV"
+echo "CLANG_PATH=$CLANG_PATH" >> "$GITHUB_ENV"
+echo "LIBCLANG_PATH=$LIBCLANG_PATH" >> "$GITHUB_ENV"
+echo "CC=$CC" >> "$GITHUB_ENV"
+echo "CXX=$CXX" >> "$GITHUB_ENV"
+echo "SDKROOT=$SDKROOT" >> "$GITHUB_ENV"
 echo "PROTOC=$PROTOC" >> "$GITHUB_ENV"
 echo "PROTOC_INCLUDE=$PROTOC_INCLUDE" >> "$GITHUB_ENV"
 echo "GALAXY_TOOLS_DIR=$tools" >> "$GITHUB_ENV"

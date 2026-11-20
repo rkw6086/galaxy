@@ -52,10 +52,16 @@ export GIT_RELEASE_TAG="$version"
 export GALAXY_GIT_COMMIT="$GALAXY_RELEASE_SHA"
 export GALAXY_GIT_DIRTY=false
 export MACOSX_DEPLOYMENT_TARGET=10.14
-if [[ -z ${LIBCLANG_PATH:-} ]] && command -v brew >/dev/null; then
-  llvm_prefix=$(brew --prefix llvm)
-  export LIBCLANG_PATH="$llvm_prefix/lib"
-fi
+# Keep bindgen's compiler/include discovery and loaded library on the same active
+# Xcode toolchain, even if another LLVM installation is present on the runner.
+export CLANG_PATH=$(xcrun --sdk macosx --find clang)
+export CC="$CLANG_PATH" CXX=$(xcrun --sdk macosx --find clang++)
+xcode_bin=$(dirname "$CLANG_PATH")
+export LIBCLANG_PATH=$(cd "$xcode_bin/../lib" && pwd)
+export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
+xcode_resource=$("$CLANG_PATH" -print-resource-dir)
+[[ -x "$CC" && -x "$CXX" && -f "$LIBCLANG_PATH/libclang.dylib" && -f "$xcode_resource/include/arm_neon.h" && -d "$SDKROOT" ]] || fail 'A complete matching Xcode compiler, libclang, headers, and macOS SDK are required.'
+export PATH="$xcode_bin:$PATH"
 
 target=aarch64-apple-darwin
 features=release_bundle,extern_plist,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli
