@@ -165,7 +165,7 @@ for binary in app.rglob('*'):
     kind = subprocess.check_output(['/usr/bin/file', '-b', str(binary)], text=True)
     if 'Mach-O' not in kind:
         continue
-    subprocess.run(['/usr/bin/lipo', '-verify_arch', 'arm64', str(binary)], check=True)
+    subprocess.run(['/usr/bin/lipo', str(binary), '-verify_arch', 'arm64'], check=True)
     def expand(value):
         return value.replace('@loader_path', str(binary.parent)).replace('@executable_path', str(main))
     search_paths = rpaths(binary) + main_rpaths
