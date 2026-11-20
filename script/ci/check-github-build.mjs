@@ -17,8 +17,38 @@ const git = (...args) => execFileSync('git', args, {
   stdio: ['ignore', 'pipe', 'pipe'],
 }).trim();
 
+function ownedNightlyPlaceholder(release) {
+  // GitHub can temporarily replace an initial draft's absent tag with an
+  // internal name. Recover only our bot-authored, explicitly bound initial draft.
+  if (!/^untagged-[0-9a-f]{20}$/.test(release.tag_name ?? '') || release.draft !== true
+      || release.name !== 'Nightly' || release.prerelease !== true
+      || release.author?.login !== 'github-actions[bot]' || release.author?.type !== 'Bot'
+      || !Number.isSafeInteger(release.id) || release.id <= 0 || typeof release.body !== 'string') return false;
+  const markers = [...release.body.matchAll(NIGHTLY)];
+  const transitions = [...release.body.matchAll(TRANSITION)];
+  if (markers.length !== 1 || transitions.length !== 1
+      || release.body.split('<!-- galaxy-nightly:').length !== 2
+      || release.body.split('<!-- galaxy-nightly-transition:').length !== 2
+      || release.body.includes('<!-- galaxy-release:')) return false;
+  const [, commit, build] = markers[0];
+  const [, id, prior, priorBuild, oldRef, candidate] = transitions[0];
+  return release.target_commitish === commit && BUILD.exec(build)?.[1] === commit && candidate === build
+    && (id === 'new' || id === String(release.id)) && prior === 'none' && priorBuild === 'none' && oldRef === 'none';
+}
+
+function ownedStablePlaceholder(release, version) {
+  if (!VERSION.test(version) || !/^untagged-[0-9a-f]{20}$/.test(release.tag_name ?? '')
+      || release.draft !== true || release.prerelease !== false || release.name !== `Galaxy ${version}`
+      || release.author?.login !== 'github-actions[bot]' || release.author?.type !== 'Bot'
+      || !Number.isSafeInteger(release.id) || release.id <= 0 || typeof release.body !== 'string'
+      || release.body.includes('<!-- galaxy-nightly:') || release.body.includes('<!-- galaxy-nightly-transition:')) return false;
+  const markers = [...release.body.matchAll(/<!-- galaxy-release:v1 tag=([0-9.]+) commit=([0-9a-f]{40}) -->/g)];
+  return markers.length === 1 && release.body.split('<!-- galaxy-release:').length === 2
+    && markers[0][1] === version && release.target_commitish === markers[0][2];
+}
+
 function nightlyState(release, ref) {
-  if (release.tag_name !== 'nightly' || release.name !== 'Nightly' || !release.prerelease
+  if ((release.tag_name !== 'nightly' && !ownedNightlyPlaceholder(release)) || release.name !== 'Nightly' || !release.prerelease
       || !Number.isSafeInteger(release.id) || release.id <= 0) throw new Error('Existing Nightly is not an owned rolling record.');
   const markers = [...(release.body ?? '').matchAll(NIGHTLY)];
   const transitions = [...(release.body ?? '').matchAll(TRANSITION)];
@@ -72,6 +102,36 @@ async function main() {
     if (!response.ok) throw new Error(`Build preflight API returned HTTP ${response.status}.`);
     return response.json();
   };
+  let releaseHistory;
+  const allReleases = async () => {
+    if (!token || /\s/.test(token)) throw new Error('Release lookup requires authenticated GitHub access.');
+    if (releaseHistory) return releaseHistory;
+    const releases = [];
+    for (let page = 1; page <= 100; page += 1) {
+      const values = await api(`/releases?per_page=100&page=${page}`);
+      if (!Array.isArray(values) || values.some((value) => !value || typeof value !== 'object' || Array.isArray(value))) throw new Error('Cannot inspect release history.');
+      releases.push(...values);
+      if (values.length < 100) {
+        releaseHistory = releases;
+        return releaseHistory;
+      }
+    }
+    throw new Error('Release history exceeds its safe bound.');
+  };
+  const releaseForTag = async (tag) => {
+    // The by-tag endpoint excludes unpublished drafts. Authenticated listings
+    // include them for the trusted publication job's push-capable token.
+    const belongs = (release) => release.tag_name === tag
+      || (tag === 'nightly' ? ownedNightlyPlaceholder(release) : ownedStablePlaceholder(release, tag));
+    const matches = (await allReleases()).filter(belongs);
+    if (matches.length > 1) throw new Error('Multiple releases claim the requested tag; inspect them before continuing.');
+    if (!matches.length) return null;
+    const id = matches[0].id;
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Release lookup returned an invalid record identity.');
+    const current = await api(`/releases/${id}`);
+    if (current?.id !== id || current.tag_name !== matches[0].tag_name || !belongs(current)) throw new Error('Release identity changed during lookup.');
+    return current;
+  };
   const tagObject = async (tag, missing = false) => {
     const value = await api(`/git/ref/tags/${encodeURIComponent(tag)}`, missing);
     if (!value) return null;
@@ -106,7 +166,7 @@ async function main() {
       const attempt = process.env.GITHUB_RUN_ATTEMPT;
       if (!/^[1-9][0-9]{0,18}$/.test(run ?? '') || !/^[1-9][0-9]{0,8}$/.test(attempt ?? '')) throw new Error('Missing Nightly run identity.');
       nightlyId = `${sha}_${run}-${attempt}`;
-      const current = await api('/releases/tags/nightly', true);
+      const current = await releaseForTag('nightly');
       const object = await tagObject('nightly', true);
       if (object && (object.type !== 'commit' || !SHA.test(object.sha))) throw new Error('Nightly must use its owned lightweight source ref.');
       previousRef = object?.sha ?? '';
@@ -126,7 +186,7 @@ async function main() {
       if (git('rev-parse', `${ref}^{commit}`) !== sha || await tagCommit(version) !== sha
           || git('rev-parse', `${process.env.GITHUB_SHA}^{commit}`) !== sha) throw new Error('Release tag or source changed.');
       git('merge-base', '--is-ancestor', sha, 'refs/remotes/origin/master');
-      const existing = await api(`/releases/tags/${version}`, true);
+      const existing = await releaseForTag(version);
       if (existing && !existing.draft) {
         fs.appendFileSync(process.env.GITHUB_OUTPUT, 'build=false\nchannel=release\n');
         console.log(`Galaxy ${version} is already published; its files remain unchanged.`);
@@ -134,14 +194,7 @@ async function main() {
       }
       try { notes = changelog(version); } catch { /* Bounded commit notes below. */ }
     }
-    const releases = [];
-    for (let page = 1; page <= 100; page += 1) {
-      const values = await api(`/releases?per_page=100&page=${page}`);
-      if (!Array.isArray(values)) throw new Error('Cannot inspect release history.');
-      releases.push(...values);
-      if (values.length < 100) break;
-      if (page === 100) throw new Error('Release history exceeds its safe bound.');
-    }
+    const releases = await allReleases();
     const stable = releases.filter((release) => !release.draft && !release.prerelease && VERSION.test(release.tag_name ?? ''))
       .sort((a, b) => compareVersions(b.tag_name, a.tag_name));
     const previousStable = channel === 'release'

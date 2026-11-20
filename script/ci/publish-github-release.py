@@ -26,6 +26,7 @@ COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 BUILD = re.compile(r"([0-9a-f]{40})_([1-9][0-9]{0,18})-([1-9][0-9]{0,8})\Z")
 NIGHTLY = re.compile(r"<!-- galaxy-nightly:v1 commit=([0-9a-f]{40}) build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) -->")
 TRANSITION = re.compile(r"<!-- galaxy-nightly-transition:v1 release=(new|[1-9][0-9]{0,18}) previous=([0-9a-f]{40}|none) build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}|none) ref=([0-9a-f]{40}|none) candidate=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) -->")
+PLACEHOLDER = re.compile(r"untagged-[0-9a-f]{20}\Z")
 OWNED_ASSET = re.compile(r"(?:Galaxy_nightly_([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8})_(?:aarch64\.dmg|x86_64-setup\.exe|amd64\.deb|linux_x86_64\.tar\.gz)|SHA256SUMS_nightly_([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}))\Z")
 MAX_ASSET = 2 * 1024 * 1024 * 1024
 MAX_MANIFEST = 8192
@@ -280,8 +281,63 @@ def release_files(config):
     return files
 
 
-def release_path(tag):
-    return "/releases/tags/" + urllib.parse.quote(tag, safe="")
+def owned_placeholder(release, tag):
+    # GitHub may replace an unpublished tag with its internal placeholder when
+    # a draft is updated. Only an initial, positively identified workflow draft
+    # may be rediscovered this way; published and unrelated records stay strict.
+    identity = release.get("id")
+    author = release.get("author")
+    target = release.get("target_commitish")
+    body = release.get("body")
+    if (release.get("draft") is not True or not isinstance(release.get("tag_name"), str)
+            or not PLACEHOLDER.fullmatch(release["tag_name"])
+            or not isinstance(identity, int) or isinstance(identity, bool) or not 0 < identity <= 2 ** 53 - 1
+            or not isinstance(author, dict) or author.get("login") != "github-actions[bot]" or author.get("type") != "Bot"
+            or not isinstance(target, str) or not COMMIT.fullmatch(target) or not isinstance(body, str)):
+        return False
+    if tag == "nightly":
+        markers = NIGHTLY.findall(body)
+        transitions = TRANSITION.findall(body)
+        if (release.get("name") != "Nightly" or release.get("prerelease") is not True
+                or body.count("<!-- galaxy-nightly:") != 1 or len(markers) != 1
+                or body.count("<!-- galaxy-nightly-transition:") != 1 or len(transitions) != 1
+                or "<!-- galaxy-release:" in body):
+            return False
+        commit, build = markers[0]
+        record_id, previous, previous_build, old_ref, candidate = transitions[0]
+        return (target == commit and BUILD.fullmatch(build)[1] == commit and candidate == build
+                and record_id in ("new", str(identity))
+                and (previous, previous_build, old_ref) == ("none", "none", "none"))
+    if not VERSION.fullmatch(tag):
+        return False
+    markers = re.findall(r"<!-- galaxy-release:v1 tag=([0-9.]+) commit=([0-9a-f]{40}) -->", body)
+    return (release.get("name") == "Galaxy " + tag and release.get("prerelease") is False
+            and body.count("<!-- galaxy-release:") == 1 and markers == [(tag, target)]
+            and "<!-- galaxy-nightly:" not in body and "<!-- galaxy-nightly-transition:" not in body)
+
+
+def release_for_tag(client, tag):
+    # The by-tag endpoint only returns published releases. The authenticated
+    # push-capable publisher can also rediscover drafts through release listings.
+    matches = []
+    for value in listing(client, "/releases"):
+        if not isinstance(value, dict):
+            raise PublishError("Release lookup returned invalid metadata.")
+        if value.get("tag_name") == tag or owned_placeholder(value, tag):
+            matches.append(value)
+    if len(matches) > 1:
+        raise PublishError("Multiple releases claim the requested tag; inspect them before continuing.")
+    if not matches:
+        return None
+    identity = matches[0].get("id")
+    if not isinstance(identity, int) or isinstance(identity, bool) or identity <= 0:
+        raise PublishError("Release lookup returned an invalid record identity.")
+    current = client.request("GET", f"/releases/{identity}")
+    if (not isinstance(current, dict) or current.get("id") != identity
+            or current.get("tag_name") != matches[0].get("tag_name")
+            or (current.get("tag_name") != tag and not owned_placeholder(current, tag))):
+        raise PublishError("Release identity changed during lookup.")
+    return current
 
 
 def raw_tag(client, tag, missing=False):
@@ -422,7 +478,9 @@ def verify_subset(client, release, identity, manifest):
 
 
 def nightly_state(release, ref):
-    if release.get("tag_name") != "nightly" or release.get("name") != "Nightly" or not release.get("prerelease") or not isinstance(release.get("id"), int) or release["id"] <= 0:
+    if ((release.get("tag_name") != "nightly" and not owned_placeholder(release, "nightly"))
+            or release.get("name") != "Nightly" or not release.get("prerelease")
+            or not isinstance(release.get("id"), int) or release["id"] <= 0):
         raise PublishError("Existing Nightly is not an owned rolling record.")
     markers = NIGHTLY.findall(release.get("body") or "")
     transitions = TRANSITION.findall(release.get("body") or "")
@@ -525,7 +583,7 @@ def finish_nightly(client, config, release, files):
         if state_key(current_state) != state_key(state) or nightly_ref(client) != config.commit:
             raise PublishError("Nightly intent changed before completion.")
         body = TRANSITION.sub("", current["body"]).strip()
-        release = client.request("PATCH", f"/releases/{release['id']}", body={"body": body, "draft": False,
+        release = client.request("PATCH", f"/releases/{release['id']}", body={"tag_name": "nightly", "body": body, "draft": False,
             "name": "Nightly", "prerelease": True, "make_latest": "false", "target_commitish": config.commit})
     state = nightly_state(release, nightly_ref(client))
     if state["draft"] or state["transition"] or (state["commit"], state["build"]) != (config.commit, config.nightly_id):
@@ -560,7 +618,7 @@ def retire_nightly_assets(client, config, release):
 
 
 def publish_nightly(config, client, files, notes):
-    release = client.request("GET", release_path("nightly"), missing=True)
+    release = release_for_tag(client, "nightly")
     ref = nightly_ref(client)
     if release is None:
         if config.previous_id is not None or ref is not None:
@@ -600,7 +658,7 @@ def publish_nightly(config, client, files, notes):
         previous = "" if state["transition"][1] == "none" else state["transition"][1]
         previous_build = "" if state["transition"][2] == "none" else state["transition"][2]
     intent = transition_marker(state["id"], previous, previous_build, ref, config.nightly_id)
-    release = client.request("PATCH", f"/releases/{release['id']}", body={"name": "Nightly",
+    release = client.request("PATCH", f"/releases/{release['id']}", body={"tag_name": "nightly", "name": "Nightly",
         "body": body_for(config, notes, intent), "target_commitish": config.commit,
         "draft": state["draft"], "prerelease": True, "make_latest": "false"})
     finish_nightly(client, config, release, files)
@@ -608,7 +666,8 @@ def publish_nightly(config, client, files, notes):
 
 def stable_identity(release, version, commit):
     markers = re.findall(r"<!-- galaxy-release:v1 tag=" + re.escape(version) + r" commit=([0-9a-f]{40}) -->", release.get("body") or "")
-    if release.get("tag_name") != version or release.get("prerelease") or markers != [commit]:
+    if ((release.get("tag_name") != version and not owned_placeholder(release, version))
+            or release.get("prerelease") or markers != [commit]):
         raise PublishError("Existing tagged release has another identity; left unchanged.")
 
 
@@ -616,7 +675,7 @@ def publish_stable(config, client, files, notes):
     primary_source(config)
     if tag_commit(client, config.tag) != config.commit:
         raise PublishError("Stable tag changed before publication.")
-    release = client.request("GET", release_path(config.tag), missing=True)
+    release = release_for_tag(client, config.tag)
     if release is None:
         release = client.request("POST", "/releases", body={"tag_name": config.tag, "target_commitish": config.commit,
             "name": "Galaxy " + config.version, "body": body_for(config, notes), "draft": True, "prerelease": False})
@@ -633,7 +692,8 @@ def publish_stable(config, client, files, notes):
                     and VERSION.fullmatch(value.get("tag_name", ""))
                     and tuple(map(int, value["tag_name"].split("."))) > version_key
                     for value in listing(client, "/releases"))
-        release = client.request("PATCH", f"/releases/{release['id']}", body={"draft": False, "make_latest": "false" if newer else "true"})
+        release = client.request("PATCH", f"/releases/{release['id']}", body={"tag_name": config.tag, "draft": False,
+            "make_latest": "false" if newer else "true"})
     else:
         verify_local(client, release, files, complete=True)
     stable_identity(release, config.version, config.commit)

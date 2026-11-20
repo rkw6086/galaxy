@@ -30,12 +30,16 @@ env:
   GALAXY_GITHUB_CI: '1'
 
 jobs:
-  prepare:
-    if: github.repository == 'rkw6086/galaxy'
+  prepare-publication:
+    if: >-
+      github.repository == 'rkw6086/galaxy' &&
+      (((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master') ||
+       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && !github.event.deleted))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: read
+      # Authenticated draft-release discovery requires a push-capable token.
+      contents: write
       actions: read
     outputs:
       build: ${{ steps.prepare.outputs.build }}
@@ -73,9 +77,60 @@ jobs:
           overwrite: true
           if-no-files-found: error
 
+  prepare-pr:
+    if: github.repository == 'rkw6086/galaxy' && github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.prepare.outputs.build }}
+      channel: ${{ steps.prepare.outputs.channel }}
+      version: ${{ steps.prepare.outputs.version }}
+      sha: ${{ steps.prepare.outputs.sha }}
+    steps:
+      - name: Check out the pull request and immutable tag history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.17.0'
+      - name: Validate the unsigned pull request build
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node script/ci/check-github-build.mjs
+
+  prepare:
+    needs: [prepare-publication, prepare-pr]
+    if: >-
+      ${{ !cancelled() && github.repository == 'rkw6086/galaxy' &&
+          ((github.event_name == 'pull_request' && needs['prepare-pr'].result == 'success') ||
+           (github.event_name != 'pull_request' && needs['prepare-publication'].result == 'success')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      build: ${{ needs['prepare-publication'].outputs.build || needs['prepare-pr'].outputs.build }}
+      channel: ${{ needs['prepare-publication'].outputs.channel || needs['prepare-pr'].outputs.channel }}
+      version: ${{ needs['prepare-publication'].outputs.version || needs['prepare-pr'].outputs.version }}
+      sha: ${{ needs['prepare-publication'].outputs.sha || needs['prepare-pr'].outputs.sha }}
+      nightly_id: ${{ needs['prepare-publication'].outputs.nightly_id }}
+      previous_nightly_sha: ${{ needs['prepare-publication'].outputs.previous_nightly_sha }}
+      previous_nightly_build: ${{ needs['prepare-publication'].outputs.previous_nightly_build }}
+      previous_nightly_release_id: ${{ needs['prepare-publication'].outputs.previous_nightly_release_id }}
+      previous_nightly_ref: ${{ needs['prepare-publication'].outputs.previous_nightly_ref }}
+      previous_nightly_pending: ${{ needs['prepare-publication'].outputs.previous_nightly_pending }}
+    steps:
+      - name: Forward the successful preparation without checking out source
+        run: echo 'Validated build inputs are ready.'
+
   macos:
     needs: prepare
-    if: needs.prepare.outputs.build == 'true'
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.build == 'true' }}
     runs-on: macos-15
     timeout-minutes: 350
     env:
@@ -145,7 +200,7 @@ jobs:
 
   linux:
     needs: prepare
-    if: needs.prepare.outputs.build == 'true'
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.build == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     env:
@@ -190,7 +245,7 @@ jobs:
 
   windows:
     needs: prepare
-    if: needs.prepare.outputs.build == 'true'
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.build == 'true' }}
     runs-on: windows-2025
     timeout-minutes: 350
     env:
@@ -238,7 +293,11 @@ jobs:
 
   publish:
     needs: [prepare, macos, linux, windows]
-    if: github.repository == 'rkw6086/galaxy' && github.event_name != 'pull_request' && needs.prepare.outputs.build == 'true' && needs.prepare.outputs.channel != 'ci'
+    if: >-
+      ${{ !cancelled() && needs.prepare.result == 'success' && needs.macos.result == 'success' &&
+          needs.linux.result == 'success' && needs.windows.result == 'success' &&
+          github.repository == 'rkw6086/galaxy' && github.event_name != 'pull_request' &&
+          needs.prepare.outputs.build == 'true' && needs.prepare.outputs.channel != 'ci' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
