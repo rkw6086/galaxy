@@ -1,0 +1,113 @@
+name: SSH Report
+description: "Report SSH connection, remote shell, or Galaxy SSH extension problems."
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Reports are public. Redact credentials, hostnames, addresses, usernames, and private content from commands and logs."
+  - type: checkboxes
+    attributes:
+      label: "Pre-submit checks"
+      options:
+        - label: "I have [searched Galaxy SSH issues](https://github.com/rkw6086/galaxy/issues?q=is%3Aissue+ssh) and found no duplicate report."
+          required: true
+  - type: textarea
+    id: "describe-the-bug"
+    attributes:
+      label: "Describe the problem"
+      description: "Explain what happens and whether the failure occurs while connecting, installing or starting the SSH extension, starting the remote shell, or using the session."
+    validations:
+      required: true
+  - type: textarea
+    id: "to-reproduce"
+    attributes:
+      label: "Steps to reproduce"
+      description: "Include the redacted SSH command, relevant options or configuration, and any actions needed to reproduce the problem."
+    validations:
+      required: true
+  - type: textarea
+    id: "expected-behavior"
+    attributes:
+      label: "Expected behavior"
+    validations:
+      required: true
+  - type: dropdown
+    id: "os"
+    attributes:
+      label: "Local operating system"
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: "os-version"
+    attributes:
+      label: "Local operating system version"
+      description: "Include the OS version or Linux distribution and version."
+    validations:
+      required: true
+  - type: input
+    id: "local-shell-version"
+    attributes:
+      label: "Local shell and version"
+      description: "For example: zsh 5.9, bash 5.2, or PowerShell 7.5."
+    validations:
+      required: true
+  - type: input
+    id: "remote-os-version"
+    attributes:
+      label: "Remote operating system and architecture"
+      description: "Include the OS or Linux distribution, version, and CPU architecture if known."
+    validations:
+      required: true
+  - type: input
+    id: "remote-shell-version"
+    attributes:
+      label: "Remote shell and version"
+      description: "Include the remote login shell and version if known."
+    validations:
+      required: false
+  - type: input
+    id: "galaxy-version"
+    attributes:
+      label: "Galaxy version and build"
+      description: "Open Settings > About and include the version and build details shown there. For a source build, include the commit if known."
+    validations:
+      required: true
+  - type: dropdown
+    id: "ssh-extension"
+    attributes:
+      label: "Are you using the Galaxy SSH extension?"
+      options:
+        - "Yes"
+        - "No"
+        - "Not sure"
+    validations:
+      required: true
+  - type: dropdown
+    id: "terminals"
+    attributes:
+      label: "Does the same SSH command work in another terminal?"
+      options:
+        - "Yes"
+        - "No"
+        - "Not tested"
+    validations:
+      required: true
+  - type: textarea
+    id: "shell-output"
+    attributes:
+      label: "Shell output and error messages"
+      description: "Paste the relevant redacted output from the SSH command and any extension installation or remote shell errors."
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: "additional-context"
+    attributes:
+      label: "Additional context, screenshots, and logs"
+      description: "Attach relevant redacted logs or screenshots. Mention jump hosts, containers, tmux, custom shell startup files, or other details that may affect the connection."
+    validations:
+      required: false

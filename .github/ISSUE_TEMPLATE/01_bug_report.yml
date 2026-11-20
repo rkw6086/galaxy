@@ -1,57 +1,51 @@
 name: Bug Report
-description: "Found a bug? Please search through our open issues and docs, to make sure it isn't already submitted. If you have an SSH related issue, please use the SSH Template below"
+description: "Report a problem with Galaxy. For SSH connection or remote shell integration problems, use the SSH report."
 labels: ["bug"]
 body:
+  - type: markdown
+    attributes:
+      value: "Reports are public. Remove credentials, tokens, personal information, and private project content from any screenshots or logs."
   - type: checkboxes
     attributes:
-      label: "Pre-submit Checks"
+      label: "Pre-submit checks"
       options:
-        - label: "I have [searched Warp bugs](https://github.com/warpdotdev/warp/issues?q=is%3Aissue+label%3ABUG) and there are no duplicates"
+        - label: "I have [searched Galaxy issues](https://github.com/rkw6086/galaxy/issues?q=is%3Aissue) and found no duplicate report."
           required: true
-        - label: "I have [searched Warp known issues page](https://docs.warp.dev/help/known-issues) and my issue is not there"
-          required: true
-        - label: "I have an issue with AI and have included the debugging ID (Optional, but helps expedite the AI quality fix). [Debugging ID instructions](https://docs.warp.dev/agent-platform/agent/ai-faqs#gathering-ai-debugging-id)"
-          required: false
-        - label: "I have technical issue and have included the logs (optional, but helps expedite the bug fix). [Log instructions](https://docs.warp.dev/support-and-community/troubleshooting-and-support/sending-us-feedback#gathering-warp-logs)"
-          required: false
   - type: textarea
     id: "describe-the-bug"
     attributes:
       label: "Describe the bug"
-      description: "A clear and concise description of what the bug is."
+      description: "A clear and concise description of what happens."
       placeholder: Tell us what you see.
     validations:
       required: true
   - type: textarea
     id: "to-reproduce"
     attributes:
-      label: "To reproduce"
-      description: "Bug reports with clear reproduction will get prioritized higher and addressed more quickly."
-      placeholder: "Steps to reproduce: 1. Go to '...' 2. Click on '...' 3. Scroll down to '...' 4. See error '...'"
+      label: "Steps to reproduce"
+      description: "Include the commands, settings, and actions needed to reproduce the problem."
+      placeholder: "1. Open ...\n2. Run ...\n3. Observe ..."
     validations:
       required: true
   - type: textarea
     id: "expected-behavior"
     attributes:
       label: "Expected behavior"
-      description: "A clear and concise description of what you expected to happen."
-      placeholder: Tell us what you expect to see.
+      description: "What did you expect to happen?"
     validations:
-      required: false
+      required: true
   - type: textarea
     id: "screenshots-logs"
     attributes:
       label: "Screenshots, videos, and logs"
-      description: "If applicable, add screenshots/videos/logs to help us understand your problem. While optional, these help expedite the time in which your bug is addressed."
+      description: "If available, attach relevant screenshots or redacted logs, including the exact error and time it occurred."
     validations:
       required: false
   - type: dropdown
     id: "os"
     attributes:
       label: "Operating system (OS)"
-      multiple: false
       options:
-        - "Select an OS"
         - macOS
         - Linux
         - Windows
@@ -60,77 +54,73 @@ body:
   - type: input
     id: "os-version"
     attributes:
-      label: "Operating system and version"
-      description: "For example: Debian 11.2"
+      label: "Operating system version"
+      description: "For example: macOS 15.6, Ubuntu 24.04, or Windows 11 24H2."
     validations:
       required: true
   - type: input
     id: "local-shell-version"
     attributes:
-      label: "Shell Version"
-      description: "For example, `bash 4.0` e.g. Run `bash --version` or `zsh --version`"
+      label: "Shell and version"
+      description: "For example: zsh 5.9, bash 5.2, or PowerShell 7.5."
     validations:
       required: false
   - type: input
-    id: "warp-version"
+    id: "galaxy-version"
     attributes:
-      label: "Current Warp version"
-      description: "Open the Settings Dialog (CMD-,) using the Command Palette or by clicking the three dots > Settings > Account. Once you're on the Account page click the copy icon that's to the right of the version number. `v0.2047.04.07.47.47.stable_47`"
+      label: "Galaxy version and build"
+      description: "Open Settings > About and include the version and build details shown there. For a source build, include the commit if known."
     validations:
-      required: false
+      required: true
   - type: dropdown
     id: "regression"
     attributes:
-      label: "Regression"
-      description: "Is this a regression (used to work in a previous Warp version)?"
-      multiple: false
+      label: "Did this work in an earlier Galaxy version?"
       options:
-        - "No, this bug or issue has existed throughout my experience using Warp"
-        - "Yes, this bug started recently or with an X Warp version"
+        - "Yes"
+        - "No"
+        - "Not sure"
     validations:
       required: true
   - type: input
-    id: "warp-version-regression-date"
+    id: "galaxy-version-regression-date"
     attributes:
-      label: "Recent working Warp date"
-      description: "Most recent date that Warp worked as expected"
+      label: "Last working Galaxy version or date"
+      description: "If this used to work, include the most recent version or date when it worked."
+    validations:
+      required: false
+  - type: textarea
+    id: "ai-context"
+    attributes:
+      label: "AI provider details, if applicable"
+      description: "For agent or model issues, include the provider, model ID, connection type (direct provider or ACP), and the failed action or error. Attach relevant redacted AI Activity details if available."
     validations:
       required: false
   - type: textarea
     id: "additional-context"
     attributes:
       label: "Additional context"
-      description: "Add any other context about the problem here. If using Warp on Linux, tell us if you're using X11 or Wayland. If the issue is graphical, run Warp with the following command `RUST_LOG=wgpu_core=info,wgpu_hal=info MESA_DEBUG=1 EGL_LOG_LEVEL=debug warp-terminal` attach logs and tell us the result of `eglinfo`."
+      description: "Add any other relevant details. On Linux, include whether you use X11 or Wayland. For graphics issues, include your GPU and driver version."
     validations:
       required: false
   - type: dropdown
     id: "blocker"
     attributes:
-      label: "Does this block you from using Warp daily?"
-      description: "All feedback will be reviewed, even if you select 'No'."
-      multiple: false
+      label: "Does this block you from using Galaxy daily?"
       options:
         - "No"
-        - "Yes, this issue prevents me from using Warp daily."
+        - "Yes"
     validations:
       required: true
   - type: dropdown
     id: "terminals"
     attributes:
-      label: "Is this an issue only in Warp?"
-      description: "Verifying this issue doesn't happen in other terminals helps us to prioritize the fix"
-      multiple: false
+      label: "Does this happen in other terminals?"
+      description: "For terminal or shell issues, comparison with another terminal can help identify the cause."
       options:
-        - "Yes, I confirmed that this only happens in Warp, not other terminals."
-        - "No, this issue happens in Warp and other terminals."
+        - "Only in Galaxy"
+        - "Also in other terminals"
+        - "Not tested"
+        - "Not applicable"
     validations:
       required: true
-  - type: dropdown
-    id: "linear-label-bug"
-    attributes:
-      label: "Warp Internal (ignore): linear-label:b9d78064-c89e-4973-b153-5178a31ee54e"
-      multiple: false
-      options:
-        - Ignore
-    validations:
-      required: false

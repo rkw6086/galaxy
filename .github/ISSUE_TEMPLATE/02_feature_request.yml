@@ -1,44 +1,49 @@
 name: Feature Request
-description: "Have a great new idea? Please search through our existing feature requests, and upvote it if it's already exists."
+description: "Suggest an improvement to Galaxy. Search existing requests before opening a new one."
 labels: ["enhancement"]
 body:
   - type: checkboxes
     attributes:
-      label: "Pre-submit Checks"
+      label: "Pre-submit checks"
       options:
-        - label: "I have [searched Warp feature requests](https://github.com/warpdotdev/warp/issues?q=is%3Aissue+label%3Aenhancement) and there are no duplicates"
+        - label: "I have [searched Galaxy feature requests](https://github.com/rkw6086/galaxy/issues?q=is%3Aissue+label%3Aenhancement) and found no duplicate request."
           required: true
-        - label: "I have [searched Warp docs](https://docs.warp.dev) and my feature is not there"
+        - label: "I have reviewed [Galaxy's project guide](https://github.com/rkw6086/galaxy/blob/master/README.md) and the feature is not already available."
           required: true
   - type: textarea
     id: "describe-solution"
     attributes:
-      label: "Describe the solution you'd like?"
+      label: "Describe the solution you'd like"
       description: "A clear and concise description of what you want to happen."
     validations:
       required: true
   - type: textarea
     id: "related-to-problem"
     attributes:
-      label: "Is your feature request related to a problem? Please describe."
-      description: "A clear and concise description of what the problem is."
-      placeholder: "I'm always frustrated when [...]"
+      label: "What problem would this solve?"
+      description: "Describe the task or workflow that is difficult today."
+      placeholder: "When I ..., I need to ..."
+    validations:
+      required: false
+  - type: textarea
+    id: "alternatives"
+    attributes:
+      label: "Alternatives considered"
+      description: "Describe any workarounds or other approaches you've tried."
     validations:
       required: false
   - type: textarea
     id: "additional-context"
     attributes:
       label: "Additional context"
-      description: "Add any other context or screenshots about the feature request here. If you want to upload a picture you can drag one in from Finder."
+      description: "Add any other context or screenshots. Remove private information before attaching files."
     validations:
       required: false
   - type: dropdown
     id: "os"
     attributes:
       label: "Operating system (OS)"
-      multiple: false
       options:
-        - "Select an OS"
         - macOS
         - Linux
         - Windows
@@ -49,7 +54,6 @@ body:
     id: "importance"
     attributes:
       label: "How important is this feature to you?"
-      multiple: false
       options:
         - "1 (Not too important)"
         - "2"
@@ -58,12 +62,3 @@ body:
         - "5 (Can't work without it!)"
     validations:
       required: true
-  - type: dropdown
-    id: "linear-label-feature"
-    attributes:
-      label: "Warp Internal (ignore) - linear-label:39cc6478-1249-4ee7-950b-c428edfeecd1"
-      multiple: false
-      options:
-        - Ignore
-    validations:
-      required: false
