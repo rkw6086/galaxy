@@ -6484,11 +6484,11 @@ fn test_start_tab_drag_clears_pending_drag_split() {
     });
 }
 
-/// When an existing split view is active and a drag-to-split drop happens,
-/// the existing split is exited first so the result is exactly the two
-/// dragged tabs, not a larger accumulated split.
+/// When the target of a drag-to-split drop is NOT currently a member of the
+/// active split, the existing split is exited first and a fresh [target, source]
+/// pair is created.  The prior split member is not carried over.
 #[test]
-fn test_pending_drag_split_exits_prior_split_before_creating_new_pair() {
+fn test_pending_drag_split_exits_prior_split_when_target_not_a_member() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);
         let workspace = mock_workspace(&mut app);
@@ -6499,14 +6499,15 @@ fn test_pending_drag_split_exits_prior_split_before_creating_new_pair() {
             let a = workspace.get_pane_group_view(0).unwrap().id();
             let b = workspace.get_pane_group_view(1).unwrap().id();
             let c = workspace.get_pane_group_view(2).unwrap().id();
-            // Open an existing split [A, C].
+            // Open an existing split [A, C].  B is NOT a member.
             workspace.activate_tab(0, ctx);
             workspace.open_tab_in_split_view(c, ctx);
             assert!(workspace.split_view_state.is_active());
             (a, b, c)
         });
 
-        // Now drag A onto B's center zone and drop.
+        // Drag A onto B's center zone and drop.  B is not in the split, so
+        // the existing split [A, C] must be exited and [B, A] created fresh.
         workspace.update(&mut app, |workspace, ctx| {
             set_pending_drag_split(workspace, id_b, id_a); // target=B, source=A
             workspace.handle_action(&WorkspaceAction::DropTab, ctx);
@@ -6514,6 +6515,7 @@ fn test_pending_drag_split_exits_prior_split_before_creating_new_pair() {
 
         workspace.read(&app, |workspace, _ctx| {
             let ids = workspace.split_view_state.ids();
+            // Fresh pair: exactly two slots.
             assert_eq!(ids.len(), 2);
             // The prior member C must NOT be in the new split.
             assert!(!ids.contains(&id_c), "prior split member C must be absent");
@@ -7740,6 +7742,474 @@ fn test_restore_rejects_overlapping_groups() {
                 Some(tab_c_id),
                 "dormant group focus must be C (remapped from orig_pos 1)"
             );
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Drop-to-split append-not-replace regression tests
+// ---------------------------------------------------------------------------
+
+/// Dropping a new tab onto a slot that is already in an active split appends
+/// the dragged tab to the existing split rather than replacing it.
+///
+/// Setup: split [A, B] active.  Drag C onto A (a split member).
+/// Expected: split becomes [A, B, C] – the original members A and B are
+/// preserved and C is appended.
+#[test]
+fn test_drop_onto_existing_split_member_appends_source() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B at index 1
+            workspace.add_terminal_tab(false, ctx); // C at index 2
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            // Open split [A, B].
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            assert!(workspace.split_view_state.is_active());
+            assert_eq!(workspace.split_view_state.ids(), &[a, b]);
+            (a, b, c)
+        });
+
+        // Drag C onto A (which IS in the active split).  Expected: [A, B, C].
+        workspace.update(&mut app, |workspace, ctx| {
+            set_pending_drag_split(workspace, id_a, id_c); // target=A (member), source=C
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            let ids = workspace.split_view_state.ids();
+            assert_eq!(
+                ids.len(),
+                3,
+                "split must grow to three slots after appending C"
+            );
+            // A and B must still be in the split.
+            assert!(
+                ids.contains(&id_a),
+                "original member A must remain in split"
+            );
+            assert!(
+                ids.contains(&id_b),
+                "original member B must remain in split"
+            );
+            // C must have been appended.
+            assert!(ids.contains(&id_c), "source C must be appended to split");
+            // The relative order of A and B is preserved; C is at the end.
+            assert_eq!(ids[2], id_c, "C must be the last (newly-appended) slot");
+        });
+    });
+}
+
+/// Dropping a new tab onto a split member that is the second slot of the
+/// active split also appends (not replaces) – ensures the check is on the
+/// target ID, not on its position.
+///
+/// Setup: split [A, B] active.  Drag C onto B (also a split member).
+/// Expected: split has three members [A, B, C].
+#[test]
+fn test_drop_onto_non_first_split_member_also_appends() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            workspace.add_terminal_tab(false, ctx);
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            assert!(workspace.split_view_state.is_active());
+            (a, b, c)
+        });
+
+        // Drag C onto B (second slot, also a split member).
+        workspace.update(&mut app, |workspace, ctx| {
+            set_pending_drag_split(workspace, id_b, id_c); // target=B (member), source=C
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            let ids = workspace.split_view_state.ids();
+            assert_eq!(ids.len(), 3, "split must have three slots");
+            assert!(ids.contains(&id_a), "A must remain");
+            assert!(ids.contains(&id_b), "B must remain");
+            assert!(ids.contains(&id_c), "C must be appended");
+        });
+    });
+}
+
+/// Dropping onto a split member that is currently in a **dormant** group
+/// (not the active split) restores the target's dormant group and appends
+/// the dragged source, preserving the dormant members and their resized weights.
+///
+/// Setup: disjoint groups [A, B] (dormant) and [C, D] (active).
+/// User drags E onto A (which is dormant, not currently visible).
+/// Expected: [A, B, E] becomes the active split, A/B weights are preserved,
+/// [C, D] is parked as dormant.
+#[test]
+fn test_drop_onto_dormant_target_restores_group_and_appends_source() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c, id_d, id_e) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            workspace.add_terminal_tab(false, ctx); // C
+            workspace.add_terminal_tab(false, ctx); // D
+            workspace.add_terminal_tab(false, ctx); // E
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            let d = workspace.get_pane_group_view(3).unwrap().id();
+            let e = workspace.get_pane_group_view(4).unwrap().id();
+            // Build split [A, B] with custom weights.
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            workspace.split_view_state.set_slot_weight(a, 3.0);
+            workspace.split_view_state.set_slot_weight(b, 2.0);
+            assert!(workspace.split_view_state.is_active());
+            // Switch to C to park [A, B], then build active split [C, D].
+            let idx_c = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == c)
+                .unwrap();
+            workspace.activate_tab(idx_c, ctx);
+            workspace.open_tab_in_split_view(d, ctx);
+            assert!(workspace.split_view_state.is_active());
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "[A,B] must be dormant"
+            );
+            (a, b, c, d, e)
+        });
+
+        // Active split is [C, D]; A is dormant.  Drag E onto A.
+        workspace.update(&mut app, |workspace, ctx| {
+            set_pending_drag_split(workspace, id_a, id_e); // target=A (dormant), source=E
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // Active split must contain A, B, and E.
+            assert!(
+                workspace.split_view_state.is_active(),
+                "split must be active after drop"
+            );
+            let ids = workspace.split_view_state.ids();
+            assert!(ids.contains(&id_a), "A must be in restored+grown split");
+            assert!(
+                ids.contains(&id_b),
+                "B must be preserved from A's dormant group"
+            );
+            assert!(ids.contains(&id_e), "E (source) must be appended");
+            // C and D must NOT be in the active split.
+            assert!(!ids.contains(&id_c), "C must not be in active split");
+            assert!(!ids.contains(&id_d), "D must not be in active split");
+            // A/B weights from the dormant group must be preserved.
+            assert_eq!(
+                workspace.split_view_state.slot_weight(id_a),
+                3.0,
+                "A's resized weight must survive dormant restore"
+            );
+            assert_eq!(
+                workspace.split_view_state.slot_weight(id_b),
+                2.0,
+                "B's resized weight must survive dormant restore"
+            );
+            // [C, D] must now be dormant.
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "[C,D] must be parked as dormant"
+            );
+            let g = &workspace.split_view_state.dormant_groups[0];
+            assert!(g.ids.contains(&id_c), "dormant group must contain C");
+            assert!(g.ids.contains(&id_d), "dormant group must contain D");
+        });
+    });
+}
+
+/// When the active split is at MAX_VISIBLE capacity and the user drops a new
+/// tab onto one of its live members, the drop must be a no-op: the split is
+/// unchanged and the source tab's dormant group must be fully preserved.
+#[test]
+fn test_drop_onto_full_capacity_split_is_noop_and_preserves_source_dormant() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        // We need MAX_VISIBLE (4) + 1 extra tabs for the split,
+        // plus 2 for the source's dormant group partner.
+        let ids = workspace.update(&mut app, |workspace, ctx| {
+            // Add enough tabs to fill the split to capacity plus two more.
+            for _ in 0..6 {
+                workspace.add_terminal_tab(false, ctx);
+            }
+            // tabs[0..6] = A..G
+            (0..7)
+                .map(|i| workspace.get_pane_group_view(i).unwrap().id())
+                .collect::<Vec<_>>()
+        });
+        let (id_a, id_b, id_c, id_d, id_e, id_f) = (ids[0], ids[1], ids[2], ids[3], ids[4], ids[5]);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            // Build active split [A, B, C, D] (capacity = MAX_VISIBLE = 4).
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(id_b, ctx);
+            workspace.open_tab_in_split_view(id_c, ctx);
+            workspace.open_tab_in_split_view(id_d, ctx);
+            assert_eq!(workspace.split_view_state.len(), 4);
+            assert!(workspace.split_view_state.is_active());
+
+            // Build a dormant group for E: park E with F.
+            // Switch to E, open F in split, then switch back to A to restore [A..D].
+            let idx_e = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_e)
+                .unwrap();
+            workspace.activate_tab(idx_e, ctx); // parks [A..D]
+            workspace.open_tab_in_split_view(id_f, ctx); // [E, F] active
+            let idx_a = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_a)
+                .unwrap();
+            workspace.activate_tab(idx_a, ctx); // parks [E,F], restores [A..D]
+            assert_eq!(workspace.split_view_state.len(), 4);
+            assert_eq!(workspace.split_view_state.dormant_groups.len(), 1);
+        });
+
+        // Active split [A..D] is at capacity.  Drop E (which has dormant partner F)
+        // onto A (a live member).  Must be a no-op; E's dormant group [E,F] must
+        // survive intact.
+        workspace.update(&mut app, |workspace, ctx| {
+            set_pending_drag_split(workspace, id_a, id_e); // target=A (member), source=E
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // All four live members must still be present and in the same order.
+            let ids = workspace.split_view_state.ids();
+            assert_eq!(
+                ids.len(),
+                4,
+                "split must remain at capacity after a no-op drop"
+            );
+            assert!(ids.contains(&id_a), "A must remain in split");
+            assert!(ids.contains(&id_b), "B must remain in split");
+            assert!(ids.contains(&id_c), "C must remain in split");
+            assert!(ids.contains(&id_d), "D must remain in split");
+            // E must not have been added.
+            assert!(
+                !workspace.split_view_state.contains(id_e),
+                "E must not be added to a full split"
+            );
+            // The focused slot must not have changed (focus was on A before the drop).
+            assert_eq!(
+                workspace.split_view_state.focused_id(),
+                Some(id_a),
+                "focused slot must be unchanged after a no-op drop"
+            );
+            // Source E's dormant group [E, F] must be intact and unmodified.
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "exactly one dormant group must remain"
+            );
+            let g = &workspace.split_view_state.dormant_groups[0];
+            assert!(g.ids.contains(&id_e), "dormant group must still contain E");
+            assert!(g.ids.contains(&id_f), "dormant group must still contain F");
+        });
+    });
+}
+
+/// When the **target** tab's dormant group is already at MAX_VISIBLE capacity,
+/// dropping source onto the target must be a complete no-op — no activation,
+/// no layout change, and the unrelated active split is fully preserved.
+///
+/// Setup: active [E, F]; target A has dormant group [A, B, C, D] (MAX_VISIBLE=4).
+/// Drop G onto A.
+/// Expected: active split unchanged as [E, F]; dormant [A,B,C,D] intact; G unaffected.
+#[test]
+fn test_drop_onto_dormant_target_at_capacity_is_noop_preserving_active_split() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        // We need 7 tabs: A..D (target dormant group, MAX_VISIBLE), E+F (active split), G (source).
+        let ids = workspace.update(&mut app, |workspace, ctx| {
+            for _ in 0..6 {
+                workspace.add_terminal_tab(false, ctx);
+            }
+            (0..7)
+                .map(|i| workspace.get_pane_group_view(i).unwrap().id())
+                .collect::<Vec<_>>()
+        });
+        let (id_a, id_b, id_c, id_d, id_e, id_f, id_g) =
+            (ids[0], ids[1], ids[2], ids[3], ids[4], ids[5], ids[6]);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            // Build [A, B, C, D] (MAX_VISIBLE = 4) as the first split.
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(id_b, ctx);
+            workspace.open_tab_in_split_view(id_c, ctx);
+            workspace.open_tab_in_split_view(id_d, ctx);
+            assert_eq!(workspace.split_view_state.len(), 4);
+            // Switch to E to park [A..D] as dormant, then build active [E, F].
+            let idx_e = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_e)
+                .unwrap();
+            workspace.activate_tab(idx_e, ctx); // parks [A..D]
+            workspace.open_tab_in_split_view(id_f, ctx); // [E, F] active
+            assert!(workspace.split_view_state.is_active());
+            assert_eq!(workspace.split_view_state.len(), 2);
+            assert_eq!(workspace.split_view_state.dormant_groups.len(), 1);
+        });
+
+        // Active split is [E, F]; A is dormant in full group [A..D].
+        // Drop G onto A — must be a no-op because target's dormant group is at capacity.
+        workspace.update(&mut app, |workspace, ctx| {
+            set_pending_drag_split(workspace, id_a, id_g); // target=A (dormant, full), source=G
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // Active split must still be [E, F] unchanged.
+            let ids = workspace.split_view_state.ids();
+            assert_eq!(
+                ids.len(),
+                2,
+                "active split must be unchanged after rejected dormant-target drop"
+            );
+            assert!(ids.contains(&id_e), "E must remain in active split");
+            assert!(ids.contains(&id_f), "F must remain in active split");
+            assert!(
+                !ids.contains(&id_a),
+                "A must not have been activated into the active split"
+            );
+            assert!(!ids.contains(&id_g), "G must not have been added");
+            // Dormant group [A..D] must be intact.
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "dormant group count must be unchanged"
+            );
+            let g = &workspace.split_view_state.dormant_groups[0];
+            assert_eq!(g.ids.len(), 4, "dormant group must still have 4 members");
+            assert!(g.ids.contains(&id_a), "A must remain in dormant group");
+            assert!(g.ids.contains(&id_b), "B must remain in dormant group");
+            assert!(g.ids.contains(&id_c), "C must remain in dormant group");
+            assert!(g.ids.contains(&id_d), "D must remain in dormant group");
+        });
+    });
+}
+
+/// Appending a tab onto an active split preserves the existing members'
+/// resized flex weights.
+///
+/// Setup: split [A, B] with A=2.0, B=0.5. Drop C onto A.
+/// Expected: [A, B, C] with A=2.0, B=0.5 unchanged; C gets default weight 1.0.
+#[test]
+fn test_drop_onto_active_split_member_preserves_existing_weights() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            workspace.add_terminal_tab(false, ctx);
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            // Build [A, B] with custom weights.
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            workspace.split_view_state.set_slot_weight(a, 2.0);
+            workspace.split_view_state.set_slot_weight(b, 0.5);
+            assert!(workspace.split_view_state.is_active());
+            (a, b, c)
+        });
+
+        // Drop C onto A (a live member).
+        workspace.update(&mut app, |workspace, ctx| {
+            set_pending_drag_split(workspace, id_a, id_c);
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            let ids = workspace.split_view_state.ids();
+            assert_eq!(ids.len(), 3);
+            assert!(ids.contains(&id_a));
+            assert!(ids.contains(&id_b));
+            assert!(ids.contains(&id_c));
+            // Existing weights must be unchanged.
+            assert_eq!(
+                workspace.split_view_state.slot_weight(id_a),
+                2.0,
+                "A's weight must be preserved after append"
+            );
+            assert_eq!(
+                workspace.split_view_state.slot_weight(id_b),
+                0.5,
+                "B's weight must be preserved after append"
+            );
+            // C gets default weight (1.0).
+            assert_eq!(
+                workspace.split_view_state.slot_weight(id_c),
+                1.0,
+                "newly-appended C must have default weight 1.0"
+            );
+        });
+    });
+}
+
+/// If both target and source are already in the active split, the drop is a
+/// no-op (the split does not change and no member is duplicated).
+#[test]
+fn test_drop_both_already_in_split_is_noop() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            assert!(workspace.split_view_state.is_active());
+            (a, b)
+        });
+
+        // Drag A onto B: both are already in the split.  Expected: no change.
+        workspace.update(&mut app, |workspace, ctx| {
+            set_pending_drag_split(workspace, id_b, id_a); // target=B (member), source=A (member)
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            let ids = workspace.split_view_state.ids();
+            // Split stays at two slots; open_tab_in_split_view deduplicates.
+            assert_eq!(
+                ids.len(),
+                2,
+                "no duplicate slots when both IDs already in split"
+            );
+            assert!(ids.contains(&id_a));
+            assert!(ids.contains(&id_b));
         });
     });
 }

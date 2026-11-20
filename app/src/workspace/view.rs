@@ -23644,9 +23644,11 @@ impl Workspace {
                     let weight = self.split_view_state.slot_weight(pane_group_id);
                     let mut slot = Container::new(ChildView::new(pane_group).finish());
                     if let Some(color) = split_color {
-                        slot = slot.with_border(
-                            Border::all(2.).with_border_fill(coloru_with_opacity(color, 60)),
-                        );
+                        slot = slot
+                            .with_border(
+                                Border::all(1.).with_border_fill(coloru_with_opacity(color, 120)),
+                            )
+                            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)));
                     }
                     row.add_child(Shrinkable::new(weight, slot.finish()).finish());
                     // Between adjacent slots, insert a 1-px placeholder that
@@ -23705,40 +23707,6 @@ impl Workspace {
                             divider_color
                         };
 
-                        // Grip: three 2×2 px dots stacked vertically.
-                        // dot_color is dim at rest and bright on hover/drag.
-                        let dot_color = if is_active_drag || is_hovered {
-                            coloru_with_opacity(bar_color, 220)
-                        } else {
-                            coloru_with_opacity(bar_color, 100)
-                        };
-                        let dot = || {
-                            ConstrainedBox::new(
-                                Rect::new()
-                                    .with_background_color(dot_color)
-                                    .with_corner_radius(CornerRadius::with_all(Radius::Pixels(1.)))
-                                    .finish(),
-                            )
-                            .with_width(2.)
-                            .with_height(2.)
-                            .finish()
-                        };
-                        // The Flex column containing the three dots.  Its width
-                        // is at most 2px (the dot width) so Align can safely
-                        // centre it within the 9px ConstrainedBox.
-                        let grip_column = Flex::column()
-                            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                            .with_child(dot())
-                            .with_child(Container::new(dot()).with_margin_top(3.).finish())
-                            .with_child(Container::new(dot()).with_margin_top(3.).finish())
-                            .finish();
-                        // Align centres grip_column both horizontally and
-                        // vertically.  Critically, Align's layout returns
-                        // constraint.max as its own size — so it *must* receive
-                        // a finite max constraint.  That is guaranteed by the
-                        // outer ConstrainedBox(width=TOTAL_HIT_WIDTH) below.
-                        let grip = Align::new(grip_column).finish();
-
                         // The 1px bar is wrapped in Align so it also fills the
                         // 9px constraint and paints centred (at x=4).  Using
                         // Align here instead of a 4+1+4 Container means no
@@ -23753,10 +23721,9 @@ impl Workspace {
                         )
                         .finish();
 
-                        // Stack bar_align and grip as normal (non-positioned)
-                        // children.  Both receive the same 9px constraint from
-                        // the outer ConstrainedBox, so neither expands beyond it.
-                        let mut bar_stack = Stack::new().with_child(bar_align).with_child(grip);
+                        // No grip dots — the cursor affordance (ResizeLeftRight)
+                        // and tooltip are sufficient interactive feedback.
+                        let mut bar_stack = Stack::new().with_child(bar_align);
 
                         // Show tooltip above the divider on hover.
                         // add_positioned_overlay_child uses WindowByPosition
@@ -26788,35 +26755,91 @@ impl TypedActionView for Workspace {
                             .is_some();
                         let ids_differ = pending.target_id != pending.source_id;
                         if target_still_exists && source_still_exists && ids_differ {
-                            // Exit any pre-existing split so we start fresh.
-                            // Also purge both participants from dormant groups so the new
-                            // split is not shadowed by a stale dormant entry for either ID.
-                            self.split_view_state
-                                .purge_id_from_dormant(pending.target_id);
-                            self.split_view_state
-                                .purge_id_from_dormant(pending.source_id);
-                            if self.split_view_state.is_active() {
-                                self.split_view_state.clear();
-                                self.sync_workspace_split_view_state(ctx);
+                            // Two cases depending on whether the target tab is already
+                            // a member of the currently-visible active split.
+                            let target_in_active_split =
+                                self.split_view_state.contains(pending.target_id);
+                            if target_in_active_split {
+                                // Target is a live slot: append source to the existing
+                                // split (growing it up to MAX_VISIBLE).
+                                //
+                                // Preflight: if source is already a member or the split
+                                // is at capacity the add is a no-op — skip entirely so
+                                // that focus, dormant purge, and save do not fire.
+                                let source_already_member =
+                                    self.split_view_state.contains(pending.source_id);
+                                let at_capacity =
+                                    self.split_view_state.len() >= SplitViewState::MAX_VISIBLE;
+                                if !source_already_member && !at_capacity {
+                                    // open_tab_in_split_view purges source from dormant
+                                    // internally before adding it; no pre-purge needed.
+                                    self.open_tab_in_split_view(pending.source_id, ctx);
+                                    // Focus source so the user can type immediately.
+                                    if let Some(source_idx) =
+                                        self.tab_index_for_pane_group_id(pending.source_id)
+                                    {
+                                        self.set_active_tab_index(source_idx, ctx);
+                                        self.focus_active_tab(ctx);
+                                    }
+                                    // open_tab_in_split_view already dispatched save_app;
+                                    // no extra dispatch needed here.
+                                }
+                                // else: rejected — no focus/save/layout changes.
+                            } else {
+                                // Target is not a live slot.  Preflight: predict the
+                                // post-restore split size so we can bail before making
+                                // any layout changes when the add would be rejected.
+                                //
+                                // If target has a dormant group, restoring it gives a
+                                // split of `dormant_len` slots; source can be added iff
+                                // it is not already a member AND dormant_len < MAX_VISIBLE.
+                                // If target has no dormant group, a fresh [target, source]
+                                // pair is always valid (2 ≤ MAX_VISIBLE).
+                                let target_dormant = self
+                                    .split_view_state
+                                    .dormant_groups
+                                    .iter()
+                                    .find(|g| g.ids.contains(&pending.target_id));
+                                let can_proceed = match target_dormant {
+                                    Some(g) => {
+                                        // Source already in the target's dormant group →
+                                        // the add would be a no-op; bail.
+                                        !g.ids.contains(&pending.source_id)
+                                            && g.ids.len() < SplitViewState::MAX_VISIBLE
+                                    }
+                                    // No dormant group: fresh [target, source] is always OK.
+                                    None => true,
+                                };
+                                if can_proceed {
+                                    // Activate target: parks the current active group and
+                                    // restores target's dormant group (if any) as the new
+                                    // active split.  We must NOT pre-purge target from
+                                    // dormant — set_active_tab_index restores it.
+                                    if let Some(target_idx) =
+                                        self.tab_index_for_pane_group_id(pending.target_id)
+                                    {
+                                        self.set_active_tab_index(target_idx, ctx);
+                                    }
+                                    // After activation the target's dormant group (if any)
+                                    // is now active.  open_tab_in_split_view will append
+                                    // source (dormant-restore path) or create a fresh
+                                    // [target, source] pair (no-prior-group path).
+                                    // It purges source from dormant internally.
+                                    self.open_tab_in_split_view(pending.source_id, ctx);
+                                    // Focus source only if it was actually added to the
+                                    // split (guards against any unexpected early return).
+                                    if self.split_view_state.contains(pending.source_id) {
+                                        if let Some(source_idx) =
+                                            self.tab_index_for_pane_group_id(pending.source_id)
+                                        {
+                                            self.set_active_tab_index(source_idx, ctx);
+                                            self.focus_active_tab(ctx);
+                                        }
+                                        // open_tab_in_split_view already dispatched save_app.
+                                    }
+                                }
+                                // else: rejected — no activation, no layout changes.
                             }
-                            // Activate the target tab first so it becomes the
-                            // focused/left slot, then add the source as the
-                            // right slot using the split-view helper.
-                            if let Some(target_idx) =
-                                self.tab_index_for_pane_group_id(pending.target_id)
-                            {
-                                self.set_active_tab_index(target_idx, ctx);
-                            }
-                            self.open_tab_in_split_view(pending.source_id, ctx);
-                            // Focus the source (right) slot so the user can
-                            // start typing immediately after the drop.
-                            if let Some(source_idx) =
-                                self.tab_index_for_pane_group_id(pending.source_id)
-                            {
-                                self.set_active_tab_index(source_idx, ctx);
-                                self.focus_active_tab(ctx);
-                            }
-                            ctx.dispatch_global_action("workspace:save_app", ());
                         }
                         // Always notify after consuming the pending state so
                         // the split-target highlight is cleared on the next
