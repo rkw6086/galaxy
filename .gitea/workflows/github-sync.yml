@@ -49,4 +49,4 @@ jobs:
           printf '%s\n' "$GALAXY_GITHUB_SYNC_KEY" > "$key_dir/id_ed25519"
           unset GALAXY_GITHUB_SYNC_KEY
           export GIT_SSH_COMMAND="ssh -F /dev/null -i $key_dir/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$PWD/script/ci/github-known-hosts"
-          python3 script/ci/sync-github.py
+          python3 script/ci/sync-repositories.py --peer github

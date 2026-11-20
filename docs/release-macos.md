@@ -20,13 +20,14 @@ Debian package declares its runtime dependencies. Packages include the retained
 Wormhole helper archives. Linux installation does not add an upstream Warp
 package repository or signing key.
 
-## Nightly Beta and tagged releases
+## Nightly and tagged releases
 
-Beta runs at **3:00 a.m. America/Chicago**, including daylight saving time, only
-when `master` differs from the published Beta or its complete download set is
-missing. GitHub schedules can be delayed by runner demand. A manual **Build
-Galaxy** run on `master` rebuilds Beta on demand, including an unchanged source.
-Beta About displays its source commit. Names include `beta_FULL_COMMIT_SHA`.
+Nightly runs every day at **4:00 a.m. America/Chicago**, including daylight saving
+time, even when `master` has not changed. GitHub schedules can be delayed by
+runner demand. A manual **Build Galaxy** run on `master` also creates a Nightly.
+One rolling **Nightly** release contains the newest complete downloads and changes
+since the previous Nightly. About displays its source commit. Download names
+include `nightly_FULL_COMMIT_SHA_RUN_ID-ATTEMPT`.
 
 A pushed bare Semantic Version tag, such as `3.1.5`, starts a stable build after
 Gitea synchronizes the tag to GitHub. Create a version newer than every retained
@@ -36,7 +37,8 @@ numeric tag and point it to source already in `master`:
 node script/release.mjs tag 3.1.5 --push
 ```
 
-The command checks and pushes the immutable tag to both `samsung` and `origin`.
+The command checks and pushes the immutable tag to `origin`. Gitea's sync jobs
+distribute it to GitHub and Samsung.
 The GitHub workflow stages the selected version in each build checkout without
 moving the tag or creating a source version commit. Release About displays that
 version. Original source manifests remain internally consistent; `prepare` is
@@ -44,7 +46,7 @@ available when a committed source version bump is wanted.
 
 Pull requests targeting `master` build all three platforms without signing or
 publication. Fork builds receive no Apple credentials. The source, tag, and
-Gitea primary ref are validated before trusted Beta or stable signing.
+Gitea primary ref are validated before trusted Nightly or stable signing.
 
 ## Signing, publication and retention
 
@@ -57,15 +59,18 @@ Gatekeeper, and removes its private key material. The credentials never enter
 artifacts or Git history.
 
 Native platform jobs run concurrently. Publication waits for all three, validates
-each platform checksum, creates one combined `SHA256SUMS`, uploads a draft, and
-verifies remote bytes before exposing the complete release. A Beta uses a healthy
-staged release before replacing the previous Beta. Failed builds preserve the
-previous downloads.
+each platform checksum and verifies uploaded bytes before exposing the complete
+release. Stable downloads include a combined `SHA256SUMS`; Nightly uses a unique
+`SHA256SUMS_nightly_FULL_COMMIT_SHA_RUN_ID-ATTEMPT`. A Nightly uploads its complete
+new set alongside the previous files, verifies it, updates the source tag and
+release notes, then removes only older owned Nightly assets. Failed builds
+preserve the previous downloads, and interrupted publication can resume safely.
 
-Keep one rolling **Beta** and one latest **stable** release on GitHub. Replace
-older release records and assets only after a healthy replacement. Numeric Git
-tags are retained. GitHub immutable-release enforcement must remain off for the
-rolling Beta policy. Old Gitea downloads remain separate historical fallbacks;
+Keep one rolling **Nightly** and every **tagged release**, including its assets.
+The publisher never deletes release records or tagged release assets. Numeric
+Git tags are retained. Previously purged releases are not recreated. GitHub
+immutable-release enforcement must remain off for the rolling Nightly policy.
+Old Gitea downloads remain separate historical fallbacks;
 retired Gitea macOS workflows live under `.gitea/retired-workflows/` and do not run.
 
 Transfer artifacts expire after one day and are deleted after successful

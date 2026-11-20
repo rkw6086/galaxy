@@ -16,7 +16,7 @@ for tool in clang metal metallib actool notarytool stapler; do xcrun --find "$to
 version=${GALAXY_RELEASE_VERSION:-}
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail 'A validated stable version is required.'
 export GALAXY_BUILD_CHANNEL=${GALAXY_BUILD_CHANNEL:-release}
-[[ $GALAXY_BUILD_CHANNEL == release || $GALAXY_BUILD_CHANNEL == beta ]] || fail 'Build channel must be release or beta.'
+[[ $GALAXY_BUILD_CHANNEL == release || $GALAXY_BUILD_CHANNEL == nightly || $GALAXY_BUILD_CHANNEL == beta ]] || fail 'Build channel must be release or nightly.'
 if [[ ${GALAXY_UNSIGNED_PREFLIGHT:-} == 1 ]]; then
   [[ $GALAXY_BUILD_CHANNEL == release ]] || fail 'Unsigned preflight cannot produce a beta build.'
   if [[ ${GALAXY_GITHUB_CI:-} == 1 ]]; then
@@ -25,6 +25,12 @@ if [[ ${GALAXY_UNSIGNED_PREFLIGHT:-} == 1 ]]; then
   else
     [[ ${GITHUB_EVENT_NAME:-} == workflow_dispatch && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Unsigned preflight is restricted to manual builds of master.'
   fi
+elif [[ $GALAXY_BUILD_CHANNEL == nightly ]]; then
+  [[ ( ${GITHUB_EVENT_NAME:-} == schedule || ${GITHUB_EVENT_NAME:-} == workflow_dispatch ) && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Nightly builds require a scheduled or manual master run.'
+  [[ ${GALAXY_RELEASE_SHA:-} =~ ^[0-9a-f]{40}$ && ${GITHUB_RUN_ID:-} =~ ^[1-9][0-9]{0,18}$ && ${GITHUB_RUN_ATTEMPT:-} =~ ^[1-9][0-9]{0,8}$ ]] || fail 'Nightly source or run identity is invalid.'
+  nightly_pattern="^${GALAXY_RELEASE_SHA}_${GITHUB_RUN_ID}-([1-9][0-9]{0,8})$"
+  [[ ${GALAXY_NIGHTLY_ID:-} =~ $nightly_pattern ]] || fail 'Nightly identity differs from the prepared source and run.'
+  (( ${BASH_REMATCH[1]} <= GITHUB_RUN_ATTEMPT )) || fail 'Nightly preparation attempt exceeds this run attempt.'
 elif [[ $GALAXY_BUILD_CHANNEL == beta ]]; then
   [[ ( ${GITHUB_EVENT_NAME:-} == schedule || ${GITHUB_EVENT_NAME:-} == workflow_dispatch ) && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Beta builds require a scheduled or manual master run.'
   [[ ${GALAXY_RELEASE_SHA:-} =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && ${GALAXY_BETA_ID:-} == "$GALAXY_RELEASE_SHA" ]] || fail 'Beta identity must match the validated master commit.'
@@ -171,4 +177,16 @@ for binary in app.rglob('*'):
             raise SystemExit(f'Unbundled macOS dependency in {binary.relative_to(app)}: {value}')
 PY
 verify_source
+# Resource/schema/license generation and all dependency checks are complete.
+# Release packaging needs the app bundle and executable outputs, not compiler
+# intermediates. Reclaim only exact owned paths before notarization copies.
+[[ ${RUNNER_TEMP:-} == /* && ${GALAXY_JOB_ID:-} =~ ^[0-9]+-[0-9]+$ && $CARGO_TARGET_DIR == "$RUNNER_TEMP/galaxy-build-$GALAXY_JOB_ID" && ! -L "$CARGO_TARGET_DIR" ]] || fail 'Compiler cleanup requires this exact job-owned build directory.'
+for base in "$CARGO_TARGET_DIR/release" "$CARGO_TARGET_DIR/$target/release"; do
+  [[ ! -L "$CARGO_TARGET_DIR/$target" && ! -L "$base" ]] || continue
+  for kind in deps build .fingerprint incremental; do
+    candidate="$base/$kind"
+    [[ -d "$candidate" && ! -L "$candidate" ]] || continue
+    rm -rf -- "$candidate"
+  done
+done
 echo 'Unsigned Galaxy app, DockTile plug-in, resources, and Wormhole archives verified; ready for signing.'

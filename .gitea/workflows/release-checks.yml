@@ -35,6 +35,6 @@ jobs:
           import ast
           from pathlib import Path
           ast.parse(Path('script/ci/publish-release.py').read_text())
-          ast.parse(Path('script/ci/sync-github.py').read_text())
+          ast.parse(Path('script/ci/sync-repositories.py').read_text())
           ast.parse(Path('script/ci/publish-github-release.py').read_text())
           PY

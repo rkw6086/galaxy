@@ -13,10 +13,10 @@ pub(crate) fn source_revision_label() -> String {
 }
 
 pub(crate) fn about_version_label() -> String {
-    if env!("GALAXY_BUILD_CHANNEL") == "beta" {
-        format!("Beta · {}", source_revision_label())
-    } else {
-        format!("Version {}", env!("CARGO_PKG_VERSION"))
+    match env!("GALAXY_BUILD_CHANNEL") {
+        "nightly" => format!("Nightly · {}", source_revision_label()),
+        "beta" => format!("Beta · {}", source_revision_label()),
+        _ => format!("Version {}", env!("CARGO_PKG_VERSION")),
     }
 }
 

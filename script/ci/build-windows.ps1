@@ -16,7 +16,20 @@ $channel = $env:GALAXY_BUILD_CHANNEL
 if ($version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' -or $sha -notmatch '^[0-9a-f]{40}$') {
     throw 'A validated version and source commit are required.'
 }
-if ($channel -notin @('release', 'beta', 'ci')) { throw 'Unknown build channel.' }
+if ($channel -notin @('release', 'nightly', 'ci')) { throw 'Unknown build channel.' }
+if ($channel -eq 'nightly') {
+    if ($env:GITHUB_RUN_ID -notmatch '^\d+$' -or $env:GITHUB_RUN_ATTEMPT -notmatch '^[1-9][0-9]*$' -or
+        $env:GALAXY_JOB_ID -cne "$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT") {
+        throw 'Nightly build needs its current workflow run and attempt.'
+    }
+    $nightly = [regex]::Match($env:GALAXY_NIGHTLY_ID, "^${sha}_([0-9]+)-([1-9][0-9]*)$")
+    if (-not $nightly.Success -or $nightly.Groups[1].Value -cne $env:GITHUB_RUN_ID) {
+        throw 'Nightly identity must match the validated source and workflow run.'
+    }
+    if ([bigint]::Parse($nightly.Groups[2].Value) -gt [bigint]::Parse($env:GITHUB_RUN_ATTEMPT)) {
+        throw 'Nightly identity cannot come from a future workflow attempt.'
+    }
+}
 if ((& rustc --version) -notlike 'rustc 1.97.1 *') { throw 'Use Rust 1.97.1.' }
 if ((& git rev-parse HEAD) -ne $sha -or $LASTEXITCODE -ne 0) { throw 'Checkout differs from the validated source commit.' }
 function Confirm-Source {
@@ -72,7 +85,7 @@ $verification | & node --input-type=module - $root (Join-Path $resources 'wormho
 if ($LASTEXITCODE -ne 0) { throw 'Bundled Wormhole helpers did not match their sources.' }
 if (Test-Path $env:GALAXY_RELEASE_DIR) { throw 'Use a fresh artifact directory.' }
 New-Item -ItemType Directory $env:GALAXY_RELEASE_DIR | Out-Null
-$stem = if ($channel -eq 'release') { "Galaxy_$version" } else { "Galaxy_${channel}_$sha" }
+$stem = if ($channel -eq 'release') { "Galaxy_$version" } elseif ($channel -eq 'nightly') { "Galaxy_nightly_$env:GALAXY_NIGHTLY_ID" } else { "Galaxy_ci_$sha" }
 $name = "${stem}_x86_64-setup"
 $arguments = @(
     (Join-Path $root 'script\windows\windows-installer.iss')

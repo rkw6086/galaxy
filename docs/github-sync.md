@@ -1,97 +1,87 @@
-# Gitea and GitHub synchronization
+# Gitea repository synchronization
 
-Gitea at <https://git.ryserve.net/public/galaxy> is Galaxy's primary development
-service. <https://github.com/rkw6086/galaxy> is the public GitHub copy and runs
-Galaxy's native build and release jobs.
-The **Sync GitHub** job runs entirely on Gitea, after pushes to `master`, every
-five minutes, and on manual dispatch. The periodic run discovers changes on
-every branch on either service. No GitHub runner or GitHub Actions secret is
-needed.
+Gitea at <https://git.ryserve.net/public/galaxy> is the primary development repo.
+Two jobs run on Gitea: **Sync GitHub** for
+<https://github.com/rkw6086/galaxy>, and **Sync Samsung** for the Samsung GitLab
+project `samnasbo/shared/galaxy`. GitHub runs all native build and release jobs.
+
+Developers push only to the local `origin` remote, which points at Gitea. Release
+tags are pushed only to `origin` too. The server jobs handle the other services.
+They run after primary `master` pushes, every five minutes, and on manual dispatch.
+Changes imported from one peer reach the other through Gitea on its next pass.
 
 ## Branch behavior
 
-- A branch present on only one service is created on the other.
+- A branch present on only one side is created on the other.
 - Identical tips require no push.
-- When one branch is ahead, the other is fast-forwarded.
-- When both sides have new commits, a clean Git merge is committed by
-  `Galaxy Repository Sync` and pushed to Gitea first, then GitHub.
-- Merge conflicts, unrelated histories, protected-branch rejections, and
-  concurrent incompatible changes are reported as job failures. Other branches
-  can still synchronize. Conflicting branches remain available on both services
-  for a maintainer to resolve.
+- When one side is ahead, the other is fast-forwarded.
+- When both sides have related new commits, a clean Git merge preserves both
+  histories, with Gitea as the first parent. It is pushed to Gitea, then the peer.
+- Conflicting content or unrelated histories remain intact for maintainer review.
+  Other branches can proceed. Connection or initial-fetch races defer the pass.
 
-A connection failure or a ref changing during the initial fetch stops that pass;
-the next scheduled job reads fresh snapshots and retries.
+The jobs never force-push branches, resolve conflicting content automatically,
+or execute incoming source. They use temporary bare repositories and ordinary
+Git push guards. Equal commits produce no writes, so reflected pushes stop.
+The single-capacity Gitea Linux runner serializes the jobs.
 
-The job never force-pushes, automatically resolves conflicting content, or
-executes code from an incoming branch. It uses a temporary bare repository and
-compares both histories before pushing. A repeated run sees matching commits
-and does nothing, so pushes reflected back from GitHub do not form a loop. The
-single-capacity Gitea Linux runner serializes these jobs; ordinary Git push
-checks also protect against simultaneous human pushes.
+Deletion is manual across all three services: a surviving branch would otherwise
+be restored by the next sync. Pause both jobs before coordinated branch retirement.
+The initial Samsung-only old branches were retained as private Samsung archive
+tags before retirement. The performance work is also retained under
+`archive/improve-agent-performance-20261119`.
 
-Branch deletion is deliberately manual on both services. Deleting a branch on
-only one side causes the next sync to restore it from the other. Rename a branch
-by creating the new name and removing the old name on both services while the
-sync workflow is paused. Changes from GitHub become Gitea changes: repository
-collaborators and branch protection should reflect who may edit the project.
-Fork pull requests remain proposals until a maintainer merges them.
+Repository collaborators on either peer can change the primary source through
+sync. Fork pull requests remain proposals until merged. Gitea job-token imports
+do not start other push workflows; scheduled sync and GitHub Nightly builds still
+use current `master`.
 
-Gitea does not trigger other push workflows for a push made with an Actions job
-token. Imports therefore do not start another sync or immediate Release checks;
-run Release checks manually when needed. Scheduled builds continue to use the
-current `master`.
+## Tags, large files and automation
 
-## Tags, releases and automation
+Immutable version tags are created on Gitea and copied outward. Existing mismatched
+tags are reported and never replaced. Tags found only on a peer are not imported,
+so Samsung's legacy and archive tags remain there. Rolling `nightly`, legacy
+`beta`, and temporary staging tags are excluded; each release service owns them.
 
-Version tags are created on Gitea. The job copies immutable tags to GitHub
-when missing and reports mismatched tags without replacing them. Tags created
-only on GitHub are not imported. Rolling `beta` and temporary `beta-stage-*`
-tags are not synchronized because each release service owns their lifecycle.
-GitHub owns new multi-platform release downloads; legacy Gitea releases remain
-available separately.
+Before publishing a changed ref, the job fetches all reachable Git LFS objects
+from its source and uploads them to the destination. A clean merge fetches from
+both parents. Failed LFS transfers prevent ref publication. Unchanged passes
+perform no repository-object or LFS downloads. Git and Git LFS must be installed
+on the Gitea runner.
 
-Git synchronization copies commits, branches, tags, and files, including the
-Gitea workflow definitions. Before publishing a changed ref, the job fetches
-every Git LFS object reachable from its history and uploads it to the destination.
-Clean merges fetch the LFS objects from both parents before either ref is pushed.
-A failed LFS transfer prevents that ref from being published. Unchanged runs
-perform no LFS transfers. The Linux runner must provide Git and Git LFS.
+Git synchronization does not copy issues, pull requests, reviews, release records,
+downloads, workflow history or secrets. Current installers are at
+<https://github.com/rkw6086/galaxy/releases>. GitHub builds Windows, Linux and Apple
+Silicon macOS; Samsung-bound mirror pushes include `ci.skip`.
 
-Synchronization does not copy issues, pull requests, reviews,
-release records, downloadable assets, workflow history, or secrets. Current
-downloads are at <https://github.com/rkw6086/galaxy/releases>. Contributors
-can open pull requests on GitHub or Gitea; merging a GitHub pull
-request updates its target branch and the next Gitea sync imports the result.
+Galaxy's build workflow is `.github/workflows/build.yml`. Repository synchronization
+is under `.gitea/workflows/`. Inherited Warp GitHub automation and retired Gitea
+macOS build definitions are retained in their respective archive directories.
 
-Inherited Warp GitHub workflows have been archived under
-`.github/upstream-workflows/`. Galaxy's build workflow is
-`.github/workflows/build.yml`; repository synchronization stays under
-`.gitea/workflows/`. Existing historical tags may still contain the old
-workflows; their history is preserved. The retired performance branch is
-recoverable through tag `archive/improve-agent-performance-20261119`.
+## Credentials and controls
 
-## Authentication and operation
+Each peer uses its own project-scoped write deploy key, held only in Gitea:
 
-1. Add a dedicated Ed25519 public key to the GitHub repository's **Settings →
-   Deploy keys**, with **Allow write access** enabled.
-   When registering it through GitHub CLI, the login also needs `workflow`
-   permission to copy branches or historical tags containing GitHub workflow
-   files. Use `gh auth refresh --hostname github.com --scopes workflow` if GitHub
-   rejects those files. This does not move the sync job to GitHub.
-2. Save its private key as the **Gitea repository Actions secret**
-   `GALAXY_GITHUB_SYNC_KEY`. Do not put it in Git or use a personal account key.
-3. The job's short-lived Gitea token has `code: write` for this repository. The
-   GitHub key is scoped to this repository, is installed only for the sync step,
-   and is removed from the job's temporary filesystem on exit.
-4. Run **Sync GitHub** manually and inspect its per-branch result. A normal
-   unchanged run prints its no-change summary without fetching repository
-   objects or pushing.
+| Job | Repository Actions secret | Additional control |
+| --- | --- | --- |
+| Sync GitHub | `GALAXY_GITHUB_SYNC_KEY` | GitHub key allows writes, including workflow files |
+| Sync Samsung | `GALAXY_SAMSUNG_SYNC_KEY` | `GALAXY_SAMSUNG_SYNC_ENABLED=true` repository variable |
 
-GitHub's published SSH host keys are pinned in `script/ci/github-known-hosts`.
-Update them from <https://api.github.com/meta> after verifying an announced
-rotation. A host-key mismatch fails the job rather than accepting a new key.
+The short-lived Gitea job token grants `code: write` for the primary repo. Private
+keys exist in job-owned temporary files only for synchronization and are removed
+on exit. Personal account keys and API tokens are not stored in these jobs.
+GitHub CLI authorizations used to create deploy keys need the `workflow` scope
+when workflow files are synchronized.
 
-For local read-only inspection, with the same SSH identity and Gitea token
-configured, run `python3 script/ci/sync-github.py --dry-run`. It fetches history
-when necessary and reports proposed operations without publishing them.
+Host keys are pinned in `script/ci/github-known-hosts` and
+`script/ci/gitlab-known-hosts`. Verify official announced rotations before updating
+them. A host-key mismatch fails the job.
+
+For read-only inspection with the corresponding credentials configured:
+
+```bash
+python3 script/ci/sync-repositories.py --peer github --dry-run
+python3 script/ci/sync-repositories.py --peer samsung --dry-run
+```
+
+These fetch history when necessary and report proposed operations without pushing.

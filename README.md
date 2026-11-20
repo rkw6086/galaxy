@@ -6,7 +6,7 @@ letting you explicitly connect the model providers and local agents you choose.
 
 Primary development is hosted on [Gitea](https://git.ryserve.net/public/galaxy).
 The [GitHub repository](https://github.com/rkw6086/galaxy) accepts public
-contributions, synchronizes branches with Gitea, and builds Windows, Linux, and
+contributions, synchronizes branches through Gitea with Samsung, and builds Windows, Linux, and
 Apple Silicon macOS installers. See [repository synchronization](docs/github-sync.md),
 [release builds](docs/release-macos.md), and
 [GitHub releases](https://github.com/rkw6086/galaxy/releases) for downloads.

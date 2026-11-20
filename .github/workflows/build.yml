@@ -6,7 +6,7 @@ on:
   push:
     tags: ['[0-9]*.[0-9]*.[0-9]*']
   schedule:
-    - cron: '0 3 * * *'
+    - cron: '0 4 * * *'
       timezone: America/Chicago
   workflow_dispatch:
 
@@ -14,8 +14,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Beta and stable publication share one queue; PR builds have their own.
+  # Nightly and stable publication share one queue; PR builds have their own.
   group: galaxy-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'publication' }}
+  queue: max
   cancel-in-progress: false
 
 env:
@@ -41,8 +42,12 @@ jobs:
       channel: ${{ steps.prepare.outputs.channel }}
       version: ${{ steps.prepare.outputs.version }}
       sha: ${{ steps.prepare.outputs.sha }}
-      previous_beta_sha: ${{ steps.prepare.outputs.previous_beta_sha }}
-      previous_beta_release_id: ${{ steps.prepare.outputs.previous_beta_release_id }}
+      nightly_id: ${{ steps.prepare.outputs.nightly_id }}
+      previous_nightly_sha: ${{ steps.prepare.outputs.previous_nightly_sha }}
+      previous_nightly_build: ${{ steps.prepare.outputs.previous_nightly_build }}
+      previous_nightly_release_id: ${{ steps.prepare.outputs.previous_nightly_release_id }}
+      previous_nightly_ref: ${{ steps.prepare.outputs.previous_nightly_ref }}
+      previous_nightly_pending: ${{ steps.prepare.outputs.previous_nightly_pending }}
     steps:
       - name: Check out source and immutable tag history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,7 +58,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.17.0'
-      - name: Validate source, channel, and changes since the previous Beta
+      - name: Validate source, channel, and changes since the previous Nightly
         id: prepare
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -65,6 +70,7 @@ jobs:
           name: galaxy-release-notes
           path: ${{ steps.prepare.outputs.notes_file }}
           retention-days: 1
+          overwrite: true
           if-no-files-found: error
 
   macos:
@@ -76,7 +82,7 @@ jobs:
       GALAXY_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       GALAXY_RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
       GALAXY_BUILD_CHANNEL: ${{ needs.prepare.outputs.channel }}
-      GALAXY_BETA_ID: ${{ needs.prepare.outputs.sha }}
+      GALAXY_NIGHTLY_ID: ${{ needs.prepare.outputs.nightly_id }}
     steps:
       - name: Check out the validated source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -125,6 +131,7 @@ jobs:
             ${{ env.GALAXY_RELEASE_DIR }}/SHA256SUMS
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
           compression-level: 0
       - name: Remove job build files
         if: always()
@@ -145,6 +152,7 @@ jobs:
       GALAXY_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       GALAXY_RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
       GALAXY_BUILD_CHANNEL: ${{ needs.prepare.outputs.channel }}
+      GALAXY_NIGHTLY_ID: ${{ needs.prepare.outputs.nightly_id }}
     steps:
       - name: Check out the validated source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -177,6 +185,7 @@ jobs:
             ${{ env.GALAXY_RELEASE_DIR }}/SHA256SUMS
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
           compression-level: 0
 
   windows:
@@ -188,6 +197,7 @@ jobs:
       GALAXY_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       GALAXY_RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
       GALAXY_BUILD_CHANNEL: ${{ needs.prepare.outputs.channel }}
+      GALAXY_NIGHTLY_ID: ${{ needs.prepare.outputs.nightly_id }}
     defaults:
       run:
         shell: pwsh
@@ -223,6 +233,7 @@ jobs:
             ${{ env.GALAXY_RELEASE_DIR }}/SHA256SUMS
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
           compression-level: 0
 
   publish:
@@ -237,11 +248,19 @@ jobs:
       GALAXY_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       GALAXY_RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
       GALAXY_BUILD_CHANNEL: ${{ needs.prepare.outputs.channel }}
-      GALAXY_PREVIOUS_BETA_SHA: ${{ needs.prepare.outputs.previous_beta_sha }}
-      GALAXY_PREVIOUS_BETA_RELEASE_ID: ${{ needs.prepare.outputs.previous_beta_release_id }}
-      GALAXY_RELEASE_DIR: ${{ runner.temp }}/galaxy-publication
-      GALAXY_RELEASE_NOTES_FILE: ${{ runner.temp }}/galaxy-publication-notes/release-notes.md
+      GALAXY_NIGHTLY_ID: ${{ needs.prepare.outputs.nightly_id }}
+      GALAXY_PREVIOUS_NIGHTLY_SHA: ${{ needs.prepare.outputs.previous_nightly_sha }}
+      GALAXY_PREVIOUS_NIGHTLY_BUILD: ${{ needs.prepare.outputs.previous_nightly_build }}
+      GALAXY_PREVIOUS_NIGHTLY_RELEASE_ID: ${{ needs.prepare.outputs.previous_nightly_release_id }}
+      GALAXY_PREVIOUS_NIGHTLY_REF: ${{ needs.prepare.outputs.previous_nightly_ref }}
+      GALAXY_PREVIOUS_NIGHTLY_PENDING: ${{ needs.prepare.outputs.previous_nightly_pending }}
     steps:
+      - name: Set job-owned publication directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GALAXY_RELEASE_DIR=$RUNNER_TEMP/galaxy-publication" >> "$GITHUB_ENV"
+          echo "GALAXY_RELEASE_NOTES_FILE=$RUNNER_TEMP/galaxy-publication-notes/release-notes.md" >> "$GITHUB_ENV"
       - name: Check out the validated publication implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -268,7 +287,7 @@ jobs:
         with:
           name: galaxy-release-notes
           path: ${{ runner.temp }}/galaxy-publication-notes
-      - name: Publish all platforms and retire superseded downloads
+      - name: Publish verified downloads and update only rolling Nightly assets
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 script/ci/publish-github-release.py

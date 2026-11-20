@@ -31,7 +31,7 @@ Environment variables:
 ### Testing
 - This development machine is CLI-only and has no GUI. The user performs GUI and most behavioral testing on a remote machine.
 - Verify feature and bug-fix changes with `cargo build` only. Do not use `cargo run`, `make run`, or launch the app to verify results, and do not wait for interactive approval before completing the work.
-- After `cargo build` succeeds and all requested work and final review are complete, commit the changes and push the current branch to both configured remotes, `origin` and `samsung`, using ordinary non-force pushes. If the build fails, report the blocker and do not push.
+- After `cargo build` succeeds and all requested work and final review are complete, commit the changes and push the current branch to `origin` using an ordinary non-force push. Gitea is the primary source; its repository sync jobs merge and replicate changes with GitHub and Samsung. Do not require or perform a second routine push from the working copy. If the build fails, report the blocker and do not push.
 - `cargo nextest run --no-fail-fast --workspace --exclude command-signatures-v2` - Run tests with nextest
 - `cargo nextest run -p galaxy_completer --features v2` - Run completer tests with v2 features
 - `cargo test --doc` - Run doc tests

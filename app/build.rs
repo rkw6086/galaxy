@@ -152,8 +152,8 @@ fn emit_git_build_metadata() {
 
     let build_channel = env::var("GALAXY_BUILD_CHANNEL").unwrap_or_else(|_| "release".to_owned());
     assert!(
-        matches!(build_channel.as_str(), "beta" | "release"),
-        "GALAXY_BUILD_CHANNEL must be beta or release"
+        matches!(build_channel.as_str(), "beta" | "nightly" | "release"),
+        "GALAXY_BUILD_CHANNEL must be beta, nightly, or release"
     );
     println!("cargo:rustc-env=GALAXY_BUILD_CHANNEL={build_channel}");
 

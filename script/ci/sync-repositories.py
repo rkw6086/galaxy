@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Reconcile Galaxy branches without checking out code or rewriting history.
+"""Reconcile Galaxy between Gitea and one configured repository peer.
 
-Gitea owns release tags. Rolling beta and its staging tags remain on Gitea.
+Gitea owns release tags. Mutable Nightly and legacy Beta aliases stay local to
+their service and are never mirrored between repositories.
 Clean divergent histories receive a merge commit, with Gitea as its first parent,
-published to Gitea before GitHub. Conflicts and unrelated histories are preserved
+published to Gitea before the selected peer. Conflicts and unrelated histories are preserved
 for maintainer review. This is deliberately not `git push --mirror`: deletions
 are not propagated, and ordinary non-force pushes protect concurrent work.
 Every ref publication first transfers all reachable Git LFS payloads; matching
 refs remain a lightweight no-op without Git-object or LFS downloads.
+Samsung replication requests ci.skip so ordinary mirror pushes do not start
+GitLab branch pipelines. No checked-out source code is executed by this job.
 """
 from __future__ import annotations
 
@@ -20,15 +23,18 @@ import subprocess
 import sys
 import tempfile
 
-REMOTES = {
-    "gitea": "https://git.ryserve.net/public/galaxy.git",
+GITEA_URL = "https://git.ryserve.net/public/galaxy.git"
+PEERS = {
     "github": "git@github.com:rkw6086/galaxy.git",
+    "samsung": "git@gitlab.com:samnasbo/shared/galaxy.git",
 }
+PEER_LABELS = {"github": "GitHub", "samsung": "Samsung GitLab"}
 LFS_ENDPOINTS = {
     "gitea": "https://git.ryserve.net/public/galaxy.git/info/lfs",
     # Keep GitHub's SSH authentication exchange, which returns its HTTPS LFS
     # endpoint and short-lived authorization without storing a GitHub token.
     "github": "git@github.com:rkw6086/galaxy.git",
+    "samsung": "git@gitlab.com:samnasbo/shared/galaxy.git",
 }
 OBJECT_ID = re.compile(r"[0-9a-f]{40}\Z")
 MAX_REFS = 10_000
@@ -45,7 +51,13 @@ def report(result, **details):
 
 
 class Repository:
-    def __init__(self, directory):
+    def __init__(self, directory, peer="github"):
+        if peer not in PEERS:
+            raise SyncError("Unknown repository synchronization peer.")
+        self.peer = peer
+        # Each invocation reconciles one pair only. The serialized Gitea jobs
+        # propagate accepted changes between peers through the primary repo.
+        self.remotes = {"gitea": GITEA_URL, peer: PEERS[peer]}
         self.directory = directory
         self.lfs_fetched = set()
         self.lfs_pushed = set()
@@ -83,7 +95,7 @@ class Repository:
         self.directory = directory / "repository"
         # Named remotes let LFS resolve the same trusted identities as Git.
         # Neither URLs nor configuration contain credentials.
-        for remote, url in REMOTES.items():
+        for remote, url in self.remotes.items():
             self.git("remote", "add", remote, url, operation=f"configure {remote}")
 
     def git(self, *args, operation, allowed=(0,), timeout=300):
@@ -128,7 +140,7 @@ class Repository:
     def refs(self, remote, ref=None):
         patterns = [ref] if ref is not None else ["refs/heads/*", "refs/tags/*"]
         _, output = self.git(
-            "ls-remote", "--refs", REMOTES[remote], *patterns,
+            "ls-remote", "--refs", self.remotes[remote], *patterns,
             operation=f"read {remote} refs", timeout=60,
         )
         result = {}
@@ -153,7 +165,7 @@ class Repository:
             return
         self.git(
             "fetch", "--no-tags", "--no-recurse-submodules",
-            "--no-write-fetch-head", REMOTES[remote],
+            "--no-write-fetch-head", self.remotes[remote],
             *(f"+{ref}:refs/galaxy-sync/{remote}/{ref[5:]}" for ref in sorted(refs)),
             operation=f"fetch {remote}", timeout=600,
         )
@@ -173,7 +185,7 @@ class Repository:
         return status == 0
 
     def lfs(self, operation, remote, oid):
-        if remote not in REMOTES or not OBJECT_ID.fullmatch(oid):
+        if remote not in self.remotes or not OBJECT_ID.fullmatch(oid):
             raise SyncError("Invalid Git LFS transfer identity.")
         endpoint = LFS_ENDPOINTS[remote]
         self.git(
@@ -201,43 +213,43 @@ class Repository:
             self.lfs_pushed.add(identity)
             report("lfs-pushed", destination=remote, oid=oid)
 
-    def merge(self, ref, gitea, github, dry_run):
+    def merge(self, ref, gitea, peer_oid, dry_run):
         status, _ = self.git(
-            "merge-base", gitea, github,
+            "merge-base", gitea, peer_oid,
             operation="find branch merge base", allowed=(0, 1),
         )
         if status == 1:
-            report("conflict", ref=ref, reason="unrelated-history", gitea=gitea, github=github)
+            report("conflict", ref=ref, reason="unrelated-history", **{"gitea": gitea, self.peer: peer_oid})
             return False
         # merge-tree uses the built-in merge engine in the bare object database.
         # No remote worktree, hooks, custom merge driver or source code is run.
         status, output = self.git(
-            "merge-tree", "--write-tree", "--no-messages", gitea, github,
+            "merge-tree", "--write-tree", "--no-messages", gitea, peer_oid,
             operation="merge branch histories", allowed=(0, 1),
         )
         if status == 1:
-            report("conflict", ref=ref, reason="merge-conflict", gitea=gitea, github=github)
+            report("conflict", ref=ref, reason="merge-conflict", **{"gitea": gitea, self.peer: peer_oid})
             return False
         tree = output.strip()
         if not OBJECT_ID.fullmatch(tree):
             raise SyncError("Merge engine returned an unexpected tree identity.")
         if dry_run:
-            report("would-merge", ref=ref, first_parent=gitea, second_parent=github, tree=tree)
+            report("would-merge", peer=self.peer, ref=ref, first_parent=gitea, second_parent=peer_oid, tree=tree)
             return True
         _, output = self.git(
-            "commit-tree", tree, "-p", gitea, "-p", github,
-            "-m", f"Merge GitHub {ref[11:]} into Gitea",
+            "commit-tree", tree, "-p", gitea, "-p", peer_oid,
+            "-m", f"Merge {PEER_LABELS[self.peer]} {ref[11:]} into Gitea",
             operation="record clean merge",
         )
         commit = output.strip()
         if not OBJECT_ID.fullmatch(commit):
             raise SyncError("Merge commit returned an unexpected identity.")
-        # A successful first publication is durable even if GitHub races or is
+        # A successful first publication is durable even if the peer races or is
         # unavailable; the next job sees the commit and resumes reconciliation.
-        sources = (("gitea", gitea), ("github", github))
+        sources = (("gitea", gitea), (self.peer, peer_oid))
         self.push("clean-merge", "gitea", ref, commit, gitea, False, lfs_sources=sources)
-        self.push("clean-merge", "github", ref, commit, github, False, lfs_sources=sources)
-        report("merged", ref=ref, oid=commit)
+        self.push("clean-merge", self.peer, ref, commit, peer_oid, False, lfs_sources=sources)
+        report("merged", peer=self.peer, ref=ref, oid=commit)
         return True
 
     def push(self, source, destination, ref, oid, expected, dry_run, lfs_sources=None):
@@ -249,7 +261,7 @@ class Repository:
             raise SyncError(f"{destination}: destination changed before push; defer to the next sync.")
         if destination == "gitea" and not self.env.get("GITEA_TOKEN"):
             if not dry_run:
-                raise SyncError("GITEA_TOKEN is required to import GitHub changes.")
+                raise SyncError(f"GITEA_TOKEN is required to import {PEER_LABELS[self.peer]} changes.")
         if dry_run:
             report("would-copy", source=source, destination=destination, ref=ref, oid=oid)
             return
@@ -269,8 +281,9 @@ class Repository:
         # An ordinary non-force push is the final server-side ancestry guard.
         # A racing divergent update is rejected. A racing fast-forward that is
         # still an ancestor of oid is harmless and may be advanced normally.
+        push_options = ["--push-option=ci.skip"] if destination == "samsung" else []
         self.git(
-            "push", "--porcelain", "--no-follow-tags", REMOTES[destination],
+            "push", "--porcelain", "--no-follow-tags", *push_options, self.remotes[destination],
             f"{oid}:{ref}", operation=f"push to {destination}", timeout=600,
         )
         actual = self.refs(destination, ref).get(ref)
@@ -280,45 +293,48 @@ class Repository:
 
 
 def included_tag(ref):
-    return ref.startswith("refs/tags/") and ref != "refs/tags/beta" and not ref.startswith("refs/tags/beta-stage-")
+    return (ref.startswith("refs/tags/")
+            and ref not in ("refs/tags/beta", "refs/tags/nightly")
+            and not ref.startswith(("refs/tags/beta-stage-", "refs/tags/nightly-stage-")))
 
 
 def synchronize(repository, dry_run):
-    snapshots = {remote: repository.refs(remote) for remote in REMOTES}
+    peer = repository.peer
+    snapshots = {remote: repository.refs(remote) for remote in repository.remotes}
     branches = sorted(
         {ref for refs in snapshots.values() for ref in refs if ref.startswith("refs/heads/")},
-        # On an empty GitHub repository the first pushed branch becomes default.
+        # On an empty peer the first pushed branch can become its default.
         key=lambda ref: (ref != "refs/heads/master", ref),
     )
     tags = sorted(ref for ref in snapshots["gitea"] if included_tag(ref))
-    pending = {remote: {} for remote in REMOTES}
+    pending = {remote: {} for remote in repository.remotes}
     differing_branches = []
     differing_tags = []
     for ref in branches:
-        left, right = (snapshots[remote].get(ref) for remote in REMOTES)
+        left, right = (snapshots[remote].get(ref) for remote in repository.remotes)
         if left != right:
             differing_branches.append(ref)
-            for remote in REMOTES:
+            for remote in repository.remotes:
                 if ref in snapshots[remote]:
                     pending[remote][ref] = snapshots[remote][ref]
     for ref in tags:
-        if snapshots["gitea"][ref] != snapshots["github"].get(ref):
+        if snapshots["gitea"][ref] != snapshots[peer].get(ref):
             differing_tags.append(ref)
-            if ref not in snapshots["github"]:
+            if ref not in snapshots[peer]:
                 pending["gitea"][ref] = snapshots["gitea"][ref]
     if not differing_branches and not differing_tags:
-        report("synchronized", branches=len(branches), release_tags=len(tags), copied=0)
+        report("synchronized", peer=peer, branches=len(branches), release_tags=len(tags), copied=0)
         return 0
     for remote, refs in pending.items():
         repository.fetch(remote, refs)
     failures = 0
     for ref in differing_branches:
-        left, right = (snapshots[remote].get(ref) for remote in REMOTES)
+        left, right = (snapshots[remote].get(ref) for remote in repository.remotes)
         try:
             if right is None or (left is not None and repository.ancestor(right, left)):
-                source, destination, oid, expected = "gitea", "github", left, right
+                source, destination, oid, expected = "gitea", peer, left, right
             elif left is None or repository.ancestor(left, right):
-                source, destination, oid, expected = "github", "gitea", right, left
+                source, destination, oid, expected = peer, "gitea", right, left
             else:
                 if not repository.merge(ref, left, right, dry_run):
                     failures += 1
@@ -329,26 +345,28 @@ def synchronize(repository, dry_run):
             failures += 1
     for ref in differing_tags:
         try:
-            if ref in snapshots["github"]:
+            if ref in snapshots[peer]:
                 report("conflict", ref=ref, reason="immutable-tag-mismatch",
-                       gitea=snapshots["gitea"][ref], github=snapshots["github"][ref])
+                       **{"gitea": snapshots["gitea"][ref], peer: snapshots[peer][ref]})
                 failures += 1
                 continue
-            repository.push("gitea", "github", ref, snapshots["gitea"][ref], None, dry_run)
+            repository.push("gitea", peer, ref, snapshots["gitea"][ref], None, dry_run)
         except SyncError as error:
             report("failed", ref=ref, reason=str(error))
             failures += 1
-    report("finished", differing_branches=len(differing_branches), differing_tags=len(differing_tags), failures=failures, dry_run=dry_run)
+    report("finished", peer=peer, differing_branches=len(differing_branches), differing_tags=len(differing_tags), failures=failures, dry_run=dry_run)
     return 1 if failures else 0
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--peer", choices=sorted(PEERS), default="github",
+                        help="Reconcile this configured peer with the Gitea primary (default: github).")
     parser.add_argument("--dry-run", action="store_true", help="Show safe updates without pushing.")
     args = parser.parse_args()
     try:
-        with tempfile.TemporaryDirectory(prefix="galaxy-github-sync-") as directory:
-            return synchronize(Repository(Path(directory)), args.dry_run)
+        with tempfile.TemporaryDirectory(prefix=f"galaxy-{args.peer}-sync-") as directory:
+            return synchronize(Repository(Path(directory), args.peer), args.dry_run)
     except (OSError, SyncError) as error:
         # Do not include arbitrary OS/subprocess error text or environment values.
         reason = str(error) if isinstance(error, SyncError) else "Local Git synchronization setup failed."

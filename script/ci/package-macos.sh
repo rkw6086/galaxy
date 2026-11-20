@@ -11,7 +11,16 @@ cd "$root"
 channel=${GALAXY_BUILD_CHANNEL:-release}
 version=${GALAXY_RELEASE_VERSION:-}
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail 'A validated stable package version is required.'
-if [[ $channel == beta ]]; then
+if [[ $channel == nightly ]]; then
+  [[ ( ${GITHUB_EVENT_NAME:-} == schedule || ${GITHUB_EVENT_NAME:-} == workflow_dispatch ) && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Nightly signing requires a scheduled or manual master run.'
+  [[ ${GALAXY_RELEASE_SHA:-} =~ ^[0-9a-f]{40}$ && ${GITHUB_RUN_ID:-} =~ ^[1-9][0-9]{0,18}$ && ${GITHUB_RUN_ATTEMPT:-} =~ ^[1-9][0-9]{0,8}$ ]] || fail 'Nightly source or run identity is invalid.'
+  nightly_pattern="^${GALAXY_RELEASE_SHA}_${GITHUB_RUN_ID}-([1-9][0-9]{0,8})$"
+  [[ ${GALAXY_NIGHTLY_ID:-} =~ $nightly_pattern ]] || fail 'Nightly identity differs from its prepared source and run.'
+  (( ${BASH_REMATCH[1]} <= GITHUB_RUN_ATTEMPT )) || fail 'Nightly preparation attempt exceeds this run attempt.'
+  [[ -z $(git status --porcelain) ]] || fail 'Nightly signing requires an unchanged source checkout.'
+  artifact_version="nightly_$GALAXY_NIGHTLY_ID"
+  volume_name='Galaxy Nightly'
+elif [[ $channel == beta ]]; then
   [[ ( ${GITHUB_EVENT_NAME:-} == schedule || ${GITHUB_EVENT_NAME:-} == workflow_dispatch ) && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Beta signing requires a scheduled or manual master run.'
   [[ ${GALAXY_RELEASE_SHA:-} =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && ${GALAXY_BETA_ID:-} == "$GALAXY_RELEASE_SHA" ]] || fail 'Beta identity must match the validated master commit.'
   [[ -z $(git status --porcelain) ]] || fail 'Beta signing requires an unchanged source checkout.'
@@ -24,11 +33,11 @@ elif [[ $channel == release ]]; then
   artifact_version=$version
   volume_name=Galaxy
 else
-  fail 'Build channel must be release or beta.'
+  fail 'Build channel must be release or nightly.'
 fi
 [[ $(git rev-parse HEAD) == "${GALAXY_RELEASE_SHA:-}" ]] || fail 'Checkout no longer matches the validated source commit.'
 for variable in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_P8 CARGO_TARGET_DIR GALAXY_RELEASE_DIR; do
-  [[ -n ${!variable:-} ]] || fail "Missing Gitea secret or job variable: $variable"
+  [[ -n ${!variable:-} ]] || fail "Missing signing secret or job variable: $variable"
 done
 [[ $APPLE_SIGNING_IDENTITY == 'Developer ID Application: '* ]] || fail 'Use a Developer ID Application signing identity.'
 [[ $APPLE_TEAM_ID =~ ^[A-Z0-9]{10}$ ]] || fail 'Invalid Apple Team ID.'

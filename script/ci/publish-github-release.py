@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Publish verified Windows, Linux and signed macOS downloads on GitHub.
+"""Keep tagged releases and update one rolling Nightly without deleting releases.
 
-Only Galaxy-owned releases are replaced. Numeric tags are never changed or
-deleted. A beta is promoted only after its staged public downloads are healthy.
-Unknown write outcomes stop for read-based reconciliation on the next run.
+Unique Nightly filenames allow complete verification before replacing its body
+or source alias. Only verified older Nightly assets may be retired afterward.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 import hashlib
 import hmac
 import json
@@ -16,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -23,8 +23,10 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 COMMIT = re.compile(r"[0-9a-f]{40}\Z")
-STAGE = re.compile(r"beta-stage-([0-9a-f]{40})-[0-9a-f]{16}\Z")
-CUTOVER = re.compile(r"<!-- galaxy-beta-cutover:v1 previous=([0-9a-f]{40}|none) release=([1-9][0-9]{0,18}|none) orphan=([0-9a-f]{40}|none) -->")
+BUILD = re.compile(r"([0-9a-f]{40})_([1-9][0-9]{0,18})-([1-9][0-9]{0,8})\Z")
+NIGHTLY = re.compile(r"<!-- galaxy-nightly:v1 commit=([0-9a-f]{40}) build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) -->")
+TRANSITION = re.compile(r"<!-- galaxy-nightly-transition:v1 release=(new|[1-9][0-9]{0,18}) previous=([0-9a-f]{40}|none) build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}|none) ref=([0-9a-f]{40}|none) candidate=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) -->")
+OWNED_ASSET = re.compile(r"(?:Galaxy_nightly_([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8})_(?:aarch64\.dmg|x86_64-setup\.exe|amd64\.deb|linux_x86_64\.tar\.gz)|SHA256SUMS_nightly_([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}))\Z")
 MAX_ASSET = 2 * 1024 * 1024 * 1024
 MAX_MANIFEST = 8192
 
@@ -44,51 +46,70 @@ class Config:
     commit: str
     directory: Path
     token: str = field(repr=False)
-    previous: str = ""
+    nightly_id: str = ""
+    previous_sha: str = ""
+    previous_build: str = ""
+    previous_id: int | None = None
+    previous_ref: str | None = None
     notes: str = ""
     repository: str = "rkw6086/galaxy"
-    previous_release_id: int | None = None
-    # Set only after verifying an owned published staging proof, never from env.
-    recovery_orphan: str = ""
 
     @property
     def tag(self):
-        return "beta" if self.channel == "beta" else self.version
+        return "nightly" if self.channel == "nightly" else self.version
+
+    @property
+    def identity(self):
+        return "nightly_" + self.nightly_id if self.channel == "nightly" else self.version
+
+    @property
+    def manifest(self):
+        return "SHA256SUMS_nightly_" + self.nightly_id if self.channel == "nightly" else "SHA256SUMS"
 
     @classmethod
     def from_env(cls, env):
-        channel, version, commit = (env.get(key, "") for key in
-            ("GALAXY_BUILD_CHANNEL", "GALAXY_RELEASE_VERSION", "GALAXY_RELEASE_SHA"))
-        if channel not in ("beta", "release") or not VERSION.fullmatch(version) or not COMMIT.fullmatch(commit):
-            raise PublishError("Publication needs an exact beta/release channel, stable version, and source commit.")
-        if env.get("GITHUB_SERVER_URL") != "https://github.com" or env.get("GITHUB_REPOSITORY") != "rkw6086/galaxy":
-            raise PublishError("Publication is restricted to the Galaxy GitHub repository.")
-        if env.get("GITHUB_API_URL", "https://api.github.com") != "https://api.github.com":
-            raise PublishError("Publication requires the official GitHub API.")
+        channel, version, commit = (env.get(key, "") for key in ("GALAXY_BUILD_CHANNEL", "GALAXY_RELEASE_VERSION", "GALAXY_RELEASE_SHA"))
+        if channel not in ("nightly", "release") or not VERSION.fullmatch(version) or not COMMIT.fullmatch(commit):
+            raise PublishError("Publication requires a Nightly or stable channel, version and exact source.")
+        if env.get("GITHUB_SERVER_URL") != "https://github.com" or env.get("GITHUB_REPOSITORY") != "rkw6086/galaxy" or env.get("GITHUB_API_URL", "https://api.github.com") != "https://api.github.com":
+            raise PublishError("Publication is restricted to Galaxy on GitHub.")
         if channel == "release" and (env.get("GITHUB_EVENT_NAME") != "push" or env.get("GITHUB_REF") != "refs/tags/" + version):
-            raise PublishError("Stable publication requires its pushed immutable version tag.")
-        if channel == "beta" and (env.get("GITHUB_EVENT_NAME") not in ("schedule", "workflow_dispatch") or env.get("GITHUB_REF") != "refs/heads/master"):
-            raise PublishError("Beta publication requires a scheduled or manual master run.")
+            raise PublishError("Stable publication requires its pushed version tag.")
+        if channel == "nightly" and (env.get("GITHUB_EVENT_NAME") not in ("schedule", "workflow_dispatch") or env.get("GITHUB_REF") != "refs/heads/master"):
+            raise PublishError("Nightly publication requires a scheduled or manual master run.")
         token = env.get("GITHUB_TOKEN", "")
         if not token or any(c.isspace() for c in token):
             raise PublishError("The GitHub workflow token is missing or malformed.")
         directory = Path(env.get("GALAXY_RELEASE_DIR", ""))
         if not directory.is_absolute() or not directory.is_dir() or directory.is_symlink():
-            raise PublishError("Release inputs must use an absolute regular job artifact directory.")
-        previous = env.get("GALAXY_PREVIOUS_BETA_SHA", "")
-        if previous and not COMMIT.fullmatch(previous):
-            raise PublishError("Previous beta must be an exact source commit.")
-        previous_id = env.get("GALAXY_PREVIOUS_BETA_RELEASE_ID", "")
-        if previous_id and not re.fullmatch(r"[1-9][0-9]{0,18}", previous_id):
-            raise PublishError("Previous beta release identity is invalid.")
+            raise PublishError("Release artifacts need an absolute regular job directory.")
+        nightly_id = env.get("GALAXY_NIGHTLY_ID", "") if channel == "nightly" else ""
+        if channel == "nightly":
+            match = BUILD.fullmatch(nightly_id)
+            attempt = env.get("GITHUB_RUN_ATTEMPT", "")
+            if (not match or match[1] != commit or match[2] != env.get("GITHUB_RUN_ID")
+                    or not re.fullmatch(r"[1-9][0-9]{0,8}", attempt) or int(match[3]) > int(attempt)):
+                raise PublishError("Nightly identity differs from its prepared source/run/attempt.")
+        previous_sha = env.get("GALAXY_PREVIOUS_NIGHTLY_SHA", "")
+        previous_build = env.get("GALAXY_PREVIOUS_NIGHTLY_BUILD", "")
+        previous_id = env.get("GALAXY_PREVIOUS_NIGHTLY_RELEASE_ID", "")
+        previous_ref = env.get("GALAXY_PREVIOUS_NIGHTLY_REF", "")
+        if any((previous_sha, previous_build, previous_id)):
+            old = BUILD.fullmatch(previous_build)
+            if not COMMIT.fullmatch(previous_sha) or not old or old[1] != previous_sha or not re.fullmatch(r"[1-9][0-9]{0,18}", previous_id):
+                raise PublishError("Prepared Nightly snapshot is invalid.")
+        if previous_ref and not COMMIT.fullmatch(previous_ref):
+            raise PublishError("Prepared Nightly ref binding is invalid.")
+        if previous_ref and not previous_id:
+            raise PublishError("A prepared Nightly ref requires its owned release record.")
         notes = ""
         if env.get("GALAXY_RELEASE_NOTES_FILE"):
             path = Path(env["GALAXY_RELEASE_NOTES_FILE"])
             if not path.is_file() or path.is_symlink() or not 0 < path.stat().st_size <= 128 * 1024:
                 raise PublishError("Release notes must be a bounded regular file.")
             notes = path.read_text(encoding="utf-8").strip()
-        return cls(channel, version, commit, directory, token, previous, notes,
-                   previous_release_id=int(previous_id) if previous_id else None)
+        return cls(channel, version, commit, directory, token, nightly_id, previous_sha, previous_build,
+                   int(previous_id) if previous_id else None, previous_ref or None, notes)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -102,8 +123,15 @@ class GitHub:
         self.api = "https://api.github.com/repos/" + config.repository
         self.opener = urllib.request.build_opener(NoRedirect())
         self.digests = {}
+        self.nightly_delete_ids = set()
 
     def request(self, method, path, body=None, upload=None, missing=False):
+        if method == "DELETE":
+            match = re.fullmatch(r"/releases/assets/([1-9][0-9]*)", path)
+            if self.config.channel != "nightly" or not match or int(match[1]) not in self.nightly_delete_ids:
+                raise PublishError("Release deletion is prohibited; only verified owned Nightly assets can be retired.")
+        if method != "GET" and path.startswith("/git/"):
+            raise PublishError("Ref mutation is restricted to the dedicated Nightly lease operation.")
         headers = {"Authorization": "Bearer " + self.config.token,
                    "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2026-03-10"}
         url = self.api + path
@@ -196,8 +224,7 @@ def listing(client, path, key=None):
     raise PublishError("GitHub listing exceeded its safe bound.")
 
 
-def expected_names(channel, version, commit):
-    identity = "beta_" + commit if channel == "beta" else version
+def payload_names(identity):
     return {f"Galaxy_{identity}_aarch64.dmg", f"Galaxy_{identity}_x86_64-setup.exe",
             f"Galaxy_{identity}_amd64.deb", f"Galaxy_{identity}_linux_x86_64.tar.gz"}
 
@@ -211,42 +238,43 @@ def digest_file(path):
 
 
 def release_files(config):
-    expected = expected_names(config.channel, config.version, config.commit)
+    expected = payload_names(config.identity)
     files, manifests = {}, []
     entries = list(config.directory.rglob("*"))
     if len(entries) > 1000:
-        raise PublishError("Too many release input entries.")
+        raise PublishError("Too many artifact inputs.")
     for path in entries:
         if path.is_symlink():
-            raise PublishError("Release inputs cannot contain symlinks.")
+            raise PublishError("Artifact inputs cannot contain symlinks.")
         if not path.is_file():
             continue
         if path.name in expected:
             if path.name in files or not 0 < path.stat().st_size <= MAX_ASSET:
-                raise PublishError("Release payloads are duplicated, empty, or too large.")
+                raise PublishError("Payloads are duplicated, empty, or too large.")
             files[path.name] = (path, digest_file(path))
-        elif path.name == "SHA256SUMS":
-            if path != config.directory / "SHA256SUMS":
-                manifests.append(path)
+        elif path.name == "SHA256SUMS" and path.parent != config.directory:
+            manifests.append(path)
+        elif path == config.directory / config.manifest:
+            pass  # This job's previously generated combined manifest.
         else:
-            raise PublishError("Release artifact directory contains an unexpected file.")
+            raise PublishError("Artifact directory contains an unexpected file.")
     if set(files) != expected or not manifests:
-        raise PublishError("All Windows, Linux and macOS payloads and platform checksums are required.")
+        raise PublishError("All four platform payloads and adjacent checksums are required.")
     checked = set()
     for manifest in manifests:
         if not 0 < manifest.stat().st_size <= MAX_MANIFEST:
-            raise PublishError("Platform checksum manifest size is invalid.")
+            raise PublishError("Platform checksum size is invalid.")
         for line in manifest.read_text(encoding="ascii").splitlines():
             match = re.fullmatch(r"([0-9a-f]{64}) [ *]([A-Za-z0-9_.-]+)", line)
             if not match or match[2] not in files or match[2] in checked:
-                raise PublishError("Platform checksum manifest has an invalid or duplicate filename.")
+                raise PublishError("Platform checksum identity is invalid or duplicated.")
             path, digest = files[match[2]]
             if path.parent != manifest.parent or not hmac.compare_digest(digest, match[1]):
-                raise PublishError("Platform payload does not match its adjacent checksum manifest.")
+                raise PublishError("Payload differs from its adjacent checksum.")
             checked.add(match[2])
     if checked != expected:
-        raise PublishError("Platform checksum manifests do not cover every payload.")
-    checksum = config.directory / "SHA256SUMS"
+        raise PublishError("Checksums do not cover every platform.")
+    checksum = config.directory / config.manifest
     checksum.write_text("".join(f"{files[name][1]}  {name}\n" for name in sorted(files)), encoding="ascii")
     files[checksum.name] = (checksum, digest_file(checksum))
     return files
@@ -256,429 +284,344 @@ def release_path(tag):
     return "/releases/tags/" + urllib.parse.quote(tag, safe="")
 
 
-def tag_commit(client, tag, missing=False):
-    ref = client.request("GET", "/git/ref/tags/" + urllib.parse.quote(tag, safe=""), missing=missing)
-    if ref is None:
+def raw_tag(client, tag, missing=False):
+    value = client.request("GET", "/git/ref/tags/" + urllib.parse.quote(tag, safe=""), missing=missing)
+    if value is None:
         return None
-    if ref.get("ref") != "refs/tags/" + tag:
-        raise PublishError("GitHub returned an unexpected tag identity.")
-    value = ref.get("object", {})
+    if value.get("ref") != "refs/tags/" + tag:
+        raise PublishError("Unexpected remote tag identity.")
+    return value.get("object", {})
+
+
+def tag_commit(client, tag):
+    value = raw_tag(client, tag)
     for _ in range(8):
         if value.get("type") == "commit" and COMMIT.fullmatch(value.get("sha", "")):
             return value["sha"]
         if value.get("type") != "tag" or not COMMIT.fullmatch(value.get("sha", "")):
             break
         value = client.request("GET", "/git/tags/" + value["sha"]).get("object", {})
-    raise PublishError("GitHub tag does not identify a bounded commit object.")
+    raise PublishError("Tag does not identify a bounded commit object.")
 
 
-def check_tag(client, tag, commit):
-    if tag_commit(client, tag) != commit:
-        raise PublishError("Release tag differs from the validated source.")
+def nightly_ref(client):
+    value = raw_tag(client, "nightly", missing=True)
+    if value is None:
+        return None
+    if value.get("type") != "commit" or not COMMIT.fullmatch(value.get("sha", "")):
+        raise PublishError("Nightly must use its owned lightweight source ref.")
+    return value["sha"]
 
 
 def primary_source(config):
-    ref = "refs/heads/master" if config.channel == "beta" else "refs/tags/" + config.version
+    ref = "refs/heads/master" if config.channel == "nightly" else "refs/tags/" + config.version
     try:
         rows = subprocess.check_output(["git", "-c", "credential.helper=", "ls-remote",
             "https://git.ryserve.net/public/galaxy.git", ref, ref + "^{}"], cwd=ROOT,
             stdin=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=60).splitlines()
-    except (subprocess.SubprocessError, OSError):
-        raise PublishError("Cannot verify the Gitea primary source before publication.") from None
+    except (OSError, subprocess.SubprocessError):
+        raise PublishError("Cannot verify the Gitea primary source.") from None
     refs = {name: oid for oid, name in (row.split("\t") for row in rows)}
     if refs.get(ref + "^{}", refs.get(ref)) != config.commit:
-        raise PublishError("Gitea primary advanced or its tag differs; stale publication stopped.")
+        raise PublishError("Gitea primary changed; candidate was not committed.")
+    if config.channel == "nightly" and client_branch_commit(config) != config.commit:
+        raise PublishError("GitHub master changed; candidate was not committed.")
 
 
-def owned(release):
-    tag, body = release.get("tag_name", ""), release.get("body") or ""
-    if VERSION.fullmatch(tag) and not release.get("prerelease"):
-        match = re.findall(r"<!-- galaxy-release:v1 tag=" + re.escape(tag) + r" commit=([0-9a-f]{40}) -->", body)
-        channel = "release"
-    elif (tag == "beta" or STAGE.fullmatch(tag)) and release.get("prerelease"):
-        match = re.findall(r"<!-- galaxy-beta:v1 commit=([0-9a-f]{40}) -->", body)
-        channel = "beta"
-    else:
-        return None
-    if len(match) != 1 or release.get("target_commitish") != match[0]:
-        return None
-    if STAGE.fullmatch(tag) and STAGE.fullmatch(tag)[1] != match[0]:
-        return None
-    return channel, match[0]
-
-
-def require_owned(release, channel, commit, tag):
-    if release.get("tag_name") != tag or owned(release) != (channel, commit):
-        raise PublishError("Existing release does not match this owned channel/source; left unchanged.")
-
-
-def cutover_identity(release):
-    matches = CUTOVER.findall(release.get("body") or "")
-    if len(matches) != 1:
-        return None
-    previous, release_id, orphan = matches[0]
-    if (previous == "none") != (release_id == "none"):
-        return None
-    return ("" if previous == "none" else previous,
-            None if release_id == "none" else int(release_id),
-            "" if orphan == "none" else orphan)
-
-
-def verify_recovery_snapshot(client, stage, found):
-    current = client.request("GET", f"/releases/{stage['id']}")
-    if (current.get("tag_name") != stage.get("tag_name") or current.get("draft")
-            or owned(current) != owned(stage) or cutover_identity(current) != cutover_identity(stage)):
-        raise PublishError("Staging cutover proof changed during verification.")
-    check_tag(client, current["tag_name"], owned(current)[1])
-    refreshed = assets(client, current)
-    if ({name: (value.get("id"), value.get("size")) for name, value in refreshed.items()}
-            != {name: (value.get("id"), value.get("size")) for name, value in found.items()}):
-        raise PublishError("Staging cutover proof assets changed during verification.")
-
-
-def recover_beta(config, client, files):
-    # Deleting a release retains its Git ref. A fresh workflow may therefore
-    # have no previous-release metadata even though an old beta ref remains.
-    # The immutable staging record must have persisted this exact cutover
-    # before removal; an arbitrary unattached ref never establishes ownership.
-    if client.request("GET", release_path("beta"), missing=True) is not None:
-        return config
-    orphan = tag_commit(client, "beta", missing=True)
-    if orphan is None:
-        # An unknown DELETE outcome can leave neither the old record nor ref.
-        # Reuse only the exact current candidate/hash, never another build's
-        # unrelated draft, to recover the persisted preparation metadata.
-        stage_tag = f"beta-stage-{config.commit}-{files['SHA256SUMS'][1][:16]}"
-        stage = client.request("GET", release_path(stage_tag), missing=True)
-        proof = cutover_identity(stage) if stage else None
-        if stage is None or stage.get("draft") or owned(stage) != ("beta", config.commit) or proof is None:
-            return config
-        previous, prior_id, _ = proof
-        if ((config.previous or config.previous_release_id is not None)
-                and (config.previous, config.previous_release_id) != (previous, prior_id)):
-            raise PublishError("Interrupted exact beta candidate has another prepared baseline.")
-        verify_local(client, stage, files, complete=True)
-        found = healthy(client, stage)
-        verify_recovery_snapshot(client, stage, found)
-        if client.request("GET", release_path("beta"), missing=True) is not None or tag_commit(client, "beta", missing=True) is not None:
-            raise PublishError("Beta changed during exact candidate recovery; restart with fresh state.")
-        primary_source(config)
-        print("Recovered the exact interrupted beta candidate after ref removal.")
-        return replace(config, previous=previous, previous_release_id=prior_id)
-    proofs = []
-    for stage in listing(client, "/releases"):
-        identity, cutover = owned(stage), cutover_identity(stage)
-        if not identity or identity[0] != "beta" or not STAGE.fullmatch(stage.get("tag_name", "")) or stage.get("draft") or cutover is None:
-            continue
-        previous, prior_id, recorded_orphan = cutover
-        candidate = identity[1]
-        if orphan not in (candidate, recorded_orphan):
-            continue
-        values = stage.get("assets")
-        expected = expected_names("beta", "", candidate) | {"SHA256SUMS"}
-        if not isinstance(values, list) or len(values) != len(expected):
-            continue
-        metadata = {value.get("name"): value for value in values}
-        if set(metadata) != expected or any(not isinstance(value.get("size"), int)
-                or not 0 < value["size"] <= (MAX_MANIFEST if name == "SHA256SUMS" else MAX_ASSET)
-                for name, value in metadata.items()):
-            continue
-        try:
-            result = subprocess.run(["git", "merge-base", "--is-ancestor", candidate, config.commit],
-                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, timeout=30, check=False)
-        except (OSError, subprocess.SubprocessError):
-            raise PublishError("Cannot verify interrupted beta staging ancestry.") from None
-        if result.returncode != 0:
-            continue
-        if not isinstance(stage.get("id"), int) or stage["id"] <= 0:
-            continue
-        proofs.append((stage, previous, prior_id))
-        if len(proofs) > 20:
-            raise PublishError("Too many interrupted beta cutover proofs; inspect retained state.")
-    if not proofs or len({(previous, prior_id) for _, previous, prior_id in proofs}) != 1:
-        raise PublishError("Unattached beta ref has no unambiguous owned cutover proof; left unchanged.")
-    stage, previous, prior_id = max(proofs, key=lambda proof: proof[0]["id"])
-    if ((config.previous or config.previous_release_id is not None)
-            and (config.previous, config.previous_release_id) != (previous, prior_id)):
-        raise PublishError("Interrupted beta proof differs from the prepared baseline.")
-    found = healthy(client, stage)
-    manifest_digest = client.download(found["SHA256SUMS"], MAX_MANIFEST, digest=True)
-    if not stage["tag_name"].endswith("-" + manifest_digest[:16]):
-        raise PublishError("Interrupted beta staging checksum identity differs from its files.")
-    verify_recovery_snapshot(client, stage, found)
-    # Re-read after potentially large verification downloads. Recovery must not
-    # consume a ref or release that another publisher restored in the meantime.
-    if client.request("GET", release_path("beta"), missing=True) is not None or tag_commit(client, "beta", missing=True) != orphan:
-        raise PublishError("Beta changed during recovery verification; restart with fresh state.")
-    primary_source(config)
-    print("Recovered an interrupted beta cutover from verified staging downloads.")
-    return replace(config, previous=previous, previous_release_id=prior_id, recovery_orphan=orphan)
+def client_branch_commit(config):
+    return GitHub(config).request("GET", "/branches/master").get("commit", {}).get("sha")
 
 
 def assets(client, release):
     values = listing(client, f"/releases/{release['id']}/assets")
     names = [value.get("name") for value in values]
     if any(not isinstance(name, str) for name in names) or len(set(names)) != len(names):
-        raise PublishError("Release asset identities are invalid or duplicated.")
+        raise PublishError("Asset identities are invalid or duplicated.")
     return {value["name"]: value for value in values}
 
 
 def verify_local(client, release, files, complete=False):
     found = assets(client, release)
-    if not set(found) <= set(files) or (complete and set(found) != set(files)):
-        raise AssetMismatch("Release contains unexpected or missing assets; left unchanged.")
-    for name, value in found.items():
+    if complete and not set(files) <= set(found):
+        raise AssetMismatch("Candidate downloads are incomplete; previous assets remain intact.")
+    for name in set(files) & set(found):
         path, digest = files[name]
-        if value.get("size") != path.stat().st_size or not hmac.compare_digest(client.download(value, MAX_ASSET, digest=True), digest):
-            raise AssetMismatch("Uploaded asset differs from its exact local payload.")
+        if found[name].get("size") != path.stat().st_size or not hmac.compare_digest(client.download(found[name], MAX_ASSET, digest=True), digest):
+            raise AssetMismatch("An existing asset name has different content; it will not be replaced.")
     return found
 
 
-def healthy(client, release):
-    identity = owned(release)
-    if not identity or release.get("draft"):
-        raise PublishError("Retention requires a published Galaxy-owned replacement.")
-    channel, commit = identity
-    tag = release["tag_name"]
-    check_tag(client, tag, commit)
-    expected = expected_names(channel, tag, commit)
-    found = assets(client, release)
-    if set(found) != expected | {"SHA256SUMS"}:
-        raise PublishError("Replacement release is missing a platform payload or its combined checksums.")
-    raw = client.download(found["SHA256SUMS"], MAX_MANIFEST)
-    lines = raw.decode("ascii").splitlines()
-    checksums = {}
-    for line in lines:
-        match = re.fullmatch(r"([0-9a-f]{64}) [ *]([A-Za-z0-9_.-]+)", line)
-        if not match or match[2] not in expected or match[2] in checksums:
-            raise PublishError("Replacement checksum manifest is invalid.")
-        checksums[match[2]] = match[1]
-    if set(checksums) != expected:
-        raise PublishError("Replacement checksums do not cover all platforms.")
-    for name in expected:
-        if not hmac.compare_digest(client.download(found[name], MAX_ASSET, digest=True), checksums[name]):
-            raise PublishError("Replacement public payload failed checksum verification.")
-    return found
-
-
-def body_for(config, notes):
-    marker = (f"<!-- galaxy-beta:v1 commit={config.commit} -->" if config.channel == "beta"
-              else f"<!-- galaxy-release:v1 tag={config.version} commit={config.commit} -->")
-    return (notes.strip() + "\n\nDownloads: signed/notarized Apple Silicon macOS DMG, Windows installer, "
-            "and Linux Debian package/portable archive. Verify files with SHA256SUMS.\n\n"
-            + f"Source commit: `{config.commit}`\n\n{marker}")
-
-
-def draft(client, config, tag, files, body):
-    release = client.request("GET", release_path(tag), missing=True)
-    if release is None:
-        release = client.request("POST", "/releases", body={"tag_name": tag,
-            "target_commitish": config.commit, "name": "Galaxy Beta" if config.channel == "beta" else "Galaxy " + config.version,
-            "body": body, "draft": True, "prerelease": config.channel == "beta", "make_latest": "false"})
-    require_owned(release, config.channel, config.commit, tag)
-    if config.channel == "beta":
-        planned, recorded = cutover_identity({"body": body}), cutover_identity(release)
-        if planned is None or recorded is None or planned[:2] != recorded[:2]:
-            raise PublishError("Existing beta staging record has a different cutover baseline; left unchanged.")
+def upload_files(client, release, files):
     found = verify_local(client, release, files)
-    if not release.get("draft") and set(found) != set(files):
-        raise PublishError("An already-published release is incomplete; it will not be overwritten.")
     for name, (path, _) in files.items():
         if name not in found:
             client.request("POST", f"/releases/{release['id']}/assets?name=" + urllib.parse.quote(name, safe=""), upload=path)
+    return verify_local(client, release, files, complete=True)
+
+
+def verify_subset(client, release, identity, manifest):
+    found = assets(client, release)
+    expected = payload_names(identity)
+    if not expected | {manifest} <= set(found):
+        raise PublishError("Nightly candidate is missing downloads or its unique checksums.")
+    raw = client.download(found[manifest], MAX_MANIFEST)
+    checksums = {}
+    for line in raw.decode("ascii").splitlines():
+        match = re.fullmatch(r"([0-9a-f]{64}) [ *]([A-Za-z0-9_.-]+)", line)
+        if not match or match[2] not in expected or match[2] in checksums:
+            raise PublishError("Combined checksum manifest is invalid.")
+        checksums[match[2]] = match[1]
+    if set(checksums) != expected:
+        raise PublishError("Combined checksums do not cover all platforms.")
+    for name in expected:
+        if not hmac.compare_digest(client.download(found[name], MAX_ASSET, digest=True), checksums[name]):
+            raise PublishError("Candidate download failed checksum verification.")
+    return {name: found[name] for name in expected | {manifest}}
+
+
+def nightly_state(release, ref):
+    if release.get("tag_name") != "nightly" or release.get("name") != "Nightly" or not release.get("prerelease") or not isinstance(release.get("id"), int) or release["id"] <= 0:
+        raise PublishError("Existing Nightly is not an owned rolling record.")
+    markers = NIGHTLY.findall(release.get("body") or "")
+    transitions = TRANSITION.findall(release.get("body") or "")
+    if len(markers) != 1 or len(transitions) > 1:
+        raise PublishError("Nightly identity markers are invalid.")
+    commit, build = markers[0]
+    if not BUILD.fullmatch(build) or BUILD.fullmatch(build)[1] != commit:
+        raise PublishError("Nightly source/build identity is invalid.")
+    transition = transitions[0] if transitions else None
+    initial = False
+    if transition:
+        record_id, previous, previous_build, old_ref, candidate = transition
+        if candidate != build or (previous == "none") != (previous_build == "none") or (previous_build != "none" and BUILD.fullmatch(previous_build)[1] != previous):
+            raise PublishError("Nightly transition source identity is invalid.")
+        initial = record_id == "new"
+        if initial:
+            if not release.get("draft") or previous != "none" or old_ref != "none":
+                raise PublishError("Initial Nightly marker is only valid on a new owned draft.")
+        elif record_id != str(release["id"]):
+            raise PublishError("Nightly transition belongs to another release record.")
+        if ref not in (None if old_ref == "none" else old_ref, commit):
+            raise PublishError("Nightly alias changed outside its recorded transition.")
+    elif release.get("draft") or ref != commit:
+        raise PublishError("Nightly record and alias do not agree.")
+    return {"id": release["id"], "commit": commit, "build": build, "transition": transition,
+            "initial": initial, "draft": bool(release.get("draft"))}
+
+
+def state_key(state):
+    return state["id"], state["commit"], state["build"], state["transition"], state["draft"]
+
+
+def body_for(config, notes, transition=None):
+    names = payload_names(config.identity) | {config.manifest}
+    links = "\n".join(f"- [{name}](https://github.com/{config.repository}/releases/download/{config.tag}/{name})" for name in sorted(names))
+    marker = (f"<!-- galaxy-nightly:v1 commit={config.commit} build={config.nightly_id} -->" if config.channel == "nightly"
+              else f"<!-- galaxy-release:v1 tag={config.version} commit={config.commit} -->")
+    body = (notes.strip() + "\n\nDownloads: Apple Silicon macOS DMG (signed and notarized), Windows installer, "
+            "and Linux packages. Verify each download with the linked checksum manifest.\n\n" + links
+            + f"\n\nSource commit: `{config.commit}`\n\n{marker}")
+    if transition:
+        body += "\n\n" + transition
+    return body
+
+
+def transition_marker(record_id, previous, previous_build, old_ref, candidate):
+    return (f"<!-- galaxy-nightly-transition:v1 release={record_id} previous={previous or 'none'} "
+            f"build={previous_build or 'none'} ref={old_ref or 'none'} candidate={candidate} -->")
+
+
+def move_nightly_ref(client, config, expected):
+    current = nightly_ref(client)
+    if current == config.commit:
+        return
+    if current != expected:
+        raise PublishError("Nightly alias changed before its guarded update.")
+    # Force is restricted to this explicit rolling alias. The lease is an
+    # atomic server-side comparison; a racing human update is never overwritten.
+    with tempfile.TemporaryDirectory(prefix="galaxy-nightly-auth-") as directory:
+        askpass = Path(directory) / "askpass.py"
+        askpass.write_text("#!/usr/bin/env python3\nimport os,sys\np=sys.argv[1].lower() if len(sys.argv)>1 else ''\n"
+            "if 'github.com' not in p: sys.exit(1)\n"
+            "if 'username' in p: print('x-access-token')\n"
+            "elif 'password' in p: print(os.environ['GITHUB_TOKEN'])\n"
+            "else: sys.exit(1)\n")
+        askpass.chmod(0o700)
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update(GIT_ASKPASS=str(askpass), GIT_TERMINAL_PROMPT="0", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        try:
+            result = subprocess.run(["git", "-c", "credential.helper=", "-c", "core.hooksPath=" + os.devnull,
+                "-c", "http.followRedirects=false", "push", "--no-follow-tags",
+                "--force-with-lease=refs/tags/nightly:" + (expected or ""),
+                "https://github.com/rkw6086/galaxy.git", config.commit + ":refs/tags/nightly"],
+                cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=120, check=False)
+        except (OSError, subprocess.SubprocessError):
+            raise PublishError("Nightly alias update outcome is unknown; reconcile its recorded transition.") from None
+        if result.returncode:
+            raise PublishError("Nightly alias lease was rejected or transport failed; previous assets remain intact.")
+    if nightly_ref(client) != config.commit:
+        raise PublishError("Nightly alias update was not confirmed.")
+
+
+def finish_nightly(client, config, release, files):
+    ref = nightly_ref(client)
+    state = nightly_state(release, ref)
+    if (state["commit"], state["build"]) != (config.commit, config.nightly_id) or state["initial"]:
+        raise PublishError("Cannot finalize another or unprepared Nightly candidate.")
     verify_local(client, release, files, complete=True)
-    return client.request("GET", f"/releases/{release['id']}")
+    verify_subset(client, release, config.identity, config.manifest)
+    if state["transition"]:
+        expected = state["transition"][3]
+        current = client.request("GET", f"/releases/{release['id']}")
+        if state_key(nightly_state(current, nightly_ref(client))) != state_key(state):
+            raise PublishError("Nightly intent changed before alias finalization.")
+        move_nightly_ref(client, config, None if expected == "none" else expected)
+        verify_subset(client, release, config.identity, config.manifest)
+        current = client.request("GET", f"/releases/{release['id']}")
+        current_state = nightly_state(current, nightly_ref(client))
+        if state_key(current_state) != state_key(state) or nightly_ref(client) != config.commit:
+            raise PublishError("Nightly intent changed before completion.")
+        body = TRANSITION.sub("", current["body"]).strip()
+        release = client.request("PATCH", f"/releases/{release['id']}", body={"body": body, "draft": False,
+            "name": "Nightly", "prerelease": True, "make_latest": "false", "target_commitish": config.commit})
+    state = nightly_state(release, nightly_ref(client))
+    if state["draft"] or state["transition"] or (state["commit"], state["build"]) != (config.commit, config.nightly_id):
+        raise PublishError("Nightly completion was not confirmed.")
+    verify_subset(client, release, config.identity, config.manifest)
+    retire_nightly_assets(client, config, release)
 
 
-def delete_owned(client, release):
-    identity = owned(release)
-    if not identity:
-        raise PublishError("Cannot remove an unrecognized release.")
-    current = client.request("GET", f"/releases/{release['id']}", missing=True)
-    if current is None:
-        return
-    if owned(current) != identity or current.get("tag_name") != release["tag_name"] or current.get("draft") != release.get("draft"):
-        raise PublishError("Release changed before retention; left unchanged.")
-    channel, commit = identity
-    if not set(assets(client, current)) <= expected_names(channel, release["tag_name"], commit) | {"SHA256SUMS"}:
-        raise PublishError("Release has unrecognized assets; retention stopped.")
-    before = tag_commit(client, release["tag_name"], missing=True)
-    if before is not None and before != commit:
-        raise PublishError("Old release tag changed before retention.")
-    client.request("DELETE", f"/releases/{release['id']}")
-    if client.request("GET", f"/releases/{release['id']}", missing=True) is not None:
-        raise PublishError("Release removal was not confirmed.")
-    if before is not None:
-        check_tag(client, release["tag_name"], commit)
-
-
-def delete_beta_tag(client, tag, commit):
-    if tag != "beta" and not STAGE.fullmatch(tag):
-        raise PublishError("Only rolling beta or staging refs may be removed.")
-    value = tag_commit(client, tag, missing=True)
-    if value is None:
-        return
-    if value != commit or client.request("GET", release_path(tag), missing=True) is not None:
-        raise PublishError("Beta ref is changed or still owns a release; left unchanged.")
-    client.request("DELETE", "/git/refs/tags/" + urllib.parse.quote(tag, safe=""))
-    if tag_commit(client, tag, missing=True) is not None:
-        raise PublishError("Beta ref deletion was not confirmed.")
-
-
-def version_key(value):
-    return tuple(map(int, value.split(".")))
-
-
-def retain(client):
-    releases = listing(client, "/releases")
-    stable = [release for release in releases if owned(release) and owned(release)[0] == "release" and not release.get("draft")]
-    latest = max(stable, key=lambda value: version_key(value["tag_name"])) if stable else None
-    beta = client.request("GET", release_path("beta"), missing=True)
-    if latest:
-        healthy(client, latest)
-    if beta:
-        healthy(client, beta)
-    for release in releases:
-        identity = owned(release)
-        if not identity:
+def retire_nightly_assets(client, config, release):
+    if config.channel != "nightly":
+        raise PublishError("Tagged release assets can never be retired by this publisher.")
+    current_names = payload_names(config.identity) | {config.manifest}
+    for name, value in assets(client, release).items():
+        if name in current_names or not OWNED_ASSET.fullmatch(name):
             continue
-        if latest and identity[0] == "release" and version_key(release["tag_name"]) < version_key(latest["tag_name"]):
-            delete_owned(client, release)
-        elif beta and identity[0] == "beta" and STAGE.fullmatch(release["tag_name"]):
-            delete_owned(client, release)
-            delete_beta_tag(client, release["tag_name"], identity[1])
+        # This namespace and uploader identify files owned by this workflow.
+        if value.get("uploader", {}).get("login") != "github-actions[bot]":
+            continue
+        current = client.request("GET", f"/releases/{release['id']}")
+        state = nightly_state(current, nightly_ref(client))
+        if state["draft"] or state["transition"] or (state["commit"], state["build"]) != (config.commit, config.nightly_id):
+            raise PublishError("Nightly changed before old-asset cleanup; stopped.")
+        fresh = client.request("GET", f"/releases/assets/{value['id']}", missing=True)
+        if fresh is None:
+            continue
+        if any(fresh.get(key) != value.get(key) for key in ("id", "name", "size", "updated_at")):
+            raise PublishError("An old Nightly asset changed before cleanup; left unchanged.")
+        client.nightly_delete_ids.add(value["id"])
+        client.request("DELETE", f"/releases/assets/{value['id']}")
+        if client.request("GET", f"/releases/assets/{value['id']}", missing=True) is not None:
+            raise PublishError("Old Nightly asset removal was not confirmed.")
 
 
-def notes_for(config, client):
-    if config.notes:
-        return config.notes
-    baseline = config.previous
-    if config.channel == "release":
-        content = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-        match = re.search(r"(?ms)^## \[" + re.escape(config.version) + r"\][^\n]*\n(.*?)(?=^## |\Z)", content)
-        if match and match[1].strip():
-            return match[1].strip()
-        stable = [r for r in listing(client, "/releases") if owned(r) and owned(r)[0] == "release"
-                  and not r.get("draft") and version_key(r["tag_name"]) < version_key(config.version)]
-        if stable:
-            baseline = owned(max(stable, key=lambda value: version_key(value["tag_name"])))[1]
-    command = ["git", "log", "--format=%h %s", "--max-count=201", f"{baseline}..{config.commit}" if baseline else config.commit, "--"]
-    try:
-        rows = subprocess.check_output(command, cwd=ROOT, stderr=subprocess.PIPE, text=True, timeout=30).splitlines()
-    except (OSError, subprocess.SubprocessError):
-        raise PublishError("Could not generate bounded release notes.") from None
-    lines, total = [], 0
-    for row in rows[:200]:
-        line = "- " + re.sub(r"[\x00-\x1f\x7f]", " ", row)[:500]
-        total += len(line.encode("utf-8")) + 1
-        if total > 96 * 1024:
-            break
-        lines.append(line)
-    notes = "\n".join(lines) or "Manually rebuilt with no source changes."
-    if len(rows) > len(lines):
-        notes += f"\n\nShowing the latest {len(lines)} commits within the release-note limit."
-    if baseline:
-        notes += f"\n\n[Compare changes](https://github.com/{config.repository}/compare/{baseline}...{config.commit})"
-    return notes
+def publish_nightly(config, client, files, notes):
+    release = client.request("GET", release_path("nightly"), missing=True)
+    ref = nightly_ref(client)
+    if release is None:
+        if config.previous_id is not None or ref is not None:
+            raise PublishError("Prepared Nightly record disappeared or an unowned alias exists; it will not be recreated.")
+        primary_source(config)
+        initial = transition_marker("new", "", "", None, config.nightly_id)
+        release = client.request("POST", "/releases", body={"tag_name": "nightly", "target_commitish": config.commit,
+            "name": "Nightly", "body": body_for(config, notes, initial), "draft": True,
+            "prerelease": True, "make_latest": "false"})
+        ref = nightly_ref(client)
+    state = nightly_state(release, ref)
+    if config.previous_id is not None and state["id"] != config.previous_id:
+        raise PublishError("Nightly release record changed since preparation.")
+    same_candidate = (state["commit"], state["build"]) == (config.commit, config.nightly_id)
+    if same_candidate and not state["initial"]:
+        # Retry after a committed body/alias operation: exact bytes establish
+        # idempotence, not merely an unchanged source or reusable record ID.
+        finish_nightly(client, config, release, files)
+        return
+    prepared = (config.previous_id, config.previous_sha, config.previous_build, config.previous_ref)
+    observed = (state["id"], state["commit"], state["build"], ref)
+    initial_retry = same_candidate and state["initial"] and config.previous_id is None
+    if not initial_retry and prepared != observed:
+        raise PublishError("Nightly changed since preparation, including another build of the same source.")
+    if state["transition"] and not state["initial"]:
+        # A previous body's complete downloads establish the recorded ownership
+        # of an older alias even if that previous alias update was interrupted.
+        verify_subset(client, release, "nightly_" + state["build"], "SHA256SUMS_nightly_" + state["build"])
+    upload_files(client, release, files)
+    primary_source(config)
+    current = client.request("GET", f"/releases/{release['id']}")
+    if state_key(nightly_state(current, nightly_ref(client))) != state_key(state) or nightly_ref(client) != ref:
+        raise PublishError("Nightly changed while candidate downloads were uploaded; existing assets remain intact.")
+    previous = state["commit"] if not state["draft"] else ""
+    previous_build = state["build"] if not state["draft"] else ""
+    if state["draft"] and state["transition"] and not state["initial"]:
+        previous = "" if state["transition"][1] == "none" else state["transition"][1]
+        previous_build = "" if state["transition"][2] == "none" else state["transition"][2]
+    intent = transition_marker(state["id"], previous, previous_build, ref, config.nightly_id)
+    release = client.request("PATCH", f"/releases/{release['id']}", body={"name": "Nightly",
+        "body": body_for(config, notes, intent), "target_commitish": config.commit,
+        "draft": state["draft"], "prerelease": True, "make_latest": "false"})
+    finish_nightly(client, config, release, files)
+
+
+def stable_identity(release, version, commit):
+    markers = re.findall(r"<!-- galaxy-release:v1 tag=" + re.escape(version) + r" commit=([0-9a-f]{40}) -->", release.get("body") or "")
+    if release.get("tag_name") != version or release.get("prerelease") or markers != [commit]:
+        raise PublishError("Existing tagged release has another identity; left unchanged.")
 
 
 def publish_stable(config, client, files, notes):
-    def current():
-        if any(owned(r) and owned(r)[0] == "release" and not r.get("draft")
-               and version_key(r["tag_name"]) > version_key(config.version) for r in listing(client, "/releases")):
-            raise PublishError("A newer stable release is published; stale publication stopped.")
-        primary_source(config)
-        check_tag(client, config.tag, config.commit)
-    current()
-    release = draft(client, config, config.tag, files, body_for(config, notes))
-    current()
-    if release.get("draft"):
-        release = client.request("PATCH", f"/releases/{release['id']}", body={"draft": False, "make_latest": "true"})
-    require_owned(release, "release", config.commit, config.tag)
-    verify_local(client, release, files, complete=True)
-    healthy(client, release)
-    current()
-    retain(client)
-
-
-def beta_baseline(config, client):
     primary_source(config)
-    if client.request("GET", "/branches/master").get("commit", {}).get("sha") != config.commit:
-        raise PublishError("GitHub master advanced during this beta build; current beta left intact.")
-    release = client.request("GET", release_path("beta"), missing=True)
-    if release and (owned(release) != ("beta", config.previous) or release.get("draft")):
-        raise PublishError("Published beta changed since this build began.")
-    if release and config.previous_release_id is not None and release.get("id") != config.previous_release_id:
-        raise PublishError("Beta was replaced after preparation, including a rebuild of the same source.")
-    return release
+    if tag_commit(client, config.tag) != config.commit:
+        raise PublishError("Stable tag changed before publication.")
+    release = client.request("GET", release_path(config.tag), missing=True)
+    if release is None:
+        release = client.request("POST", "/releases", body={"tag_name": config.tag, "target_commitish": config.commit,
+            "name": "Galaxy " + config.version, "body": body_for(config, notes), "draft": True, "prerelease": False})
+    stable_identity(release, config.version, config.commit)
+    if release.get("draft"):
+        upload_files(client, release, files)
+        primary_source(config)
+        if tag_commit(client, config.tag) != config.commit:
+            raise PublishError("Stable tag changed while uploading; publication stopped.")
+        # Queued tags can finish out of version order. Preserve the newer
+        # release's Latest designation while still publishing this version.
+        version_key = tuple(map(int, config.version.split(".")))
+        newer = any(not value.get("draft") and not value.get("prerelease")
+                    and VERSION.fullmatch(value.get("tag_name", ""))
+                    and tuple(map(int, value["tag_name"].split("."))) > version_key
+                    for value in listing(client, "/releases"))
+        release = client.request("PATCH", f"/releases/{release['id']}", body={"draft": False, "make_latest": "false" if newer else "true"})
+    else:
+        verify_local(client, release, files, complete=True)
+    stable_identity(release, config.version, config.commit)
+    if release.get("draft") or tag_commit(client, config.tag) != config.commit:
+        raise PublishError("Tagged publication was not confirmed.")
+    verify_subset(client, release, config.identity, config.manifest)
+    # Tagged releases, assets and numeric tags are retained indefinitely.
 
 
-def publish_beta(config, client, files, notes):
-    stage_tag = f"beta-stage-{config.commit}-{files['SHA256SUMS'][1][:16]}"
-    existing = client.request("GET", release_path("beta"), missing=True)
-    if existing and owned(existing) == ("beta", config.commit) and not existing.get("draft"):
-        try:
-            verify_local(client, existing, files, complete=True)
-        except AssetMismatch:
-            if config.previous != config.commit:
-                raise PublishError("Another beta for this source is already published.") from None
-        else:
-            healthy(client, existing)
-            delete_beta_tag(client, stage_tag, config.commit)
-            retain(client)
-            return
-    baseline = beta_baseline(config, client)
-    orphan_before = tag_commit(client, "beta", missing=True)
-    if orphan_before not in (None, config.previous or None, config.commit, config.recovery_orphan or None):
-        raise PublishError("Rolling beta ref has no prepared or verified ownership; left unchanged.")
-    if baseline is not None and orphan_before != config.previous:
-        raise PublishError("Published beta ref differs from its prepared source; left unchanged.")
-    body = body_for(config, notes)
-    prior_id = baseline.get("id") if baseline else config.previous_release_id
-    if bool(config.previous) != (prior_id is not None):
-        raise PublishError("Cannot persist the exact previous beta identity before cutover.")
-    cutover = (f"<!-- galaxy-beta-cutover:v1 previous={config.previous or 'none'} "
-               f"release={prior_id if prior_id is not None else 'none'} orphan={orphan_before or 'none'} -->")
-    body += "\n\n" + cutover
-    stage = draft(client, config, stage_tag, files, body)
-    recorded = cutover_identity(stage)
-    if recorded is None or recorded[:2] != (config.previous, prior_id):
-        raise PublishError("Staging release does not retain this exact beta cutover; left unchanged.")
-    # Keep an existing proof intact across retries after the old ref was
-    # removed or the exact new alias was created but promotion was interrupted.
-    # Current ref ownership was independently checked before staging above.
-    body = stage["body"]
-    if stage.get("draft"):
-        stage = client.request("PATCH", f"/releases/{stage['id']}", body={"draft": False, "make_latest": "false"})
-    require_owned(stage, "beta", config.commit, stage_tag)
-    verify_local(client, stage, files, complete=True)
-    healthy(client, stage)
-    latest = beta_baseline(config, client)
-    if (baseline or {}).get("id") != (latest or {}).get("id"):
-        raise PublishError("Beta changed while staging; replacement stopped.")
-    if tag_commit(client, "beta", missing=True) != orphan_before:
-        raise PublishError("Beta ref changed while staging; existing release left intact.")
-    if latest:
-        delete_owned(client, latest)
-    old_tag = tag_commit(client, "beta", missing=True)
-    if old_tag not in (None, orphan_before, config.commit):
-        raise PublishError("Rolling beta tag changed unexpectedly; cutover stopped.")
-    if old_tag and old_tag != config.commit:
-        delete_beta_tag(client, "beta", old_tag)
-    if tag_commit(client, "beta", missing=True) is None:
-        client.request("POST", "/git/refs", body={"ref": "refs/tags/beta", "sha": config.commit})
-    check_tag(client, "beta", config.commit)
-    stage = client.request("GET", f"/releases/{stage['id']}")
-    require_owned(stage, "beta", config.commit, stage_tag)
-    release = client.request("PATCH", f"/releases/{stage['id']}", body={"tag_name": "beta",
-        "target_commitish": config.commit, "name": "Galaxy Beta", "body": body,
-        "draft": False, "prerelease": True, "make_latest": "false"})
-    require_owned(release, "beta", config.commit, "beta")
-    verify_local(client, release, files, complete=True)
-    healthy(client, release)
-    delete_beta_tag(client, stage_tag, config.commit)
-    retain(client)
+def notes_for(config):
+    if config.notes:
+        return config.notes
+    baseline = config.previous_sha
+    try:
+        rows = subprocess.check_output(["git", "log", "--format=%h %s", "--max-count=201",
+            f"{baseline}..{config.commit}" if baseline else config.commit, "--"], cwd=ROOT,
+            stderr=subprocess.PIPE, text=True, timeout=30).splitlines()
+    except (OSError, subprocess.SubprocessError):
+        raise PublishError("Could not generate bounded publication notes.") from None
+    lines, size = [], 0
+    for row in rows[:200]:
+        line = "- " + re.sub(r"[\x00-\x1f\x7f]", " ", row)[:500]
+        size += len(line.encode("utf-8")) + 1
+        if size > 96 * 1024:
+            break
+        lines.append(line)
+    notes = "\n".join(lines) or "Rebuilt the same source; no source changes."
+    if len(rows) > len(lines):
+        notes += f"\n\nShowing the latest {len(lines)} commits within the release-note limit."
+    return notes
 
 
 def main():
@@ -686,22 +629,20 @@ def main():
         config = Config.from_env(os.environ)
         files = release_files(config)
         client = GitHub(config)
-        if config.channel == "beta":
-            config = recover_beta(config, client, files)
-        notes = notes_for(config, client)
+        notes = notes_for(config)
         if not notes.strip() or len(notes.encode("utf-8")) > 128 * 1024:
-            raise PublishError("Release notes must be nonempty and bounded.")
-        (publish_beta if config.channel == "beta" else publish_stable)(config, client, files, notes)
+            raise PublishError("Publication notes must be nonempty and bounded.")
+        (publish_nightly if config.channel == "nightly" else publish_stable)(config, client, files, notes)
         url = "https://github.com/" + config.repository + "/releases/tag/" + config.tag
-        print("Verified GitHub release published: " + url)
+        print("Verified GitHub downloads published: " + url)
         if os.environ.get("GITHUB_OUTPUT"):
-            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-                output.write("release_url=" + url + "\n")
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+                stream.write("release_url=" + url + "\n")
         return 0
     except PublishError as error:
         print("Galaxy GitHub publication failed: " + str(error), file=sys.stderr)
     except (OSError, ValueError, TypeError, KeyError, UnicodeError):
-        print("Galaxy GitHub publication failed; retained release state requires inspection.", file=sys.stderr)
+        print("Galaxy GitHub publication failed; existing releases were retained.", file=sys.stderr)
     return 1
 
 

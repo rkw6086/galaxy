@@ -1,0 +1,50 @@
+name: Sync Samsung
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    # Enable only after archiving the legacy Samsung-only branches. Otherwise
+    # all-branch sync would restore those retired branches to the primary repo.
+    if: github.server_url == 'https://git.ryserve.net' && github.repository == 'public/galaxy' && github.ref == 'refs/heads/master' && vars.GALAXY_SAMSUNG_SYNC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      code: write
+    steps:
+      - name: Check out the trusted synchronization implementation
+        uses: https://github.com/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: master
+          persist-credentials: false
+          sparse-checkout: script/ci
+          filter: blob:none
+      - name: Verify Git and Git LFS are available
+        shell: bash
+        run: |
+          set -euo pipefail
+          git --version
+          git lfs version
+      - name: Reconcile Samsung branches and immutable tags
+        shell: bash
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GALAXY_SAMSUNG_SYNC_KEY: ${{ secrets.GALAXY_SAMSUNG_SYNC_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GALAXY_SAMSUNG_SYNC_KEY:-}" ]]; then
+            echo 'Configure the dedicated Samsung project deploy key before enabling this job.' >&2
+            exit 1
+          fi
+          umask 077
+          key_dir=$(mktemp -d)
+          trap 'rm -rf -- "$key_dir"' EXIT
+          printf '%s\n' "$GALAXY_SAMSUNG_SYNC_KEY" > "$key_dir/id_ed25519"
+          unset GALAXY_SAMSUNG_SYNC_KEY
+          export GIT_SSH_COMMAND="ssh -F /dev/null -i $key_dir/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$PWD/script/ci/gitlab-known-hosts"
+          python3 script/ci/sync-repositories.py --peer samsung

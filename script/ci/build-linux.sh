@@ -12,7 +12,13 @@ sha=${GALAXY_RELEASE_SHA:-}
 channel=${GALAXY_BUILD_CHANNEL:-}
 [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail 'A validated version is required.'
 [[ $sha =~ ^[0-9a-f]{40}$ && $(git rev-parse HEAD) == "$sha" ]] || fail 'Checkout differs from the validated source commit.'
-[[ $channel == release || $channel == beta || $channel == ci ]] || fail 'Unknown build channel.'
+[[ $channel == release || $channel == nightly || $channel == ci ]] || fail 'Unknown build channel.'
+if [[ $channel == nightly ]]; then
+  [[ ${GITHUB_RUN_ID:-} =~ ^[0-9]+$ && ${GITHUB_RUN_ATTEMPT:-} =~ ^[1-9][0-9]*$ && ${GALAXY_JOB_ID:-} == "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" ]] || fail 'Nightly build needs its current workflow run and attempt.'
+  [[ ${GALAXY_NIGHTLY_ID:-} =~ ^${sha}_([0-9]+)-([1-9][0-9]*)$ && ${BASH_REMATCH[1]} == "$GITHUB_RUN_ID" ]] || fail 'Nightly identity must match the validated source and workflow run.'
+  prepared_attempt=${BASH_REMATCH[2]}
+  (( 10#$prepared_attempt <= 10#$GITHUB_RUN_ATTEMPT )) || fail 'Nightly identity cannot come from a future workflow attempt.'
+fi
 verify_source() {
   if [[ $channel == release ]]; then
     [[ ${GALAXY_VERSION_STAGED:-} == 1 ]] || fail 'Tagged releases require controlled version staging.'
@@ -47,7 +53,13 @@ await verifyWormholeHelpers(await inspectWormholeHelpers(path.join(root, 'resour
 JS
 [[ ! -e $GALAXY_RELEASE_DIR && ! -L $GALAXY_RELEASE_DIR ]] || fail 'Use a fresh artifact directory.'
 mkdir -p "$GALAXY_RELEASE_DIR"
-if [[ $channel == release ]]; then stem="Galaxy_$version"; else stem="Galaxy_${channel}_$sha"; fi
+if [[ $channel == release ]]; then
+  stem="Galaxy_$version"
+elif [[ $channel == nightly ]]; then
+  stem="Galaxy_nightly_$GALAXY_NIGHTLY_ID"
+else
+  stem="Galaxy_ci_$sha"
+fi
 export WORKSPACE_ROOT_DIR="$root" DIST_DIR="$CARGO_TARGET_DIR/galaxy-dist"
 export OUT_DIR="$GALAXY_RELEASE_DIR" CARGO_TARGET_OUTPUT_DIR="$binary_dir"
 export RELEASE_CHANNEL=oss BUNDLE_ID=com.galaxy.GalaxyOss

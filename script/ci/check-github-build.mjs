@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Validate GitHub-owned build inputs before any platform receives signing keys.
+// Resolve trusted build inputs before any platform receives signing keys.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -8,43 +8,58 @@ import { checkVersions, compareVersions, changelog } from '../release.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
-const COMMIT = /^[0-9a-f]{40}$/;
-const MARKER = /<!-- galaxy-beta:v1 commit=([0-9a-f]{40}) -->/;
-const STAGE = /^beta-stage-([0-9a-f]{40})-[0-9a-f]{16}$/;
-const CUTOVER = /<!-- galaxy-beta-cutover:v1 previous=([0-9a-f]{40}|none) release=([1-9][0-9]{0,18}|none) orphan=([0-9a-f]{40}|none) -->/g;
+const SHA = /^[0-9a-f]{40}$/;
+const BUILD = /^([0-9a-f]{40})_([1-9][0-9]{0,18})-([1-9][0-9]{0,8})$/;
+const NIGHTLY = /<!-- galaxy-nightly:v1 commit=([0-9a-f]{40}) build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) -->/g;
+const TRANSITION = /<!-- galaxy-nightly-transition:v1 release=(new|[1-9][0-9]{0,18}) previous=([0-9a-f]{40}|none) build=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}|none) ref=([0-9a-f]{40}|none) candidate=([0-9a-f]{40}_[1-9][0-9]{0,18}-[1-9][0-9]{0,8}) -->/g;
 const git = (...args) => execFileSync('git', args, {
-  cwd: root, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024,
-  timeout: 60_000,
+  cwd: root, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024, timeout: 60_000,
   stdio: ['ignore', 'pipe', 'pipe'],
 }).trim();
 
-function names(channel, version, sha) {
-  const identity = channel === 'beta' ? `beta_${sha}` : version;
-  return new Set([
-    `Galaxy_${identity}_aarch64.dmg`, `Galaxy_${identity}_x86_64-setup.exe`,
-    `Galaxy_${identity}_amd64.deb`, `Galaxy_${identity}_linux_x86_64.tar.gz`, 'SHA256SUMS',
-  ]);
+function nightlyState(release, ref) {
+  if (release.tag_name !== 'nightly' || release.name !== 'Nightly' || !release.prerelease
+      || !Number.isSafeInteger(release.id) || release.id <= 0) throw new Error('Existing Nightly is not an owned rolling record.');
+  const markers = [...(release.body ?? '').matchAll(NIGHTLY)];
+  const transitions = [...(release.body ?? '').matchAll(TRANSITION)];
+  if (markers.length !== 1 || transitions.length > 1 || BUILD.exec(markers[0][2])?.[1] !== markers[0][1]) throw new Error('Nightly build identity is invalid.');
+  const [, commit, build] = markers[0];
+  let previous = commit;
+  if (transitions.length) {
+    const [, id, prior, priorBuild, oldRef, candidate] = transitions[0];
+    if (candidate !== build || (prior === 'none') !== (priorBuild === 'none')
+        || (priorBuild !== 'none' && BUILD.exec(priorBuild)?.[1] !== prior)
+        || (id !== 'new' && id !== String(release.id))) throw new Error('Nightly transition identity is invalid.');
+    if (id === 'new' && (!release.draft || prior !== 'none' || oldRef !== 'none')) throw new Error('Only an initial Nightly draft may have a new-record marker.');
+    if (![oldRef === 'none' ? null : oldRef, commit].includes(ref)) throw new Error('Nightly ref changed outside its recorded transition.');
+    if (id !== 'new') {
+      const names = new Set([`Galaxy_nightly_${build}_aarch64.dmg`, `Galaxy_nightly_${build}_x86_64-setup.exe`,
+        `Galaxy_nightly_${build}_amd64.deb`, `Galaxy_nightly_${build}_linux_x86_64.tar.gz`, `SHA256SUMS_nightly_${build}`]);
+      for (const asset of release.assets ?? []) {
+        if (names.has(asset.name) && Number.isSafeInteger(asset.size) && asset.size > 0
+            && asset.size <= (asset.name.startsWith('SHA256SUMS_') ? 8192 : 2 * 1024 ** 3)) names.delete(asset.name);
+      }
+      if (names.size) throw new Error('Pending Nightly transition is missing its candidate downloads; existing data was left intact.');
+    }
+    if (release.draft) previous = prior === 'none' ? '' : prior;
+  } else if (release.draft || ref !== commit) throw new Error('Nightly record and source ref do not agree.');
+  return { commit, build, previous, pending: Boolean(release.draft || transitions.length) };
 }
 
 async function main() {
-  if (process.env.GITHUB_SERVER_URL !== 'https://github.com'
-      || process.env.GITHUB_REPOSITORY !== 'rkw6086/galaxy'
-      || (process.env.GITHUB_API_URL && process.env.GITHUB_API_URL !== 'https://api.github.com')) {
-    throw new Error('This build workflow is restricted to rkw6086/galaxy on GitHub.');
-  }
+  if (process.env.GITHUB_SERVER_URL !== 'https://github.com' || process.env.GITHUB_REPOSITORY !== 'rkw6086/galaxy'
+      || (process.env.GITHUB_API_URL && process.env.GITHUB_API_URL !== 'https://api.github.com')) throw new Error('Use the Galaxy GitHub repository.');
   const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
   const eventName = process.env.GITHUB_EVENT_NAME;
   const ref = process.env.GITHUB_REF;
   let channel;
   if (eventName === 'pull_request' || (eventName === 'push' && ref === 'refs/heads/master')) channel = 'ci';
-  else if (['schedule', 'workflow_dispatch'].includes(eventName) && ref === 'refs/heads/master') channel = 'beta';
+  else if (['schedule', 'workflow_dispatch'].includes(eventName) && ref === 'refs/heads/master') channel = 'nightly';
   else if (eventName === 'push' && ref?.startsWith('refs/tags/') && !event.deleted && !/^0+$/.test(event.after ?? '')) channel = 'release';
-  else throw new Error('Unsupported Galaxy build event or ref.');
-  const sourceVersion = checkVersions();
+  else throw new Error('Unsupported build event or ref.');
+  let version = checkVersions();
   const sha = git('rev-parse', 'HEAD');
-  if (!COMMIT.test(sha) || git('status', '--porcelain', '--untracked-files=all')) {
-    throw new Error('Build preparation requires an unchanged source checkout.');
-  }
+  if (!SHA.test(sha) || git('status', '--porcelain', '--untracked-files=all')) throw new Error('Build preparation requires a clean source checkout.');
   if (channel === 'ci' && process.env.GITHUB_SHA !== sha) throw new Error('CI checkout differs from the triggering commit.');
   const token = process.env.GITHUB_TOKEN;
   const api = async (suffix, missing = false) => {
@@ -54,160 +69,91 @@ async function main() {
       headers, redirect: 'error', signal: AbortSignal.timeout(30_000),
     });
     if (response.status === 404 && missing) return null;
-    if (!response.ok) throw new Error(`GitHub build preflight API returned HTTP ${response.status}.`);
+    if (!response.ok) throw new Error(`Build preflight API returned HTTP ${response.status}.`);
     return response.json();
   };
-  const tagCommit = async (tag, missing = false) => {
+  const tagObject = async (tag, missing = false) => {
     const value = await api(`/git/ref/tags/${encodeURIComponent(tag)}`, missing);
     if (!value) return null;
-    let object = value.object;
+    if (value.ref !== `refs/tags/${tag}`) throw new Error('Unexpected remote ref identity.');
+    return value.object;
+  };
+  const tagCommit = async (tag) => {
+    let object = await tagObject(tag);
     for (let depth = 0; depth < 8 && object?.type === 'tag'; depth += 1) object = (await api(`/git/tags/${object.sha}`)).object;
-    if (object?.type !== 'commit' || !COMMIT.test(object.sha)) throw new Error('Tag does not identify a bounded commit object.');
+    if (object?.type !== 'commit' || !SHA.test(object.sha)) throw new Error('Tag does not identify a bounded commit object.');
     return object.sha;
   };
-  let releaseHistory;
-  const allReleases = async () => {
-    if (releaseHistory) return releaseHistory;
-    releaseHistory = [];
-    for (let page = 1; page <= 100; page += 1) {
-      const values = await api(`/releases?per_page=100&page=${page}`);
-      if (!Array.isArray(values)) throw new Error('Cannot inspect release history.');
-      releaseHistory.push(...values);
-      if (values.length < 100) return releaseHistory;
-      if (page === 100) throw new Error('Release history exceeds its safe bound.');
-    }
-    return releaseHistory;
-  };
-  let version = sourceVersion;
+  let nightlyId = '';
   let previous = '';
-  let previousReleaseId = '';
+  let previousBuild = '';
+  let previousId = '';
+  let previousRef = '';
+  let pending = false;
   let baseline = '';
   let notes = '';
   if (channel !== 'ci') {
     if (!token || /\s/.test(token)) throw new Error('Missing GitHub workflow token.');
-    const master = await api('/branches/master');
-    const primaryRef = channel === 'beta' ? 'refs/heads/master' : ref;
-    const primaryRows = git('-c', 'credential.helper=', 'ls-remote',
-      'https://git.ryserve.net/public/galaxy.git', primaryRef, `${primaryRef}^{}`)
+    const primaryRef = channel === 'nightly' ? 'refs/heads/master' : ref;
+    const rows = git('-c', 'credential.helper=', 'ls-remote', 'https://git.ryserve.net/public/galaxy.git', primaryRef, `${primaryRef}^{}`)
       .split('\n').filter(Boolean).map((line) => line.split('\t'));
-    const primary = primaryRows.find((row) => row[1] === `${primaryRef}^{}`)?.[0]
-      ?? primaryRows.find((row) => row[1] === primaryRef)?.[0];
-    if (primary !== sha) throw new Error('Gitea primary ref differs from this source; wait for repository sync before signing.');
-    if (channel === 'beta') {
-      if (master.commit?.sha !== sha || git('rev-parse', 'refs/remotes/origin/master') !== sha) {
-        throw new Error('Beta checkout must match current GitHub master.');
-      }
-      const current = await api('/releases/tags/beta', true);
+    if ((rows.find((row) => row[1] === `${primaryRef}^{}`)?.[0] ?? rows.find((row) => row[1] === primaryRef)?.[0]) !== sha) {
+      throw new Error('Gitea primary differs from this source; wait for repository sync before signing.');
+    }
+    if (channel === 'nightly') {
+      if ((await api('/branches/master')).commit?.sha !== sha || git('rev-parse', 'refs/remotes/origin/master') !== sha) throw new Error('Nightly checkout must match current master.');
+      const run = process.env.GITHUB_RUN_ID;
+      const attempt = process.env.GITHUB_RUN_ATTEMPT;
+      if (!/^[1-9][0-9]{0,18}$/.test(run ?? '') || !/^[1-9][0-9]{0,8}$/.test(attempt ?? '')) throw new Error('Missing Nightly run identity.');
+      nightlyId = `${sha}_${run}-${attempt}`;
+      const current = await api('/releases/tags/nightly', true);
+      const object = await tagObject('nightly', true);
+      if (object && (object.type !== 'commit' || !SHA.test(object.sha))) throw new Error('Nightly must use its owned lightweight source ref.');
+      previousRef = object?.sha ?? '';
       if (current) {
-        previous = current.body?.match(MARKER)?.[1] ?? '';
-        if (!Number.isSafeInteger(current.id) || current.id <= 0) throw new Error('Existing beta release identity is invalid.');
-        previousReleaseId = String(current.id);
-        if (!previous || current.draft || !current.prerelease || current.target_commitish !== previous) {
-          throw new Error('Existing GitHub beta is not an owned rolling Galaxy release.');
-        }
-        const expected = names('beta', version, sha);
-        const complete = current.assets?.length === expected.size && current.assets.every((asset) =>
-          expected.delete(asset.name) && Number.isSafeInteger(asset.size) && asset.size > 0 && asset.size <= 2 * 1024 ** 3)
-          && expected.size === 0;
-        if (eventName === 'schedule' && previous === sha && complete && await tagCommit('beta') === sha) {
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'build=false\nchannel=beta\n');
-          console.log(`Published beta already contains ${sha}; no build is needed.`);
-          return;
-        }
-      } else {
-        // An interrupted promotion may have removed the old release record but
-        // left its ref. Ownership must come from a published, bounded staging
-        // record that persisted the exact cutover before removing anything.
-        // The publisher re-downloads and hashes the selected proof's assets.
-        // If no ref remains, this metadata also restores the notes baseline;
-        // there is no existing alias to consume in that case.
-        const orphan = await tagCommit('beta', true);
-        {
-          const proofs = [];
-          for (const stage of await allReleases()) {
-            const stageTag = stage.tag_name?.match(STAGE);
-            const sources = [...(stage.body ?? '').matchAll(new RegExp(MARKER.source, 'g'))];
-            const cutovers = [...(stage.body ?? '').matchAll(CUTOVER)];
-            if (!stageTag || stage.draft || !stage.prerelease || sources.length !== 1 || cutovers.length !== 1
-                || stageTag[1] !== sources[0][1] || stage.target_commitish !== sources[0][1]) continue;
-            const [, prior, priorId, recordedOrphan] = cutovers[0];
-            if ((prior === 'none') !== (priorId === 'none') || !Number.isSafeInteger(stage.id) || stage.id <= 0
-                || (priorId !== 'none' && !Number.isSafeInteger(Number(priorId)))
-                || (orphan && ![stageTag[1], recordedOrphan].includes(orphan))) continue;
-            const expected = names('beta', version, stageTag[1]);
-            if (stage.assets?.length !== expected.size || !stage.assets.every((asset) =>
-              expected.delete(asset.name) && Number.isSafeInteger(asset.size) && asset.size > 0
-                && asset.size <= (asset.name === 'SHA256SUMS' ? 8192 : 2 * 1024 ** 3)) || expected.size) continue;
-            try { git('merge-base', '--is-ancestor', stageTag[1], sha); } catch { continue; }
-            proofs.push({ stage, prior: prior === 'none' ? '' : prior, priorId: priorId === 'none' ? '' : priorId });
-            if (proofs.length > 20) throw new Error('Too many interrupted beta cutover proofs; inspect release state.');
-          }
-          if ((orphan && !proofs.length) || (proofs.length && new Set(proofs.map((proof) => `${proof.prior}:${proof.priorId}`)).size !== 1)) {
-            throw new Error('Interrupted beta state has no unambiguous owned cutover proof; left unchanged.');
-          }
-          const proof = proofs.sort((a, b) => b.stage.id - a.stage.id)[0];
-          if (proof) {
-            if (await tagCommit(proof.stage.tag_name) !== proof.stage.target_commitish) throw new Error('Recovery staging ref changed.');
-            previous = proof.prior;
-            previousReleaseId = proof.priorId;
-            console.log('Recovered beta preparation metadata from a published interrupted cutover.');
-          }
-        }
-      }
-      baseline = previous;
-      if (!baseline) {
-        // Use the last published Gitea beta for migration notes, never failed runs.
-        try {
-          const response = await fetch('https://git.ryserve.net/api/v1/repos/public/galaxy/releases/tags/beta', {
-            redirect: 'error', signal: AbortSignal.timeout(5_000),
-          });
-          if (response.ok) {
-            const old = await response.json();
-            const commit = old.body?.match(MARKER)?.[1];
-            if (!old.draft && old.prerelease && COMMIT.test(commit ?? '')) baseline = commit;
-          }
-        } catch { /* First GitHub beta can use the latest stable source instead. */ }
-      }
+        const state = nightlyState(current, object?.sha ?? null);
+        previous = state.commit;
+        previousBuild = state.build;
+        previousId = String(current.id);
+        pending = state.pending;
+        baseline = state.previous;
+      } else if (object) throw new Error('An unowned Nightly ref exists without its rolling release; left unchanged.');
+      // Every scheduled/manual run produces a distinct candidate, even when
+      // master has not changed since the last completed Nightly.
     } else {
       version = ref.slice('refs/tags/'.length);
-      if (!VERSION.test(version) || compareVersions(version, sourceVersion) < 0) throw new Error('Use a bare, nondecreasing stable version tag.');
+      if (!VERSION.test(version) || compareVersions(version, checkVersions()) < 0) throw new Error('Use a bare, nondecreasing stable version tag.');
       if (git('rev-parse', `${ref}^{commit}`) !== sha || await tagCommit(version) !== sha
-          || git('rev-parse', `${process.env.GITHUB_SHA}^{commit}`) !== sha) throw new Error('Release tag or triggering source changed.');
+          || git('rev-parse', `${process.env.GITHUB_SHA}^{commit}`) !== sha) throw new Error('Release tag or source changed.');
       git('merge-base', '--is-ancestor', sha, 'refs/remotes/origin/master');
-      const current = await api(`/releases/tags/${version}`, true);
-      if (current && !current.draft) {
+      const existing = await api(`/releases/tags/${version}`, true);
+      if (existing && !existing.draft) {
         fs.appendFileSync(process.env.GITHUB_OUTPUT, 'build=false\nchannel=release\n');
-        console.log(`Galaxy ${version} is already published; no signing is needed.`);
+        console.log(`Galaxy ${version} is already published; its files remain unchanged.`);
         return;
       }
-      for (const tag of git('tag', '--list').split('\n')) {
-        const numeric = tag.startsWith('v') ? tag.slice(1) : tag;
-        if (tag !== version && VERSION.test(numeric) && compareVersions(version, numeric) <= 0) {
-          throw new Error(`Version must be newer than retained tag ${tag}.`);
-        }
-      }
-      for (let page = 1; page <= 100; page += 1) {
-        const data = await api(`/actions/workflows/build.yml/runs?event=push&per_page=100&page=${page}`);
-        if (!Array.isArray(data.workflow_runs)) throw new Error('Cannot verify release workflow history.');
-        for (const run of data.workflow_runs) {
-          if (run.head_branch === version && run.head_sha && run.head_sha !== sha) throw new Error('This version tag was used for another source; create a new version.');
-        }
-        if (data.workflow_runs.length < 100) break;
-        if (page === 100) throw new Error('Release workflow history exceeds its safe bound.');
-      }
-      try { notes = changelog(version); } catch { /* Generate bounded commit notes below. */ }
+      try { notes = changelog(version); } catch { /* Bounded commit notes below. */ }
     }
-    const releases = await allReleases();
+    const releases = [];
+    for (let page = 1; page <= 100; page += 1) {
+      const values = await api(`/releases?per_page=100&page=${page}`);
+      if (!Array.isArray(values)) throw new Error('Cannot inspect release history.');
+      releases.push(...values);
+      if (values.length < 100) break;
+      if (page === 100) throw new Error('Release history exceeds its safe bound.');
+    }
     const stable = releases.filter((release) => !release.draft && !release.prerelease && VERSION.test(release.tag_name ?? ''))
       .sort((a, b) => compareVersions(b.tag_name, a.tag_name));
-    if (channel === 'release' && stable.some((release) => compareVersions(release.tag_name, version) >= 0)) throw new Error('A newer or equal stable release is already published.');
-    if (!baseline) baseline = stable[0]?.body?.match(/<!-- galaxy-release:v1 tag=[0-9.]+ commit=([0-9a-f]{40}) -->/)?.[1] ?? '';
+    const previousStable = channel === 'release'
+      ? stable.find((release) => compareVersions(release.tag_name, version) < 0)
+      : stable[0];
+    if (!baseline) baseline = previousStable?.body?.match(/<!-- galaxy-release:v1 tag=[0-9.]+ commit=([0-9a-f]{40}) -->/)?.[1] ?? '';
     if (!notes) {
       let range = sha;
       if (baseline) {
         try { git('merge-base', '--is-ancestor', baseline, sha); range = `${baseline}..${sha}`; } catch { baseline = ''; }
       }
-      if (baseline === sha) notes = 'Manually rebuilt master with no source changes since the previous beta.';
+      if (baseline === sha) notes = 'Rebuilt the same source as the previous Nightly; no source changes.';
       else {
         const commits = git('log', '--format=%h %s', '--max-count=201', range, '--').split('\n').filter(Boolean);
         const lines = [];
@@ -231,13 +177,13 @@ async function main() {
     const file = path.join(directory, 'release-notes.md');
     if (!notes.trim() || Buffer.byteLength(notes) > 128 * 1024) throw new Error('Release notes exceed their safe bound.');
     fs.writeFileSync(file, `${notes.trim()}\n`, { mode: 0o600, flag: 'wx' });
-    fs.appendFileSync(process.env.GITHUB_ENV, `GALAXY_RELEASE_NOTES_FILE=${file}\n`);
     fs.appendFileSync(process.env.GITHUB_OUTPUT, `notes_file=${file}\n`);
+    fs.appendFileSync(process.env.GITHUB_ENV, `GALAXY_RELEASE_NOTES_FILE=${file}\n`);
   }
   fs.appendFileSync(process.env.GITHUB_OUTPUT,
-    `build=true\nchannel=${channel}\nversion=${version}\nsha=${sha}\nprevious_beta_sha=${previous}\nprevious_beta_release_id=${previousReleaseId}\n`);
+    `build=true\nchannel=${channel}\nversion=${version}\nsha=${sha}\nnightly_id=${nightlyId}\nprevious_nightly_sha=${previous}\nprevious_nightly_build=${previousBuild}\nprevious_nightly_release_id=${previousId}\nprevious_nightly_ref=${previousRef}\nprevious_nightly_pending=${pending}\n`);
   fs.appendFileSync(process.env.GITHUB_ENV,
-    `GALAXY_RELEASE_VERSION=${version}\nGALAXY_RELEASE_SHA=${sha}\nGALAXY_PREVIOUS_BETA_SHA=${previous}\nGALAXY_PREVIOUS_BETA_RELEASE_ID=${previousReleaseId}\n`);
+    `GALAXY_RELEASE_VERSION=${version}\nGALAXY_RELEASE_SHA=${sha}\nGALAXY_NIGHTLY_ID=${nightlyId}\n`);
   console.log(`Validated Galaxy ${channel} ${version} at ${sha}.`);
 }
 

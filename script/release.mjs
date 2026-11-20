@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-const remotes = ['origin', 'samsung'];
+const remotes = ['origin'];
 
 export function parseVersion(value) {
   if (typeof value !== 'string' || !stableVersion.test(value)) {
@@ -188,8 +188,7 @@ function tag(requested, push) {
   }
   git(root, 'tag', '-a', version, '-m', `Galaxy ${version}`);
   if (push) {
-    // Mirror the tag first, then start the release workflow on Gitea.
-    git(root, 'push', 'samsung', `refs/tags/${version}`);
+    // Gitea owns distribution of this immutable tag to the external mirrors.
     git(root, 'push', 'origin', `refs/tags/${version}`);
   }
   return version;
@@ -204,7 +203,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       console.log(`Galaxy ${checkVersions({ expected: argument })}: package versions match.`);
     } else if (command === 'prepare') {
       if (!argument || option) throw new Error('Usage: node script/release.mjs prepare major|minor|patch|X.Y.Z');
-      console.log(`Prepared Galaxy ${prepare(argument)}. Build, commit, and push both remotes before tagging.`);
+      console.log(`Prepared Galaxy ${prepare(argument)}. Build, commit, and push origin before tagging.`);
     } else if (command === 'stage' || command === 'verify-staged') {
       if (!argument || !option) throw new Error(`Usage: node script/release.mjs ${command} X.Y.Z SOURCE_SHA`);
       const version = command === 'stage' ? stageVersion(argument, option) : verifyStagedVersion(argument, option);
@@ -215,7 +214,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       }
       const push = argument === '--push' || option === '--push';
       const version = tag(argument === '--push' ? undefined : argument, push);
-      console.log(push ? `Pushed Galaxy ${version} to both remotes; Gitea sync will trigger the GitHub builds.` : `Created ${version}. Push this tag to samsung and origin to release.`);
+      console.log(push ? `Pushed Galaxy ${version} to Gitea; sync jobs will update GitHub and Samsung and trigger the GitHub builds.` : `Created ${version}. Push this tag to origin to release.`);
     } else throw new Error('Use check, prepare, tag, stage, or verify-staged.');
   } catch (error) {
     console.error(error.message);
