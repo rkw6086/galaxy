@@ -14,6 +14,7 @@ pub use conpty_api::ConptyApi;
 use conpty_api::ConptyApiError;
 use environment::get_shell_environment_variables;
 pub use environment::get_user_and_system_env_variable;
+use galaxyui::{AppContext, SingletonEntity};
 use thiserror::Error;
 use windows::core::{HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};

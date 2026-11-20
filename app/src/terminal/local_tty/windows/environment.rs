@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
+use galaxy_core::channel::ChannelState;
+use galaxy_core::features::FeatureFlag;
 use itertools::Itertools;
 use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::System::Environment::ExpandEnvironmentStringsW;

@@ -371,8 +371,6 @@ use crate::tab_configs::{
     NewWorktreeModal, NewWorktreeModalEvent, TabConfigParamsModal, TabConfigParamsModalEvent,
 };
 use crate::terminal::alt_screen_reporting::AltScreenReporting;
-#[cfg(target_os = "windows")]
-use crate::terminal::available_shells::AvailableShells;
 use crate::terminal::available_shells::{AvailableShell, AvailableShells};
 use crate::terminal::block_list_viewport::InputMode;
 #[cfg(not(target_family = "wasm"))]

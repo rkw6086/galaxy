@@ -188,6 +188,7 @@ mod platform {
 
 #[cfg(target_os = "windows")]
 mod platform {
+    use std::mem;
 
     use windows::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
     use windows::Win32::System::Threading::GetCurrentProcess;
