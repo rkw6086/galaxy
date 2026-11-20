@@ -22,6 +22,15 @@ jobs:
         with:
           ref: master
           persist-credentials: false
+          sparse-checkout: script/ci
+          filter: blob:none
+
+      - name: Verify Git and Git LFS are available
+        shell: bash
+        run: |
+          set -euo pipefail
+          git --version
+          git lfs version
 
       - name: Reconcile all branches and publish release tags
         shell: bash

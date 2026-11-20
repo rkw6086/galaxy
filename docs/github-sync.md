@@ -49,7 +49,13 @@ only on GitHub are not imported. Rolling `beta` and temporary `beta-stage-*`
 tags stay on Gitea because they move or disappear during release publication.
 
 Git synchronization copies commits, branches, tags, and files, including the
-Gitea workflow definitions. It does not copy issues, pull requests, reviews,
+Gitea workflow definitions. Before publishing a changed ref, the job fetches
+every Git LFS object reachable from its history and uploads it to the destination.
+Clean merges fetch the LFS objects from both parents before either ref is pushed.
+A failed LFS transfer prevents that ref from being published. Unchanged runs
+perform no LFS transfers. The Linux runner must provide Git and Git LFS.
+
+Synchronization does not copy issues, pull requests, reviews,
 release records, downloadable assets, workflow history, or secrets. Signed
 downloads remain at <https://git.ryserve.net/public/galaxy/releases>. Contributors
 can open pull requests on GitHub or Gitea; merging a GitHub pull
@@ -64,6 +70,10 @@ workflows; their history is preserved.
 
 1. Add a dedicated Ed25519 public key to the GitHub repository's **Settings →
    Deploy keys**, with **Allow write access** enabled.
+   When registering it through GitHub CLI, the login also needs `workflow`
+   permission to copy branches or historical tags containing GitHub workflow
+   files. Use `gh auth refresh --hostname github.com --scopes workflow` if GitHub
+   rejects those files. This does not move the sync job to GitHub.
 2. Save its private key as the **Gitea repository Actions secret**
    `GALAXY_GITHUB_SYNC_KEY`. Do not put it in Git or use a personal account key.
 3. The job's short-lived Gitea token has `code: write` for this repository. The

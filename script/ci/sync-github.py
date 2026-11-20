@@ -6,6 +6,8 @@ Clean divergent histories receive a merge commit, with Gitea as its first parent
 published to Gitea before GitHub. Conflicts and unrelated histories are preserved
 for maintainer review. This is deliberately not `git push --mirror`: deletions
 are not propagated, and ordinary non-force pushes protect concurrent work.
+Every ref publication first transfers all reachable Git LFS payloads; matching
+refs remain a lightweight no-op without Git-object or LFS downloads.
 """
 from __future__ import annotations
 
@@ -20,6 +22,12 @@ import tempfile
 
 REMOTES = {
     "gitea": "https://git.ryserve.net/public/galaxy.git",
+    "github": "git@github.com:rkw6086/galaxy.git",
+}
+LFS_ENDPOINTS = {
+    "gitea": "https://git.ryserve.net/public/galaxy.git/info/lfs",
+    # Keep GitHub's SSH authentication exchange, which returns its HTTPS LFS
+    # endpoint and short-lived authorization without storing a GitHub token.
     "github": "git@github.com:rkw6086/galaxy.git",
 }
 OBJECT_ID = re.compile(r"[0-9a-f]{40}\Z")
@@ -39,6 +47,8 @@ def report(result, **details):
 class Repository:
     def __init__(self, directory):
         self.directory = directory
+        self.lfs_fetched = set()
+        self.lfs_pushed = set()
         self.env = {
             key: value for key, value in os.environ.items()
             if not key.startswith("GIT_") or key == "GIT_SSH_COMMAND"
@@ -71,6 +81,10 @@ class Repository:
         askpass.chmod(0o700)
         self.git("init", "--bare", "repository", operation="initialize")
         self.directory = directory / "repository"
+        # Named remotes let LFS resolve the same trusted identities as Git.
+        # Neither URLs nor configuration contain credentials.
+        for remote, url in REMOTES.items():
+            self.git("remote", "add", remote, url, operation=f"configure {remote}")
 
     def git(self, *args, operation, allowed=(0,), timeout=300):
         # Never expose transport output: credential helpers or remote hook errors
@@ -91,6 +105,16 @@ class Repository:
             except subprocess.TimeoutExpired as error:
                 raise SyncError(f"{operation}: timed out; retry the next scheduled sync.") from error
             if result.returncode not in allowed:
+                errors.seek(0)
+                diagnostic = errors.read(MAX_OUTPUT).decode("utf-8", errors="replace").lower()
+                # Classify known failures without exposing provider output,
+                # credential-helper text, signed URLs, or repository content.
+                if "workflow" in diagnostic and "scope" in diagnostic and "refusing to allow" in diagnostic:
+                    raise SyncError(f"{operation}: GitHub requires workflow permission for the credential that registered the deploy key.")
+                if "gh008" in diagnostic:
+                    raise SyncError(f"{operation}: GitHub rejected missing Git LFS payloads.")
+                if "host key verification failed" in diagnostic:
+                    raise SyncError(f"{operation}: SSH host key verification failed.")
                 raise SyncError(f"{operation}: Git failed with exit status {result.returncode}.")
             output.seek(0)
             data = output.read(MAX_OUTPUT + 1)
@@ -148,6 +172,35 @@ class Repository:
         )
         return status == 0
 
+    def lfs(self, operation, remote, oid):
+        if remote not in REMOTES or not OBJECT_ID.fullmatch(oid):
+            raise SyncError("Invalid Git LFS transfer identity.")
+        endpoint = LFS_ENDPOINTS[remote]
+        self.git(
+            "-c", f"lfs.url={endpoint}", "-c", f"lfs.pushurl={endpoint}",
+            "-c", f"remote.{remote}.lfsurl={endpoint}",
+            "-c", f"remote.{remote}.lfspushurl={endpoint}",
+            "-c", "lfs.remote.autodetect=false", "-c", "lfs.remote.searchall=false",
+            "-c", "lfs.basictransfersonly=true", "-c", "lfs.allowincompletepush=false",
+            "-c", "lfs.concurrenttransfers=4", "-c", "lfs.transfer.maxretries=2",
+            "lfs", operation, "--all", remote, oid,
+            operation=f"{operation} Git LFS payloads on {remote}", timeout=600,
+        )
+
+    def fetch_lfs(self, remote, oid):
+        identity = (remote, oid)
+        if identity not in self.lfs_fetched:
+            self.lfs("fetch", remote, oid)
+            self.lfs_fetched.add(identity)
+            report("lfs-fetched", source=remote, oid=oid)
+
+    def push_lfs(self, remote, oid):
+        identity = (remote, oid)
+        if identity not in self.lfs_pushed:
+            self.lfs("push", remote, oid)
+            self.lfs_pushed.add(identity)
+            report("lfs-pushed", destination=remote, oid=oid)
+
     def merge(self, ref, gitea, github, dry_run):
         status, _ = self.git(
             "merge-base", gitea, github,
@@ -181,12 +234,13 @@ class Repository:
             raise SyncError("Merge commit returned an unexpected identity.")
         # A successful first publication is durable even if GitHub races or is
         # unavailable; the next job sees the commit and resumes reconciliation.
-        self.push("clean-merge", "gitea", ref, commit, gitea, False)
-        self.push("clean-merge", "github", ref, commit, github, False)
+        sources = (("gitea", gitea), ("github", github))
+        self.push("clean-merge", "gitea", ref, commit, gitea, False, lfs_sources=sources)
+        self.push("clean-merge", "github", ref, commit, github, False, lfs_sources=sources)
         report("merged", ref=ref, oid=commit)
         return True
 
-    def push(self, source, destination, ref, oid, expected, dry_run):
+    def push(self, source, destination, ref, oid, expected, dry_run, lfs_sources=None):
         current = self.refs(destination, ref).get(ref)
         if current == oid:
             report("already-synchronized", ref=ref, destination=destination)
@@ -199,6 +253,19 @@ class Repository:
         if dry_run:
             report("would-copy", source=source, destination=destination, ref=ref, oid=oid)
             return
+        # LFS hooks are disabled intentionally. Explicit transfers cover the
+        # entire reachable history, including both parents of a clean merge,
+        # before making a ref visible to clients of the destination repository.
+        for owner, source_oid in lfs_sources or ((source, oid),):
+            self.fetch_lfs(owner, source_oid)
+        self.push_lfs(destination, oid)
+        # A transfer can take time; repeat the freshness check before Git push.
+        current = self.refs(destination, ref).get(ref)
+        if current == oid:
+            report("already-synchronized", ref=ref, destination=destination)
+            return
+        if current != expected:
+            raise SyncError(f"{destination}: destination changed during LFS transfer; defer to the next sync.")
         # An ordinary non-force push is the final server-side ancestry guard.
         # A racing divergent update is rejected. A racing fast-forward that is
         # still an ancestor of oid is harmless and may be advanced normally.
