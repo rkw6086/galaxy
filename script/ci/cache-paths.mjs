@@ -118,6 +118,9 @@ function main() {
     `CARGO_HOME=${cargoHome}`,
     `SCCACHE_DIR=${compiler}`,
     'SCCACHE_CACHE_SIZE=2G',
+    // Galaxy's main crate can exceed the daemon's default ten-minute timer.
+    // The workflow explicitly stops it after compilation, before cache save.
+    'SCCACHE_IDLE_TIMEOUT=0',
     'SCCACHE_GHA_ENABLED=false',
     'SCCACHE_GHA_VERSION=',
     'RUSTC_WRAPPER=',
