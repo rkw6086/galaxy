@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Build Windows x64, Linux x64, and signed Apple Silicon macOS releases on GitHub Actions while keeping Gitea as the primary source and synchronizing repository branches.
 - Keep one rolling beta and one latest stable download, replacing older release assets and removing redundant native build archives after successful verification.
 - Build betas nightly at 3 a.m. Central when master changes or manually on demand, with notes since the previous beta. Set tagged app versions automatically from the new tag.
 - Sign and notarize Apple Silicon beta DMGs, with the source commit in About Galaxy. Tagged releases continue to display their version.

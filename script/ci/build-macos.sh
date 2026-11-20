@@ -19,7 +19,12 @@ export GALAXY_BUILD_CHANNEL=${GALAXY_BUILD_CHANNEL:-release}
 [[ $GALAXY_BUILD_CHANNEL == release || $GALAXY_BUILD_CHANNEL == beta ]] || fail 'Build channel must be release or beta.'
 if [[ ${GALAXY_UNSIGNED_PREFLIGHT:-} == 1 ]]; then
   [[ $GALAXY_BUILD_CHANNEL == release ]] || fail 'Unsigned preflight cannot produce a beta build.'
-  [[ ${GITHUB_EVENT_NAME:-} == workflow_dispatch && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Unsigned preflight is restricted to manual builds of master.'
+  if [[ ${GALAXY_GITHUB_CI:-} == 1 ]]; then
+    [[ ${GITHUB_SERVER_URL:-} == https://github.com && ${GITHUB_REPOSITORY:-} == rkw6086/galaxy ]] || fail 'GitHub CI requires the Galaxy repository.'
+    [[ ${GITHUB_EVENT_NAME:-} == pull_request || ( ${GITHUB_EVENT_NAME:-} == push && ${GITHUB_REF:-} == refs/heads/master ) ]] || fail 'Unsigned GitHub CI requires a pull request or master push.'
+  else
+    [[ ${GITHUB_EVENT_NAME:-} == workflow_dispatch && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Unsigned preflight is restricted to manual builds of master.'
+  fi
 elif [[ $GALAXY_BUILD_CHANNEL == beta ]]; then
   [[ ( ${GITHUB_EVENT_NAME:-} == schedule || ${GITHUB_EVENT_NAME:-} == workflow_dispatch ) && ${GITHUB_REF:-} == refs/heads/master ]] || fail 'Beta builds require a scheduled or manual master run.'
   [[ ${GALAXY_RELEASE_SHA:-} =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && ${GALAXY_BETA_ID:-} == "$GALAXY_RELEASE_SHA" ]] || fail 'Beta identity must match the validated master commit.'

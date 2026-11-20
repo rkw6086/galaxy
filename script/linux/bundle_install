@@ -62,4 +62,17 @@ EOF
 fi
 
 # Prepare the bundled resources directory.
-"$WORKSPACE_ROOT_DIR/script/prepare_bundled_resources" "${TARGET_DIR}/${OPT_DIR}/resources" "$RELEASE_CHANNEL" "$CARGO_PROFILE"
+if [[ -n ${GALAXY_PREPARED_RESOURCES_DIR:-} ]]; then
+  # CI builds the schema and attribution once, then reuses that exact resource
+  # tree for the native package and portable archive.
+  for resource in settings_schema.json THIRD_PARTY_LICENSES.txt; do
+    [[ -s "$GALAXY_PREPARED_RESOURCES_DIR/$resource" ]] || {
+      echo "Prepared resource is missing: $resource" >&2
+      exit 1
+    }
+  done
+  mkdir -p "${TARGET_DIR}${OPT_DIR}/resources"
+  cp -R "$GALAXY_PREPARED_RESOURCES_DIR/." "${TARGET_DIR}${OPT_DIR}/resources/"
+else
+  "$WORKSPACE_ROOT_DIR/script/prepare_bundled_resources" "${TARGET_DIR}/${OPT_DIR}/resources" "$RELEASE_CHANNEL" "$CARGO_PROFILE"
+fi

@@ -33,6 +33,10 @@ export CARGO_TARGET_DIR="$tools/build"
 # Apple signing is performed separately by package-macos.sh.
 cargo install --locked --root "$tools" --git https://github.com/burtonageo/cargo-bundle --rev 739f92c37c789b5511a448a389cbc76fcebd99df cargo-bundle
 cargo install --locked --root "$tools" cargo-about@0.8.4
+# Cargo install intermediates are not runtime tools. Hosted macOS runners have
+# a small ephemeral disk; reclaim only this job's exact installation directory.
+[[ "$tools" == "$RUNNER_TEMP/galaxy-tools-$GALAXY_JOB_ID" && -d "$tools/build" && ! -L "$tools/build" ]]
+rm -rf -- "$tools/build"
 echo "$tools/bin" >> "$GITHUB_PATH"
 echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 echo '/opt/homebrew/bin' >> "$GITHUB_PATH"

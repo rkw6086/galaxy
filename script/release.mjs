@@ -215,7 +215,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       }
       const push = argument === '--push' || option === '--push';
       const version = tag(argument === '--push' ? undefined : argument, push);
-      console.log(push ? `Pushed Galaxy ${version} to both remotes; Gitea will build the signed release.` : `Created ${version}. Push this tag to samsung and origin to release.`);
+      console.log(push ? `Pushed Galaxy ${version} to both remotes; Gitea sync will trigger the GitHub builds.` : `Created ${version}. Push this tag to samsung and origin to release.`);
     } else throw new Error('Use check, prepare, tag, stage, or verify-staged.');
   } catch (error) {
     console.error(error.message);

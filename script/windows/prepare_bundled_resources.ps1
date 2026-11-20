@@ -53,10 +53,21 @@ if (Test-Path $BundledSource -PathType Container) {
     Write-Warning "No bundled directory found at $BundledSource"
 }
 
+# The Linux server helpers are packaged data on Windows; no cross-compilation
+# is needed during an ordinary desktop build.
+$HelpersSource = if ($env:GALAXY_WORMHOLE_HELPERS_DIR) { $env:GALAXY_WORMHOLE_HELPERS_DIR } else { Join-Path $ResourcesSource 'wormhole-helpers' }
+if (Test-Path $HelpersSource -PathType Container) {
+    $HelpersDestination = Join-Path $DestinationDir 'wormhole-helpers'
+    if (Test-Path $HelpersDestination) { Remove-Item $HelpersDestination -Recurse -Force }
+    Copy-Item $HelpersSource $HelpersDestination -Recurse -Force
+} elseif ($env:REQUIRE_WORMHOLE_HELPERS -eq '1') {
+    throw 'Prebuilt Wormhole helpers are required for packaging.'
+}
+
 if ($env:GIT_RELEASE_TAG) {
     $VersionMetadataDir = Join-Path (Join-Path $DestinationDir 'bundled') 'metadata'
     $VersionMetadataPath = Join-Path $VersionMetadataDir 'version.json'
-    Write-Output "Writing bundled Warp version metadata to $VersionMetadataPath"
+    Write-Output "Writing bundled Galaxy version metadata to $VersionMetadataPath"
     if (-Not (Test-Path $VersionMetadataDir -PathType Container)) {
         New-Item -ItemType Directory -Path $VersionMetadataDir -Force | Out-Null
     }
@@ -78,7 +89,7 @@ if ($Channel -and $Channel -notin @('oss', 'integration')) {
 # to the repo alongside the component and add an entry here.
 # Cross-platform components:
 $AdditionalLicenses = @(
-    @{ Name = 'Alacritty (alacritty_terminal)'; License = 'Apache-2.0'; Path = 'crates\warp_terminal\src\model\LICENSE-ALACRITTY' },
+    @{ Name = 'Alacritty (alacritty_terminal)'; License = 'Apache-2.0'; Path = 'crates\galaxy_terminal\src\model\LICENSE-ALACRITTY' },
     @{ Name = 'Hack Font'; License = 'MIT'; Path = 'app\assets\bundled\fonts\hack\LICENSE.md' },
     @{ Name = 'Roboto Font'; License = 'SIL Open Font License'; Path = 'app\assets\bundled\fonts\roboto\LICENSE.txt' },
     @{ Name = 'bash-preexec'; License = 'MIT'; Path = 'app\assets\bundled\bootstrap\bash-preexec-LICENSE.md' },
@@ -120,18 +131,22 @@ if ($env:SKIP_SETTINGS_SCHEMA -ne '1') {
     $SchemaOutput = Join-Path $DestinationDir 'settings_schema.json'
     Write-Output "Generating settings schema at $SchemaOutput"
 
-    $SchemaCmd = @('run')
-    if ($CargoProfile) {
-        $SchemaCmd += @('--profile', $CargoProfile)
-    }
-    $SchemaCmd += @('--manifest-path', (Join-Path $RepoRoot 'Cargo.toml'), '--bin', 'generate_settings_schema', '--')
-    $SchemaCmd += @('--channel', 'oss')
-    $SchemaCmd += $SchemaOutput
+    if ($env:SETTINGS_SCHEMA_CACHE -and (Test-Path $env:SETTINGS_SCHEMA_CACHE -PathType Leaf)) {
+        Copy-Item $env:SETTINGS_SCHEMA_CACHE $SchemaOutput
+    } else {
+        $SchemaCmd = @('run', '--locked')
+        if ($CargoProfile) {
+            $SchemaCmd += @('--profile', $CargoProfile)
+        }
+        $SchemaCmd += @('--manifest-path', (Join-Path $RepoRoot 'Cargo.toml'), '--bin', 'generate_settings_schema', '--')
+        $SchemaCmd += @('--channel', 'oss')
+        $SchemaCmd += $SchemaOutput
 
-    & cargo @SchemaCmd
-    if (-Not $?) {
-        Write-Error 'Failed to generate settings schema'
-        exit 1
+        & cargo @SchemaCmd
+        if (-Not $?) {
+            Write-Error 'Failed to generate settings schema'
+            exit 1
+        }
     }
 }
 

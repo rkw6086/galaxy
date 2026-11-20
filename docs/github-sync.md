@@ -1,7 +1,8 @@
 # Gitea and GitHub synchronization
 
 Gitea at <https://git.ryserve.net/public/galaxy> is Galaxy's primary development
-and release service. <https://github.com/rkw6086/galaxy> is the public GitHub copy.
+service. <https://github.com/rkw6086/galaxy> is the public GitHub copy and runs
+Galaxy's native build and release jobs.
 The **Sync GitHub** job runs entirely on Gitea, after pushes to `master`, every
 five minutes, and on manual dispatch. The periodic run discovers changes on
 every branch on either service. No GitHub runner or GitHub Actions secret is
@@ -43,10 +44,12 @@ current `master`.
 
 ## Tags, releases and automation
 
-Gitea owns release creation. The job copies immutable tags from Gitea to GitHub
+Version tags are created on Gitea. The job copies immutable tags to GitHub
 when missing and reports mismatched tags without replacing them. Tags created
 only on GitHub are not imported. Rolling `beta` and temporary `beta-stage-*`
-tags stay on Gitea because they move or disappear during release publication.
+tags are not synchronized because each release service owns their lifecycle.
+GitHub owns new multi-platform release downloads; legacy Gitea releases remain
+available separately.
 
 Git synchronization copies commits, branches, tags, and files, including the
 Gitea workflow definitions. Before publishing a changed ref, the job fetches
@@ -56,15 +59,17 @@ A failed LFS transfer prevents that ref from being published. Unchanged runs
 perform no LFS transfers. The Linux runner must provide Git and Git LFS.
 
 Synchronization does not copy issues, pull requests, reviews,
-release records, downloadable assets, workflow history, or secrets. Signed
-downloads remain at <https://git.ryserve.net/public/galaxy/releases>. Contributors
+release records, downloadable assets, workflow history, or secrets. Current
+downloads are at <https://github.com/rkw6086/galaxy/releases>. Contributors
 can open pull requests on GitHub or Gitea; merging a GitHub pull
 request updates its target branch and the next Gitea sync imports the result.
 
 Inherited Warp GitHub workflows have been archived under
-`.github/upstream-workflows/`. Galaxy's active automation stays under
-`.gitea/workflows/`. Existing historical branches may still contain the old
-workflows; their history is preserved.
+`.github/upstream-workflows/`. Galaxy's build workflow is
+`.github/workflows/build.yml`; repository synchronization stays under
+`.gitea/workflows/`. Existing historical tags may still contain the old
+workflows; their history is preserved. The retired performance branch is
+recoverable through tag `archive/improve-agent-performance-20261119`.
 
 ## Authentication and operation
 
