@@ -1502,7 +1502,35 @@ fn project_request_for_messages(
     template.messages = project_messages_for_context(messages, max_context_tokens);
     add_task_list_context(&mut template, task_list);
     add_exploration_reminder(&mut template);
+    select_reply_budget(&mut template, max_context_tokens);
     template
+}
+
+/// A model's output ceiling may consume its entire shared context window. Keep
+/// feasible configured limits, but repair an impossible fixed budget before
+/// deciding whether history needs compaction. Never size this from live history:
+/// doing so would hide context pressure by steadily shrinking the next reply.
+fn select_reply_budget(request: &mut TurnRequest, context_limit: Option<u32>) {
+    let (Some(context_limit), Some(output_ceiling)) = (context_limit, request.max_output_tokens)
+    else {
+        return;
+    };
+    if context_limit == 0 || output_ceiling == 0 {
+        return;
+    }
+    let safe_limit = u64::from(context_limit) * 9 / 10;
+    let fixed_input = estimate_request_input_tokens(request, &[]);
+    let remaining = safe_limit.saturating_sub(fixed_input);
+    if output_ceiling < remaining {
+        return;
+    }
+
+    // Leave history at least half the remaining safe budget, and cap the repair
+    // at one quarter of this profile's context. A positive explicit value also
+    // prevents transports from falling back to the original oversized ceiling.
+    // If the fixed prompt itself cannot fit, preflight must still reject it.
+    let reply_budget = (u64::from(context_limit) / 4).min(remaining / 2).max(1);
+    request.max_output_tokens = Some(output_ceiling.min(reply_budget));
 }
 
 fn project_messages_for_context(
@@ -1524,12 +1552,8 @@ fn context_profile_usage(
     request: &TurnRequest,
 ) -> ProviderContextProfileUsage {
     let reserved_output_tokens = request.max_output_tokens.unwrap_or_default();
-    let estimated_input_tokens =
-        estimate_turn_request_tokens(request).saturating_sub(reserved_output_tokens);
-    let mut fixed_request = request.clone();
-    fixed_request.messages.clear();
-    let fixed_input_tokens =
-        estimate_turn_request_tokens(&fixed_request).saturating_sub(reserved_output_tokens);
+    let estimated_input_tokens = estimate_request_input_tokens(request, &request.messages);
+    let fixed_input_tokens = estimate_request_input_tokens(request, &[]);
     ProviderContextProfileUsage {
         profile: profile.to_owned(),
         model_id: request.model.as_str().to_owned(),
@@ -1632,6 +1656,11 @@ pub(crate) fn estimated_context_message_tokens(message: &ConversationMessage) ->
 /// UTF-8 bytes account for non-ASCII content better than character counts; raw
 /// image payload bytes are excluded from text accounting and charged separately.
 fn estimate_turn_request_tokens(request: &TurnRequest) -> u64 {
+    estimate_request_input_tokens(request, &request.messages)
+        .saturating_add(request.max_output_tokens.unwrap_or_default())
+}
+
+fn estimate_request_input_tokens(request: &TurnRequest, messages: &[ConversationMessage]) -> u64 {
     let mut text_bytes = request
         .system_prompt
         .as_deref()
@@ -1640,8 +1669,7 @@ fn estimate_turn_request_tokens(request: &TurnRequest) -> u64 {
         .prompt
         .as_ref()
         .map_or(0, estimate_message_content_bytes);
-    text_bytes += request
-        .messages
+    text_bytes += messages
         .iter()
         .map(estimate_conversation_message_bytes)
         .sum::<usize>();
@@ -1656,8 +1684,7 @@ fn estimate_turn_request_tokens(request: &TurnRequest) -> u64 {
         .as_ref()
         .map_or(0, count_images_in_content)
         .saturating_add(
-            request
-                .messages
+            messages
                 .iter()
                 .map(|message| count_images_in_content(&message.content))
                 .sum::<u64>(),
@@ -1667,7 +1694,6 @@ fn estimate_turn_request_tokens(request: &TurnRequest) -> u64 {
     input_tokens
         .saturating_add(image_tokens)
         .saturating_add(ESTIMATED_REQUEST_OVERHEAD_TOKENS)
-        .saturating_add(request.max_output_tokens.unwrap_or_default())
 }
 
 fn estimate_conversation_message_bytes(message: &ConversationMessage) -> usize {

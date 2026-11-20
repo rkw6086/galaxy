@@ -437,6 +437,10 @@ pub(crate) async fn provider_runtime_for_request(
     request: &TurnRequest,
 ) -> anyhow::Result<Arc<dyn AgentRuntime>> {
     let model = request.model.as_str().to_string();
+    // Keep transport fallbacks bound to the saved request. A later catalog change
+    // must not add an output reservation that the restored run cannot account for.
+    // The coordinator's projected request can select a smaller explicit budget.
+    let max_output_tokens = request.max_output_tokens;
     let runtime: Arc<dyn AgentRuntime> = match provider_config {
         crate::ai::provider::ProviderConfig::OpenAI(config) => match config.kind {
             OpenAIProviderKind::OpenAI | OpenAIProviderKind::LiteLLM => Arc::new(
@@ -444,7 +448,7 @@ pub(crate) async fn provider_runtime_for_request(
                     base_url: config.base_url,
                     api_key: config.api_key,
                     model,
-                    max_output_tokens: config.max_output_tokens.map(u64::from),
+                    max_output_tokens,
                     supports_system_messages: config.supports_system_messages,
                 })
                 .with_reasoning_effort(config.reasoning_effort),
@@ -453,7 +457,7 @@ pub(crate) async fn provider_runtime_for_request(
                 ChatGPTSubscriptionRuntime::new(ChatGPTSubscriptionRuntimeConfig {
                     model,
                     reasoning_effort: config.reasoning_effort,
-                    max_output_tokens: config.max_output_tokens.map(u64::from),
+                    max_output_tokens,
                 })
                 .with_credential_resolver(crate::ai::chatgpt_auth::credential_resolver()),
             ),
@@ -463,7 +467,7 @@ pub(crate) async fn provider_runtime_for_request(
                 let mut runtime = AnthropicRuntime::new(AnthropicRuntimeConfig {
                     api_key: credential.clone(),
                     model,
-                    max_output_tokens: config.max_output_tokens.map(u64::from),
+                    max_output_tokens,
                 })
                 .with_reasoning_effort(config.reasoning_effort);
                 if stored {
@@ -477,7 +481,7 @@ pub(crate) async fn provider_runtime_for_request(
                 GeminiRuntime::new(GeminiRuntimeConfig {
                     api_key: config.api_key.unwrap_or_default(),
                     model,
-                    max_output_tokens: config.max_output_tokens.map(u64::from),
+                    max_output_tokens,
                 })
                 .with_reasoning_effort(config.reasoning_effort),
             ),
@@ -486,13 +490,12 @@ pub(crate) async fn provider_runtime_for_request(
                     project_id: config.project_id.unwrap_or_default(),
                     location: config.location.unwrap_or_else(|| "global".to_string()),
                     model,
-                    max_output_tokens: config.max_output_tokens.map(u64::from),
+                    max_output_tokens,
                 })
                 .with_reasoning_effort(config.reasoning_effort),
             ),
         },
         crate::ai::provider::ProviderConfig::Bedrock(config) => {
-            let max_output_tokens = Some(bedrock_max_output_tokens(&model));
             let cross_region_inference =
                 config.invocation_model_id.is_none() && config.cross_region_inference;
             let caching_config =

@@ -907,7 +907,9 @@ pub struct OpenAIModelConfig {
         alias = "max_tokens",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(description = "Optional maximum output tokens to request from this model.")]
+    #[schemars(
+        description = "Optional output-token ceiling. Galaxy may select a smaller reply budget when this ceiling would leave no room for input."
+    )]
     pub max_output_tokens: Option<u32>,
     #[serde(default)]
     #[schemars(

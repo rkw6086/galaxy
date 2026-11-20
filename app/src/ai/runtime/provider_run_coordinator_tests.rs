@@ -169,6 +169,14 @@ fn request() -> TurnRequest {
     request
 }
 
+fn grok_context_request() -> TurnRequest {
+    let mut request = request();
+    request.model = "grok-4.6".into();
+    request.system_prompt = Some("x".repeat(98_000));
+    request.max_output_tokens = Some(500_000);
+    request
+}
+
 #[test]
 fn estimates_turn_request_with_system_tools_messages_and_output() {
     let mut request = TurnRequest::new(
@@ -1602,6 +1610,225 @@ fn context_estimate_tracks_live_transcript_and_reserves_fixed_context() {
     let (after, fixed_after) = coordinator.estimated_context_tokens().unwrap();
     assert!(after > before + 4_000);
     assert_eq!(fixed_before, fixed_after);
+}
+
+#[tokio::test]
+async fn fresh_grok_request_reserves_the_same_reply_budget_that_reaches_the_runtime() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let mut coordinator = ProviderRunCoordinator::from_request(
+        "grok-reply-budget",
+        ProviderRunProfile::new(runtime.clone(), grok_context_request())
+            .with_max_context_tokens(Some(500_000)),
+        Vec::new(),
+        ProviderRunLimits::default(),
+    )
+    .unwrap();
+    let snapshot = coordinator.context_usage_snapshot().unwrap();
+
+    assert!((33_000..34_000).contains(&snapshot.active.fixed_input_tokens));
+    assert_eq!(snapshot.active.context_limit, 500_000);
+    assert_eq!(snapshot.active.reserved_output_tokens, 125_000);
+    assert!(snapshot.active.total_reserved_tokens() < 450_000);
+
+    let (_sender, control) = turn_control();
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+    let requests = runtime.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].max_output_tokens, Some(125_000));
+    assert_eq!(
+        estimate_turn_request_tokens(&requests[0]),
+        u64::from(snapshot.active.total_reserved_tokens())
+    );
+    assert_eq!(
+        coordinator
+            .profile_request(BASE_PROVIDER_PROFILE)
+            .unwrap()
+            .max_output_tokens,
+        Some(500_000)
+    );
+}
+
+#[tokio::test]
+async fn feasible_reply_limits_are_preserved_in_the_snapshot_and_runtime_request() {
+    for output_limit in [
+        None,
+        Some(0),
+        Some(1),
+        Some(16_384),
+        Some(128_000),
+        Some(300_000),
+    ] {
+        let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+        let mut turn_request = grok_context_request();
+        turn_request.max_output_tokens = output_limit;
+        let mut coordinator = ProviderRunCoordinator::from_request(
+            "feasible-reply-budget",
+            ProviderRunProfile::new(runtime.clone(), turn_request)
+                .with_max_context_tokens(Some(500_000)),
+            Vec::new(),
+            ProviderRunLimits::default(),
+        )
+        .unwrap();
+        let snapshot = coordinator.context_usage_snapshot().unwrap();
+        assert_eq!(
+            u64::from(snapshot.active.reserved_output_tokens),
+            output_limit.unwrap_or_default()
+        );
+
+        let (_sender, control) = turn_control();
+        let block = coordinator
+            .drive_until_blocked(control, |_| Ok(()))
+            .await
+            .unwrap();
+
+        assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+        let requests = runtime.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].max_output_tokens, output_limit);
+    }
+}
+
+#[tokio::test]
+async fn full_history_requires_compaction_without_shrinking_the_reply_budget() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let mut turn_request = grok_context_request();
+    turn_request.messages = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text("h".repeat(1_000_000)),
+    }];
+    let original_messages = turn_request.messages.clone();
+    let mut coordinator = ProviderRunCoordinator::from_request(
+        "grok-history-pressure",
+        ProviderRunProfile::new(runtime.clone(), turn_request)
+            .with_max_context_tokens(Some(500_000)),
+        Vec::new(),
+        ProviderRunLimits::default(),
+    )
+    .unwrap();
+    let full_snapshot = coordinator.context_usage_snapshot().unwrap();
+    assert_eq!(full_snapshot.active.reserved_output_tokens, 125_000);
+    assert!(full_snapshot.active.total_reserved_tokens() >= 450_000);
+    assert!(full_snapshot.compaction_usage() >= PROGRESSIVE_SUMMARY_TRIGGER_USAGE);
+
+    let (_sender, control) = turn_control();
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+
+    assert_eq!(block, ProviderRunBlock::ContextWindowExceeded);
+    assert!(runtime.requests().is_empty());
+    assert_eq!(coordinator.run().transcript(), original_messages.as_slice());
+    coordinator
+        .run_mut()
+        .compact_transcript_at_model_boundary(
+            original_messages.len(),
+            vec![ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text("Earlier work summarized.".to_string()),
+            }],
+        )
+        .unwrap();
+    let compacted_snapshot = coordinator.context_usage_snapshot().unwrap();
+    assert_eq!(compacted_snapshot.active.reserved_output_tokens, 125_000);
+    assert_eq!(
+        compacted_snapshot.active.fixed_input_tokens,
+        full_snapshot.active.fixed_input_tokens
+    );
+    assert!(compacted_snapshot.active.total_reserved_tokens() < 450_000);
+
+    let (_sender, control) = turn_control();
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+    assert_eq!(runtime.requests()[0].max_output_tokens, Some(125_000));
+}
+
+#[tokio::test]
+async fn restored_oversized_reply_ceiling_is_recomputed_for_the_smaller_monitor_profile() {
+    let base_runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let cli_runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let legacy_request: TurnRequest =
+        serde_json::from_str(&serde_json::to_string(&grok_context_request()).unwrap()).unwrap();
+    let mut cli_request = request();
+    cli_request.model = "monitor-model".into();
+    cli_request.max_output_tokens = Some(500_000);
+    let legacy_cli_request: TurnRequest =
+        serde_json::from_str(&serde_json::to_string(&cli_request).unwrap()).unwrap();
+    let run = ProviderRun::new(
+        "restored-reply-budget",
+        legacy_request.messages.clone(),
+        BASE_PROVIDER_PROFILE,
+        ProviderRunLimits::default(),
+    );
+    let restored: ProviderRun =
+        serde_json::from_str(&serde_json::to_string(&run).unwrap()).unwrap();
+    restored.validate_restored_state().unwrap();
+    let mut coordinator = ProviderRunCoordinator::new(
+        restored,
+        BTreeMap::from([
+            (
+                BASE_PROVIDER_PROFILE.to_string(),
+                ProviderRunProfile::new(base_runtime.clone(), legacy_request)
+                    .with_max_context_tokens(Some(500_000)),
+            ),
+            (
+                CLI_MONITOR_PROVIDER_PROFILE.to_string(),
+                ProviderRunProfile::new(cli_runtime.clone(), legacy_cli_request)
+                    .with_max_context_tokens(Some(8_000)),
+            ),
+        ]),
+    )
+    .unwrap();
+    let snapshot = coordinator.context_usage_snapshot().unwrap();
+    assert_eq!(snapshot.active.reserved_output_tokens, 125_000);
+    assert_eq!(snapshot.monitor.unwrap().reserved_output_tokens, 2_000);
+
+    let (_sender, control) = turn_control();
+    let ProviderRunBlock::AwaitingDriver { work_id, .. } = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap()
+    else {
+        panic!("expected base driver decision");
+    };
+    coordinator
+        .run_mut()
+        .continue_with_observation(
+            &work_id,
+            MessageContent::Text("Command is still running.".to_string()),
+            CLI_MONITOR_PROVIDER_PROFILE,
+        )
+        .unwrap();
+    let monitor_snapshot = coordinator.context_usage_snapshot().unwrap();
+    assert_eq!(monitor_snapshot.active.context_limit, 8_000);
+    assert_eq!(monitor_snapshot.active.reserved_output_tokens, 2_000);
+    assert!(monitor_snapshot.active.total_reserved_tokens() < 7_200);
+
+    let (_sender, control) = turn_control();
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+    assert_eq!(base_runtime.requests()[0].max_output_tokens, Some(125_000));
+    assert_eq!(cli_runtime.requests()[0].max_output_tokens, Some(2_000));
+    for profile in [BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE] {
+        assert_eq!(
+            coordinator
+                .profile_request(profile)
+                .unwrap()
+                .max_output_tokens,
+            Some(500_000)
+        );
+    }
 }
 
 #[tokio::test]

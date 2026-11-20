@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Prevent oversized model output limits from consuming the context window and blocking new chats. Keep context accounting, compaction, and the actual reply budget aligned.
+
 ## [4.0.0]
 
 - Check for and download verified updates from GitHub Releases, with an update status and manual check in About Galaxy.

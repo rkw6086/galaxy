@@ -3691,13 +3691,14 @@ async fn fetch_from_openai_models(
         .filter_map(|m| {
             let id = m["id"].as_str()?;
             let (context_size, max_input_tokens, default_context_size) = openai_context_limits(m);
+            // Generic max_tokens metadata may describe the context window rather
+            // than an output ceiling. Only accept fields with explicit output semantics.
             let max_output_tokens = u32_from_any(
                 m,
                 &[
                     "max_output_tokens",
                     "output_token_limit",
                     "max_completion_tokens",
-                    "max_tokens",
                 ],
             );
 
