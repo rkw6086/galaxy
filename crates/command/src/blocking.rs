@@ -98,6 +98,8 @@ impl Command {
     ///
     /// [1]: https://msdn.microsoft.com/en-us/library/windows/desktop/ms684863(v=vs.85).aspx
     pub fn creation_flags(&mut self, flags: u32) -> &mut Self {
+        use std::os::windows::process::CommandExt as _;
+
         let flags = windows::Win32::System::Threading::CREATE_NO_WINDOW.0 | flags;
         self.inner.creation_flags(flags);
         self

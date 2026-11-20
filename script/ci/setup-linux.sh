@@ -14,7 +14,19 @@ sudo apt-get install -y --no-install-recommends \
   libgit2-dev libfontconfig1-dev libasound2-dev libclang-dev clang \
   libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev \
   libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libegl1-mesa-dev \
-  libgl1-mesa-dev libdbus-1-dev protobuf-compiler fakeroot dpkg-dev
+  libgl1-mesa-dev libdbus-1-dev protobuf-compiler libprotobuf-dev fakeroot dpkg-dev
+
+# The compiler package alone omits the well-known .proto SDK on Ubuntu.
+# prost-build appends PROTOC_INCLUDE to its schema search path explicitly.
+export PROTOC=/usr/bin/protoc PROTOC_INCLUDE=/usr/include
+[[ -x $PROTOC ]]
+for proto in descriptor any api duration empty field_mask source_context struct timestamp type wrappers; do
+  [[ -f $PROTOC_INCLUDE/google/protobuf/$proto.proto ]] || {
+    echo "Incomplete Protobuf SDK: google/protobuf/$proto.proto is missing." >&2
+    exit 1
+  }
+done
+"$PROTOC" --version
 
 export PATH="$HOME/.cargo/bin:$PATH"
 export RUSTUP_TOOLCHAIN=1.97.1 CARGO_BUILD_JOBS=2
@@ -33,6 +45,8 @@ echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
   echo 'CARGO_INCREMENTAL=0'
   echo 'CARGO_PROFILE_RELEASE_DEBUG=0'
   echo 'PKG_CONFIG=/usr/bin/pkg-config'
+  echo "PROTOC=$PROTOC"
+  echo "PROTOC_INCLUDE=$PROTOC_INCLUDE"
   echo "GALAXY_TOOLS_DIR=$tools"
   echo "CARGO_TARGET_DIR=$RUNNER_TEMP/galaxy-build-$GALAXY_JOB_ID"
   echo "GALAXY_RELEASE_DIR=$RUNNER_TEMP/galaxy-artifacts-$GALAXY_JOB_ID"

@@ -12,6 +12,25 @@ test "$(uname -m)" = arm64
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
 command -v rustup >/dev/null || { echo 'Install rustup for the runner user first.' >&2; exit 1; }
 command -v brew >/dev/null || { echo 'Install Homebrew for the runner user first.' >&2; exit 1; }
+protobuf_prefix=$(brew --prefix protobuf 2>/dev/null || true)
+protobuf_complete() {
+  [[ -n $protobuf_prefix && -x $protobuf_prefix/bin/protoc ]] || return 1
+  local proto
+  for proto in descriptor any api duration empty field_mask source_context struct timestamp type wrappers; do
+    [[ -f $protobuf_prefix/include/google/protobuf/$proto.proto ]] || return 1
+  done
+}
+if ! protobuf_complete; then
+  if brew list --versions protobuf >/dev/null 2>&1; then
+    brew reinstall protobuf
+  else
+    brew install protobuf
+  fi
+  protobuf_prefix=$(brew --prefix protobuf)
+fi
+protobuf_complete || { echo 'A complete Protobuf compiler and well-known schema SDK is required.' >&2; exit 1; }
+export PROTOC="$protobuf_prefix/bin/protoc" PROTOC_INCLUDE="$protobuf_prefix/include"
+"$PROTOC" --version
 rustup toolchain install 1.97.1 --profile minimal --component rustfmt --target aarch64-apple-darwin
 if ! xcrun -sdk macosx metal --version >/dev/null 2>&1; then
   xcodebuild -downloadComponent MetalToolchain
@@ -41,6 +60,8 @@ echo "$tools/bin" >> "$GITHUB_PATH"
 echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 echo '/opt/homebrew/bin' >> "$GITHUB_PATH"
 echo 'RUSTUP_TOOLCHAIN=1.97.1' >> "$GITHUB_ENV"
+echo "PROTOC=$PROTOC" >> "$GITHUB_ENV"
+echo "PROTOC_INCLUDE=$PROTOC_INCLUDE" >> "$GITHUB_ENV"
 echo "GALAXY_TOOLS_DIR=$tools" >> "$GITHUB_ENV"
 echo "CARGO_TARGET_DIR=$RUNNER_TEMP/galaxy-build-$GALAXY_JOB_ID" >> "$GITHUB_ENV"
 echo "GALAXY_RELEASE_DIR=$RUNNER_TEMP/galaxy-artifacts-$GALAXY_JOB_ID" >> "$GITHUB_ENV"

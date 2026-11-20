@@ -26,18 +26,27 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not install the pinned Rust toolchain.' 
 $tools = Join-Path $env:RUNNER_TEMP "galaxy-tools-$env:GALAXY_JOB_ID"
 if (Test-Path $tools) { throw 'Use a fresh job tools directory.' }
 New-Item -ItemType Directory $tools | Out-Null
-$env:CARGO_TARGET_DIR = Join-Path $tools 'build'
-& cargo install --locked --root $tools cargo-about@0.8.4
-if ($LASTEXITCODE -ne 0) { throw 'Could not install the pinned license tool.' }
-Remove-Item $env:CARGO_TARGET_DIR -Recurse -Force
-
 # The existing interactive bootstrap is intentionally not used for hosted CI.
-# protoc 25.1 supports proto3 optional fields and matches Linux's build tooling.
+# protoc 25.1 supplies proto3 optional fields and its well-known schema SDK.
 $protocArchive = Join-Path $tools 'protoc-25.1-win64.zip'
 Invoke-WebRequest 'https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-win64.zip' -OutFile $protocArchive
 $protoc = Join-Path $tools 'protoc'
 Expand-Archive $protocArchive $protoc
 Remove-Item $protocArchive
+$env:PROTOC = Join-Path $protoc 'bin\protoc.exe'
+$env:PROTOC_INCLUDE = Join-Path $protoc 'include'
+if (-not (Test-Path $env:PROTOC -PathType Leaf)) { throw 'The pinned Protobuf compiler is missing.' }
+foreach ($name in @('descriptor', 'any', 'api', 'duration', 'empty', 'field_mask', 'source_context', 'struct', 'timestamp', 'type', 'wrappers')) {
+    if (-not (Test-Path (Join-Path $env:PROTOC_INCLUDE "google\protobuf\$name.proto") -PathType Leaf)) {
+        throw "Incomplete Protobuf SDK: google/protobuf/$name.proto is missing."
+    }
+}
+& $env:PROTOC --version
+if ($LASTEXITCODE -ne 0) { throw 'Could not invoke the pinned Protobuf compiler.' }
+$env:CARGO_TARGET_DIR = Join-Path $tools 'build'
+& cargo install --locked --root $tools cargo-about@0.8.4
+if ($LASTEXITCODE -ne 0) { throw 'Could not install the pinned license tool.' }
+Remove-Item $env:CARGO_TARGET_DIR -Recurse -Force
 $isccDirectory = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6'
 if (-not (Test-Path (Join-Path $isccDirectory 'ISCC.exe'))) { throw 'The hosted runner must provide Inno Setup 6.' }
 $clangDirectory = Join-Path $env:ProgramFiles 'LLVM\bin'
@@ -52,6 +61,8 @@ foreach ($directory in @($rustupBin, (Join-Path $tools 'bin'), (Join-Path $proto
     'CARGO_PROFILE_RELEASE_DEBUG=0'
     "CARGO_HOME=$cargoHome"
     "LIBCLANG_PATH=$clangDirectory"
+    "PROTOC=$env:PROTOC"
+    "PROTOC_INCLUDE=$env:PROTOC_INCLUDE"
     "GALAXY_TOOLS_DIR=$tools"
     "CARGO_TARGET_DIR=$(Join-Path $env:RUNNER_TEMP "galaxy-build-$env:GALAXY_JOB_ID")"
     "GALAXY_RELEASE_DIR=$(Join-Path $env:RUNNER_TEMP "galaxy-artifacts-$env:GALAXY_JOB_ID")"
