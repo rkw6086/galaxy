@@ -1,0 +1,12 @@
+-- Rollback: DROP COLUMN is not supported on SQLite 3.34 and earlier.
+-- Diesel's `diesel migration revert` will mark this migration as unapplied,
+-- but the `split_groups` column remains in the database.
+--
+-- Consequence: re-running the up migration after a revert will fail with
+-- "duplicate column name" because the column already exists.  To safely
+-- re-run, manually drop the column (SQLite 3.35+ only) or recreate the
+-- database.
+--
+-- For the typical Galaxy upgrade/downgrade path this is not an issue because
+-- Galaxy never runs `diesel migration revert` automatically; a downgraded
+-- build simply leaves the column NULL (see up.sql: the column is nullable).

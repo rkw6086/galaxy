@@ -227,7 +227,8 @@ use crate::ai_assistant::{AskAIType, AI_ASSISTANT_FEATURE_NAME, AI_ASSISTANT_LOG
 use crate::app_state::{
     LeafContents, LeafSnapshot, LeftPanelDisplayedTab, LeftPanelSnapshot, NotebookPaneSnapshot,
     PaneNodeSnapshot, PaneUuid, RightPanelSnapshot, SettingsPaneSnapshot, TabGroupSnapshot,
-    TabSnapshot, TerminalPaneSnapshot, WindowSnapshot, WorkflowPaneSnapshot,
+    TabSnapshot, TerminalPaneSnapshot, WindowSnapshot, WindowSplitGroupSnapshot,
+    WorkflowPaneSnapshot,
 };
 use crate::appearance::{Appearance, AppearanceManager};
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
@@ -1127,15 +1128,38 @@ fn query_for_rewind_prefill(inputs: &[AIAgentInput]) -> Option<String> {
     inputs.iter().find_map(AIAgentInput::display_query)
 }
 
+/// A dormant split group – a split that was active when the user switched to
+/// an unrelated tab.  The group's membership and weights are preserved so they
+/// can be restored when the user returns to any of its member tabs.
+///
+/// This is purely data; the render-time divider handles and drag state live
+/// only in the "active" portion of [`SplitViewState`].
+#[derive(Clone, Debug)]
+pub(crate) struct DormantSplitGroup {
+    /// Ordered member IDs (at least 2 for a valid split).
+    pub(crate) ids: Vec<EntityId>,
+    /// The member that was focused when the split was parked.
+    pub(crate) focused_id: Option<EntityId>,
+    /// Shared accent color for the group.
+    pub(crate) color: Option<AnsiColorIdentifier>,
+    /// Persisted flex weights, keyed by member ID.
+    pub(crate) slot_weights: HashMap<EntityId, f32>,
+}
+
 /// Tracks which tabs are currently displayed side-by-side in split view.
 ///
 /// Membership is keyed by stable [`EntityId`] (the pane-group's view ID) so
 /// that tab reorder, pin, group, and cross-window transfer operations cannot
 /// corrupt the set.
 ///
-/// **This state is intentionally transient** – it is never persisted to disk
-/// and is not restored after a restart.  The workspace always starts with
-/// split view inactive.
+/// **Active split state** is the split currently being rendered (the active
+/// tab is one of its members).  When the user switches to a tab that belongs
+/// to a *different* split group, the active state is *parked* into
+/// `dormant_groups` and replaced with the matching dormant group (if any).
+/// Switching to an entirely unrelated tab parks the active state without
+/// restoring another, leaving the split invisible but recoverable.
+///
+/// Split state (all groups) is persisted to SQLite and restored on restart.
 pub(crate) struct SplitViewState {
     /// Ordered list of pane-group entity IDs currently visible in the split.
     /// Empty means split view is inactive.  Capped at
@@ -1145,7 +1169,7 @@ pub(crate) struct SplitViewState {
     /// Construction may temporarily select its first member before the split
     /// becomes active with a second member.
     focused_id: Option<EntityId>,
-    /// Shared visual cue for this transient split; saved tab colors stay intact.
+    /// Shared visual cue for this split; saved tab colors stay intact.
     color: Option<AnsiColorIdentifier>,
     /// Per-slot flex weights keyed by stable `EntityId`.  Equal weight (1.0)
     /// by default; redistributed when the user drags a divider.  Weights
@@ -1158,6 +1182,10 @@ pub(crate) struct SplitViewState {
     dividers: Vec<SplitViewDivider>,
     /// Non-`None` while the user holds the mouse button down on a divider.
     drag_state: Option<SplitViewDragState>,
+    /// Split groups that are not currently rendered because the active tab is
+    /// not one of their members.  Preserved across tab switches and restored
+    /// when the user returns to a member tab.
+    pub(crate) dormant_groups: Vec<DormantSplitGroup>,
 }
 
 impl Default for SplitViewState {
@@ -1169,6 +1197,7 @@ impl Default for SplitViewState {
             slot_weights: HashMap::new(),
             dividers: Vec::new(),
             drag_state: None,
+            dormant_groups: Vec::new(),
         }
     }
 }
@@ -1584,6 +1613,122 @@ impl SplitViewState {
         self.slot_weights.clear();
         self.dividers.clear();
         self.drag_state = None;
+    }
+
+    /// Park the currently-active split (if any ≥ 2-member group) into
+    /// `dormant_groups` and reset the active display state to empty.
+    ///
+    /// No-op when the active state has fewer than 2 members or when an
+    /// identical group (by membership set) is already dormant.
+    pub(crate) fn park_active_group(&mut self) {
+        if self.pane_group_ids.len() < 2 {
+            // Nothing worth parking.
+            self.pane_group_ids.clear();
+            self.focused_id = None;
+            self.color = None;
+            self.slot_weights.clear();
+            self.dividers.clear();
+            self.drag_state = None;
+            return;
+        }
+        // Build a dormant snapshot of the current active group.
+        let dormant = DormantSplitGroup {
+            ids: self.pane_group_ids.clone(),
+            focused_id: self.focused_id,
+            color: self.color,
+            slot_weights: self.slot_weights.clone(),
+        };
+        // Replace an existing dormant entry with the same membership set,
+        // or push a new one.  Equality is checked by sorted ID sets so that
+        // order-preserving updates do not create duplicates.
+        let existing_pos = self.dormant_groups.iter().position(|g| {
+            let mut a = g.ids.clone();
+            let mut b = dormant.ids.clone();
+            a.sort_unstable();
+            b.sort_unstable();
+            a == b
+        });
+        match existing_pos {
+            Some(pos) => self.dormant_groups[pos] = dormant,
+            None => self.dormant_groups.push(dormant),
+        }
+        // Clear the active display state.
+        self.pane_group_ids.clear();
+        self.focused_id = None;
+        self.color = None;
+        self.slot_weights.clear();
+        self.dividers.clear();
+        self.drag_state = None;
+    }
+
+    /// Look for a dormant group that contains `id`.  When found, restore it
+    /// as the new active state (overwriting whatever was active), remove it
+    /// from `dormant_groups`, and return `true`.
+    ///
+    /// The active state must already be parked (or empty) before calling this
+    /// method; use [`park_active_group`] first if necessary.
+    pub(crate) fn restore_group_for(&mut self, id: EntityId) -> bool {
+        let pos = self.dormant_groups.iter().position(|g| g.ids.contains(&id));
+        let Some(pos) = pos else { return false };
+        let group = self.dormant_groups.remove(pos);
+        self.pane_group_ids = group.ids;
+        self.focused_id = group.focused_id;
+        self.color = group.color;
+        self.slot_weights = group.slot_weights;
+        self.dividers.clear();
+        self.drag_state = None;
+        self.rebuild_dividers();
+        true
+    }
+
+    /// Remove `id` from every dormant group.  Groups that collapse to fewer
+    /// than 2 members after removal are pruned entirely.  Call this whenever
+    /// a tab is permanently removed from the workspace (close, transfer out).
+    pub(crate) fn purge_id_from_dormant(&mut self, id: EntityId) {
+        self.dormant_groups.retain_mut(|group| {
+            group.ids.retain(|&x| x != id);
+            group.slot_weights.remove(&id);
+            if group.focused_id == Some(id) {
+                group.focused_id = group.ids.first().copied();
+            }
+            group.ids.len() >= 2
+        });
+    }
+
+    /// Clear everything: active state **and** all dormant groups.
+    ///
+    /// Use this for explicit "Exit Split View" (user intent) and for
+    /// situations where the split layout is no longer valid (e.g. window
+    /// close).
+    pub(crate) fn clear_all(&mut self) {
+        self.pane_group_ids.clear();
+        self.focused_id = None;
+        self.color = None;
+        self.slot_weights.clear();
+        self.dividers.clear();
+        self.drag_state = None;
+        self.dormant_groups.clear();
+    }
+
+    /// True if `id` is a member of either the active split or any dormant group.
+    pub(crate) fn is_in_any_group(&self, id: EntityId) -> bool {
+        self.pane_group_ids.contains(&id) || self.dormant_groups.iter().any(|g| g.ids.contains(&id))
+    }
+
+    /// Collect the IDs of every member across the active split and all dormant
+    /// groups.  Used by snapshot serialization.
+    pub(crate) fn all_groups_snapshot(&self) -> Vec<DormantSplitGroup> {
+        let mut all: Vec<DormantSplitGroup> = self.dormant_groups.clone();
+        // The active group (if any ≥ 2-member) counts as well.
+        if self.pane_group_ids.len() >= 2 {
+            all.push(DormantSplitGroup {
+                ids: self.pane_group_ids.clone(),
+                focused_id: self.focused_id,
+                color: self.color,
+                slot_weights: self.slot_weights.clone(),
+            });
+        }
+        all
     }
 
     /// Rebuild the divider list to match the current membership.
@@ -4791,6 +4936,79 @@ impl Workspace {
                     self.left_panel_open = restored_left_panel_open;
                 }
 
+                // Restore persisted split groups.  Each group is stored as
+                // an ordered list of tab indices into `window_snapshot.tabs`
+                // (the filtered slice).  We rebuild dormant groups directly
+                // from those indices using the actual created pane-group IDs.
+                // MAX_VISIBLE and disjointness are enforced: each EntityId
+                // may appear in at most one restored group, and groups larger
+                // than MAX_VISIBLE are truncated.  Weights and the focused
+                // identity travel with their original position in the
+                // persisted tab_indices array so they are not mismatched when
+                // the disjointness filter or MAX_VISIBLE cap drops entries.
+                let mut already_assigned: HashSet<EntityId> = HashSet::new();
+                for split_group in &window_snapshot.split_groups {
+                    // Build (original_slot, entity_id, weight) triples for
+                    // every persisted member, then apply filters and the cap.
+                    // Keeping the original slot index lets us remap
+                    // `focused_slot_index` correctly after entries are dropped.
+                    let weights_in = &split_group.slot_weights;
+                    let triples: Vec<(usize, EntityId, f32)> = split_group
+                        .tab_indices
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(orig_pos, &tab_idx)| {
+                            let id = self.tabs.get(tab_idx)?.pane_group.id();
+                            let w = weights_in.get(orig_pos).copied().unwrap_or(1.0);
+                            let w = if w.is_finite() && w > 0.0 { w } else { 1.0 };
+                            Some((orig_pos, id, w))
+                        })
+                        // Drop IDs already claimed by an earlier group.
+                        .filter(|(_, id, _)| !already_assigned.contains(id))
+                        .take(SplitViewState::MAX_VISIBLE)
+                        .collect();
+
+                    if triples.len() < 2 {
+                        continue;
+                    }
+                    // Defensive: duplicates should not appear after the
+                    // already_assigned filter, but guard anyway.
+                    {
+                        let mut seen = std::collections::HashSet::new();
+                        if triples.iter().any(|(_, id, _)| !seen.insert(id)) {
+                            continue;
+                        }
+                    }
+
+                    let ids: Vec<EntityId> = triples.iter().map(|(_, id, _)| *id).collect();
+                    let slot_weights: HashMap<EntityId, f32> =
+                        triples.iter().map(|(_, id, w)| (*id, *w)).collect();
+
+                    // Remap focused_slot_index from the original persisted
+                    // position to the new position within the surviving triples.
+                    let focused_id = split_group
+                        .focused_slot_index
+                        .and_then(|fi| {
+                            // fi is an index into the original tab_indices.
+                            // Find the surviving triple whose orig_pos == fi.
+                            triples
+                                .iter()
+                                .position(|(orig_pos, _, _)| *orig_pos == fi)
+                                .and_then(|new_pos| ids.get(new_pos).copied())
+                        })
+                        .or_else(|| ids.first().copied());
+
+                    already_assigned.extend(ids.iter().copied());
+                    self.split_view_state
+                        .dormant_groups
+                        .push(DormantSplitGroup {
+                            ids,
+                            focused_id,
+                            color: Some(random_tab_color()),
+                            slot_weights,
+                        });
+                }
+
                 self.activate_tab_internal(active_tab_index, ctx);
                 self.check_and_trigger_onboarding(ctx);
             }
@@ -6214,13 +6432,25 @@ impl Workspace {
 
         // Every activation path must keep the active tab visible, including
         // rename/share flows that bypass activate_tab_internal. A member stays
-        // in the split and becomes its focused slot; other targets exit it.
-        if !self.split_view_state.ids().is_empty() {
-            let active_id = self.active_tab_pane_group().id();
-            if self.split_view_state.is_active() && self.split_view_state.contains(active_id) {
+        // in the split and becomes its focused slot; other targets park the
+        // current split (preserving it for later return) and restore a dormant
+        // group if the new tab belongs to one.
+        let active_id = self.active_tab_pane_group().id();
+        let needs_split_update = self.split_view_state.is_in_any_group(active_id)
+            || !self.split_view_state.ids().is_empty();
+        if needs_split_update {
+            if self.split_view_state.contains(active_id) {
+                // Active tab is already in the visible split – just update focus.
                 self.split_view_state.set_focused_id(active_id);
             } else {
-                self.split_view_state.clear();
+                // Park the current active group (if any) so it can be restored
+                // when the user returns to one of its members.
+                self.split_view_state.park_active_group();
+                // Try to restore a dormant group that owns the new active tab.
+                self.split_view_state.restore_group_for(active_id);
+                if self.split_view_state.contains(active_id) {
+                    self.split_view_state.set_focused_id(active_id);
+                }
             }
             self.sync_workspace_split_view_state(ctx);
         }
@@ -9857,6 +10087,12 @@ impl Workspace {
         if ids_to_add.len() < 2 {
             return;
         }
+        // Purge every member of the new split from dormant groups.  Without
+        // this, the old parked [A, B] would survive when [A, B, C] is built,
+        // and switching to D then A would incorrectly restore the stale pair.
+        for &id in &ids_to_add {
+            self.split_view_state.purge_id_from_dormant(id);
+        }
         for &id in &ids_to_add {
             self.split_view_state.add(id);
             // Restore user-adjusted weight if one was saved.
@@ -10059,12 +10295,21 @@ impl Workspace {
             if active_id == pane_group_id {
                 return;
             }
+            // Starting a fresh split: evict both IDs from any old dormant
+            // group so the new split is the sole authoritative group for them.
+            self.split_view_state.purge_id_from_dormant(active_id);
+            self.split_view_state.purge_id_from_dormant(pane_group_id);
             self.split_view_state.add(active_id);
         } else if self.split_view_state.contains(pane_group_id)
             || self.split_view_state.len() >= SplitViewState::MAX_VISIBLE
         {
             return;
         }
+        // When adding a tab to the already-active split, evict it from any
+        // dormant group first.  Without this, C being added to [A,B] when
+        // C is parked in [C,D] would leave the stale dormant [C,D] intact;
+        // switching to D would later incorrectly resurrect it.
+        self.split_view_state.purge_id_from_dormant(pane_group_id);
         self.split_view_state.add(pane_group_id);
 
         // Keep the established focused slot and all standard activation state.
@@ -10113,6 +10358,9 @@ impl Workspace {
         if !self.split_view_state.is_active() {
             return;
         }
+        // Clear only the currently-active split group.  Dormant groups (groups
+        // whose members the user is not currently viewing) belong to other tabs
+        // and must not be disturbed by exiting the unrelated active split.
         self.split_view_state.clear();
         self.sync_workspace_split_view_state(ctx);
         ctx.dispatch_global_action("workspace:save_app", ());
@@ -12903,6 +13151,97 @@ impl Workspace {
                 .read(app, |view, _| view.get_filters()),
         );
 
+        // Build a lookup from pane-group EntityId → index in the filtered
+        // `tabs` slice (the same slice that will be written to disk).  Apply
+        // both filters (transferred placeholder and read-only terminal) in
+        // exactly the same order as the `tabs` collection above so the
+        // indices match what gets persisted.
+        let entity_id_to_snapshot_index: HashMap<EntityId, usize> = {
+            let mut map = HashMap::new();
+            let mut snap_idx: usize = 0;
+            for (mem_idx, pane_group_view) in self.tab_views().enumerate() {
+                // Skip the transferred-tab placeholder.
+                if Some(mem_idx) == transferred_tab_index {
+                    continue;
+                }
+                let pane_group_id = pane_group_view.id();
+                // Skip read-only terminal tabs (same predicate as above).
+                let pane_group_ref = pane_group_view.as_ref(app);
+                let root_snapshot = pane_group_ref.snapshot(app);
+                let is_read_only = matches!(
+                    root_snapshot,
+                    PaneNodeSnapshot::Leaf(LeafSnapshot {
+                        contents: LeafContents::Terminal(TerminalPaneSnapshot {
+                            is_read_only: true,
+                            ..
+                        }),
+                        ..
+                    })
+                );
+                if !is_read_only {
+                    map.insert(pane_group_id, snap_idx);
+                    snap_idx += 1;
+                }
+            }
+            map
+        };
+
+        // Map all split groups (active and dormant) to index-based snapshots.
+        let split_groups: Vec<WindowSplitGroupSnapshot> = self
+            .split_view_state
+            .all_groups_snapshot()
+            .into_iter()
+            .filter_map(|group| {
+                // Map each member EntityId to its persisted tab index.
+                let mapped_indices: Vec<usize> = group
+                    .ids
+                    .iter()
+                    .filter_map(|id| entity_id_to_snapshot_index.get(id).copied())
+                    .collect();
+                // Drop groups that lost members to filtering (< 2 survivors).
+                if mapped_indices.len() < 2 {
+                    return None;
+                }
+                // Check for duplicate indices (shouldn't happen, but guard).
+                let mut seen = HashSet::new();
+                if mapped_indices.iter().any(|&i| !seen.insert(i)) {
+                    return None;
+                }
+                let slot_weights: Vec<f32> = group
+                    .ids
+                    .iter()
+                    .filter_map(|id| {
+                        entity_id_to_snapshot_index.get(id).map(|_| {
+                            let w = group.slot_weights.get(id).copied().unwrap_or(1.0);
+                            if w.is_finite() && w > 0.0 {
+                                w
+                            } else {
+                                1.0
+                            }
+                        })
+                    })
+                    .collect();
+                // focused_slot_index must be the position of the focused
+                // EntityId in the *surviving* mapped sequence, not in the
+                // original group.ids (some earlier members may have been
+                // filtered out, compacting the sequence).
+                let surviving_ids: Vec<EntityId> = group
+                    .ids
+                    .iter()
+                    .filter(|id| entity_id_to_snapshot_index.contains_key(*id))
+                    .copied()
+                    .collect();
+                let focused_slot_index = group
+                    .focused_id
+                    .and_then(|fid| surviving_ids.iter().position(|&id| id == fid));
+                Some(WindowSplitGroupSnapshot {
+                    tab_indices: mapped_indices,
+                    slot_weights,
+                    focused_slot_index,
+                })
+            })
+            .collect();
+
         WindowSnapshot {
             tabs,
             active_tab_index,
@@ -12919,6 +13258,7 @@ impl Workspace {
             right_panel_width,
             agent_management_filters,
             tab_groups,
+            split_groups,
         }
     }
 
@@ -13211,6 +13551,10 @@ impl Workspace {
         // below can prefer a surviving split member in both the still-active
         // and the collapse-to-one cases.
         let was_in_split = self.split_view_state.remove(removed_pane_group_id);
+        // Also purge from any dormant groups so stale membership is not
+        // resurrected when the user later returns to another tab.
+        self.split_view_state
+            .purge_id_from_dormant(removed_pane_group_id);
         let remaining_split_ids: Vec<EntityId> = if was_in_split {
             self.split_view_state.ids().to_vec()
         } else {
@@ -26445,6 +26789,12 @@ impl TypedActionView for Workspace {
                         let ids_differ = pending.target_id != pending.source_id;
                         if target_still_exists && source_still_exists && ids_differ {
                             // Exit any pre-existing split so we start fresh.
+                            // Also purge both participants from dormant groups so the new
+                            // split is not shadowed by a stale dormant entry for either ID.
+                            self.split_view_state
+                                .purge_id_from_dormant(pending.target_id);
+                            self.split_view_state
+                                .purge_id_from_dormant(pending.source_id);
                             if self.split_view_state.is_active() {
                                 self.split_view_state.clear();
                                 self.sync_workspace_split_view_state(ctx);
@@ -30152,6 +30502,10 @@ impl Workspace {
             .copied()
             .find(|&id| id != detached_id)
             .and_then(|id| self.tab_index_for_pane_group_id(id));
+        // Clear active split and purge dormant groups for the detached tab.
+        // Cross-window drags dissolve all splits since tabs cannot split across
+        // windows; a put-back will re-enter split view through the normal flow.
+        self.split_view_state.purge_id_from_dormant(detached_id);
         self.split_view_state.clear();
         self.sync_workspace_split_view_state(ctx);
 

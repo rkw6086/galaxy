@@ -6827,3 +6827,919 @@ fn test_select_split_target_nan_rect_skipped() {
     let result = select_drag_split_target(&[a, b], 0, cursor, false);
     assert_eq!(result, None, "candidate with NaN rect must be skipped");
 }
+
+// ===========================================================================
+// Persistent split-view tests
+// ===========================================================================
+//
+// These tests verify the new "park and restore" behavior: switching away from
+// split members parks the split rather than clearing it, and returning to any
+// member restores the split.
+
+/// Switching to an unrelated tab parks the split (renders single-tab) but
+/// preserves weights; returning to any member restores the split.
+#[test]
+fn test_switching_away_parks_split_and_returning_restores_it() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            workspace.add_terminal_tab(false, ctx); // C (unrelated)
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            // Build split [A, B] with custom weights.
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            workspace.split_view_state.set_slot_weight(a, 2.0);
+            workspace.split_view_state.set_slot_weight(b, 1.0);
+            assert!(workspace.split_view_state.is_active());
+            (a, b, c)
+        });
+
+        // Switch to unrelated tab C.
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_c = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_c)
+                .unwrap();
+            workspace.activate_tab(idx_c, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // Split is NOT visible (active tab is not a member).
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "split should not be visually active when viewing unrelated tab"
+            );
+            // But the group is preserved in dormant_groups.
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "split should be parked in dormant_groups"
+            );
+        });
+
+        // Switch back to member A.
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_a = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_a)
+                .unwrap();
+            workspace.activate_tab(idx_a, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // Split is restored and visually active.
+            assert!(
+                workspace.split_view_state.is_active(),
+                "split should be restored when returning to member A"
+            );
+            assert!(workspace.split_view_state.contains(id_a));
+            assert!(workspace.split_view_state.contains(id_b));
+            // Weights must be preserved.
+            assert_eq!(
+                workspace.split_view_state.slot_weight(id_a),
+                2.0,
+                "weight for A must survive park/restore"
+            );
+            assert_eq!(
+                workspace.split_view_state.slot_weight(id_b),
+                1.0,
+                "weight for B must survive park/restore"
+            );
+            // dormant_groups must be empty again.
+            assert!(
+                workspace.split_view_state.dormant_groups.is_empty(),
+                "dormant_groups must be empty after restore"
+            );
+        });
+    });
+}
+
+/// Returning to member B (not the original focused slot) also restores the
+/// split and updates the focused slot to B.
+#[test]
+fn test_switching_back_to_other_member_restores_and_focuses_it() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            workspace.add_terminal_tab(false, ctx); // C unrelated
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            assert!(workspace.split_view_state.is_active());
+            (a, b, c)
+        });
+        let _ = id_c;
+
+        // Switch to unrelated tab C, then back to B.
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_c = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_c)
+                .unwrap();
+            workspace.activate_tab(idx_c, ctx);
+            let idx_b = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_b)
+                .unwrap();
+            workspace.activate_tab(idx_b, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(workspace.split_view_state.is_active());
+            assert!(workspace.split_view_state.contains(id_a));
+            assert!(workspace.split_view_state.contains(id_b));
+            // B is the now-active tab so it must be the focused slot.
+            assert_eq!(
+                workspace.split_view_state.focused_id(),
+                Some(id_b),
+                "B must be the focused slot after switching back to it"
+            );
+        });
+    });
+}
+
+/// Two disjoint splits coexist: [A, B] and [C, D].  Switching between them
+/// parks one and restores the other; both groups survive throughout.
+#[test]
+fn test_multiple_disjoint_splits_coexist() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c, id_d) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            workspace.add_terminal_tab(false, ctx); // C
+            workspace.add_terminal_tab(false, ctx); // D
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            let d = workspace.get_pane_group_view(3).unwrap().id();
+            // Build split [A, B].
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            assert!(workspace.split_view_state.is_active());
+            // Switch to C to park [A, B], then build split [C, D].
+            let idx_c = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == c)
+                .unwrap();
+            workspace.activate_tab(idx_c, ctx);
+            workspace.open_tab_in_split_view(d, ctx);
+            assert!(workspace.split_view_state.is_active(), "[C,D] split active");
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "[A,B] is dormant"
+            );
+            (a, b, c, d)
+        });
+
+        // Switch to A: should restore [A, B] and park [C, D].
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_a = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_a)
+                .unwrap();
+            workspace.activate_tab(idx_a, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(workspace.split_view_state.is_active());
+            assert!(workspace.split_view_state.contains(id_a));
+            assert!(workspace.split_view_state.contains(id_b));
+            assert!(!workspace.split_view_state.contains(id_c));
+            assert!(!workspace.split_view_state.contains(id_d));
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "[C,D] should be dormant"
+            );
+        });
+
+        // Switch to D: should restore [C, D].
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_d = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_d)
+                .unwrap();
+            workspace.activate_tab(idx_d, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(workspace.split_view_state.is_active());
+            assert!(workspace.split_view_state.contains(id_c));
+            assert!(workspace.split_view_state.contains(id_d));
+            assert!(!workspace.split_view_state.contains(id_a));
+        });
+    });
+}
+
+/// ExitSplitView on the active group must remove that group and NOT resurrect it
+/// when the user later returns to any of its former members.
+#[test]
+fn test_exit_split_view_clears_all_groups() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            assert!(workspace.split_view_state.is_active());
+            (a, b)
+        });
+
+        // Exit split view explicitly.
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.handle_action(&WorkspaceAction::ExitSplitView, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(!workspace.split_view_state.is_active());
+            assert!(
+                workspace.split_view_state.dormant_groups.is_empty(),
+                "ExitSplitView must also clear dormant groups"
+            );
+        });
+
+        // Switch back to A and B: neither must resurrect a split.
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_b = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_b)
+                .unwrap();
+            workspace.activate_tab(idx_b, ctx);
+        });
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "must not resurrect after ExitSplitView"
+            );
+        });
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_a = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_a)
+                .unwrap();
+            workspace.activate_tab(idx_a, ctx);
+        });
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "A must not resurrect split after ExitSplitView"
+            );
+        });
+    });
+}
+
+/// Closing a split member removes it from the dormant group; if the dormant
+/// group collapses to fewer than 2 members it is pruned.
+#[test]
+fn test_close_tab_purges_from_dormant_group() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            workspace.add_terminal_tab(false, ctx); // C unrelated
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            (a, b, c)
+        });
+        let _ = id_a;
+
+        // Park the split by switching to C.
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_c = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_c)
+                .unwrap();
+            workspace.activate_tab(idx_c, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            assert_eq!(workspace.split_view_state.dormant_groups.len(), 1);
+        });
+
+        // Close B while split is dormant.
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_b = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_b)
+                .unwrap();
+            workspace.close_tab(idx_b, true, true, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // Dormant group collapsed to 1 member → pruned entirely.
+            assert!(
+                workspace.split_view_state.dormant_groups.is_empty(),
+                "dormant group must be pruned when it loses a member below 2"
+            );
+        });
+    });
+}
+
+/// `SplitViewState` unit tests for park/restore/purge methods.
+#[cfg(test)]
+mod split_view_persistence_unit_tests {
+    use galaxyui::EntityId;
+
+    use crate::workspace::view::{DormantSplitGroup, SplitViewState};
+
+    fn make_id() -> EntityId {
+        EntityId::new()
+    }
+
+    fn two_id_state() -> (SplitViewState, EntityId, EntityId) {
+        let mut s = SplitViewState::default();
+        let a = make_id();
+        let b = make_id();
+        s.add(a);
+        s.add(b);
+        (s, a, b)
+    }
+
+    /// Parking a 2-member active group moves it to dormant_groups.
+    #[test]
+    fn park_active_group_moves_to_dormant() {
+        let (mut s, a, b) = two_id_state();
+        assert!(s.is_active());
+        s.park_active_group();
+        assert!(!s.is_active(), "active state must be cleared after park");
+        assert_eq!(s.dormant_groups.len(), 1);
+        assert!(s.dormant_groups[0].ids.contains(&a));
+        assert!(s.dormant_groups[0].ids.contains(&b));
+    }
+
+    /// Restoring a dormant group by member ID makes it active.
+    #[test]
+    fn restore_group_for_makes_active() {
+        let (mut s, a, b) = two_id_state();
+        s.park_active_group();
+        assert!(!s.is_active());
+        let restored = s.restore_group_for(a);
+        assert!(restored, "restore_group_for must return true when found");
+        assert!(s.is_active());
+        assert!(s.contains(a));
+        assert!(s.contains(b));
+        assert!(
+            s.dormant_groups.is_empty(),
+            "dormant_groups must be empty after restore"
+        );
+    }
+
+    /// restore_group_for returns false for an unknown ID.
+    #[test]
+    fn restore_group_for_unknown_id_returns_false() {
+        let mut s = SplitViewState::default();
+        let unknown = make_id();
+        assert!(!s.restore_group_for(unknown));
+    }
+
+    /// purge_id_from_dormant removes an ID and prunes groups that fall below 2.
+    #[test]
+    fn purge_id_from_dormant_prunes_small_groups() {
+        let (mut s, a, b) = two_id_state();
+        s.park_active_group();
+        assert_eq!(s.dormant_groups.len(), 1);
+        s.purge_id_from_dormant(b);
+        assert!(
+            s.dormant_groups.is_empty(),
+            "group with 1 member must be pruned by purge_id_from_dormant"
+        );
+        // A is no longer in any group.
+        assert!(!s.is_in_any_group(a));
+    }
+
+    /// purge_id_from_dormant on a 3-member group preserves the survivors.
+    #[test]
+    fn purge_id_from_dormant_keeps_sufficient_groups() {
+        let mut s = SplitViewState::default();
+        let (a, b, c) = (make_id(), make_id(), make_id());
+        s.add(a);
+        s.add(b);
+        s.add(c);
+        s.park_active_group();
+        assert_eq!(s.dormant_groups[0].ids.len(), 3);
+        s.purge_id_from_dormant(c);
+        assert_eq!(s.dormant_groups.len(), 1, "2-member group should survive");
+        assert!(!s.dormant_groups[0].ids.contains(&c));
+        assert!(s.dormant_groups[0].ids.contains(&a));
+        assert!(s.dormant_groups[0].ids.contains(&b));
+    }
+
+    /// clear_all removes active state AND dormant groups.
+    #[test]
+    fn clear_all_removes_dormant_groups() {
+        let (mut s, _a, _b) = two_id_state();
+        s.park_active_group(); // push to dormant
+                               // Also add a second dormant group.
+        let c = make_id();
+        let d = make_id();
+        s.dormant_groups.push(DormantSplitGroup {
+            ids: vec![c, d],
+            focused_id: Some(c),
+            color: None,
+            slot_weights: Default::default(),
+        });
+        assert_eq!(s.dormant_groups.len(), 2);
+        s.clear_all();
+        assert!(!s.is_active());
+        assert!(
+            s.dormant_groups.is_empty(),
+            "clear_all must remove all dormant groups"
+        );
+    }
+
+    /// is_in_any_group covers both active and dormant membership.
+    #[test]
+    fn is_in_any_group_checks_active_and_dormant() {
+        let (mut s, a, b) = two_id_state();
+        assert!(s.is_in_any_group(a));
+        assert!(s.is_in_any_group(b));
+        let outsider = make_id();
+        assert!(!s.is_in_any_group(outsider));
+
+        s.park_active_group();
+        // After parking, both are still found in dormant.
+        assert!(s.is_in_any_group(a));
+        assert!(s.is_in_any_group(b));
+        assert!(!s.is_in_any_group(outsider));
+    }
+
+    /// Park is idempotent: re-parking the same membership updates the existing
+    /// dormant entry rather than creating a duplicate.
+    #[test]
+    fn park_active_group_is_idempotent_for_same_membership() {
+        let (mut s, a, b) = two_id_state();
+        s.park_active_group();
+        // Restore, mutate weight, park again.
+        s.restore_group_for(a);
+        s.set_slot_weight(a, 3.0);
+        s.park_active_group();
+        // Must still be exactly one dormant entry.
+        assert_eq!(
+            s.dormant_groups.len(),
+            1,
+            "re-parking the same group must update, not duplicate"
+        );
+        assert_eq!(s.dormant_groups[0].slot_weights.get(&a).copied(), Some(3.0));
+    }
+
+    /// weights survive a park/restore cycle.
+    #[test]
+    fn weights_survive_park_restore_cycle() {
+        let (mut s, a, b) = two_id_state();
+        s.set_slot_weight(a, 2.5);
+        s.set_slot_weight(b, 0.5);
+        s.park_active_group();
+        s.restore_group_for(b);
+        assert_eq!(s.slot_weight(a), 2.5);
+        assert_eq!(s.slot_weight(b), 0.5);
+    }
+}
+
+// ===========================================================================
+// Blocker regression tests
+// ===========================================================================
+
+/// Blocker 1 regression: expanding [A,B] to [A,B,C] via AddDefaultTabInSplitView
+/// must not leave a stale dormant group [A,B].  Switching to unrelated tab D
+/// then back to A must restore [A,B,C], not stale [A,B].
+#[test]
+fn test_add_split_tab_purges_stale_dormant_subgroup() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_d) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            workspace.add_terminal_tab(false, ctx); // D (unrelated)
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let d = workspace.get_pane_group_view(2).unwrap().id();
+            // Build initial split [A, B].
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            assert!(workspace.split_view_state.is_active());
+            assert_eq!(workspace.split_view_state.len(), 2);
+            (a, b, d)
+        });
+
+        // Add a third tab to the split (creates [A, B, C]).
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.handle_action(&WorkspaceAction::AddDefaultTabInSplitView, ctx);
+        });
+
+        let id_c = workspace.read(&app, |workspace, _| {
+            assert!(
+                workspace.split_view_state.is_active(),
+                "split must still be active after expansion"
+            );
+            assert_eq!(
+                workspace.split_view_state.len(),
+                3,
+                "split must have 3 members after expansion"
+            );
+            // Dormant must be empty after expansion — the old [A,B] must not
+            // linger as a dormant group.
+            assert!(
+                workspace.split_view_state.dormant_groups.is_empty(),
+                "dormant must be empty after enter_split_view_with_new_tab"
+            );
+            workspace.active_tab_pane_group().id()
+        });
+        let _ = id_c;
+
+        // Switch to D and back to A: must restore [A, B, C], not stale [A, B].
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_d = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_d)
+                .unwrap();
+            workspace.activate_tab(idx_d, ctx);
+        });
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_a = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_a)
+                .unwrap();
+            workspace.activate_tab(idx_a, ctx);
+        });
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(
+                workspace.split_view_state.is_active(),
+                "split must be restored when returning to A"
+            );
+            assert_eq!(
+                workspace.split_view_state.len(),
+                3,
+                "must restore [A,B,C] not stale [A,B]"
+            );
+            assert!(workspace.split_view_state.contains(id_a));
+            assert!(workspace.split_view_state.contains(id_b));
+        });
+    });
+}
+
+/// Blocker 2 regression: ExitSplitView on active [A,B] must not destroy
+/// unrelated dormant group [C,D].
+#[test]
+fn test_exit_split_view_preserves_unrelated_dormant_group() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c, id_d) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            workspace.add_terminal_tab(false, ctx); // C
+            workspace.add_terminal_tab(false, ctx); // D
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            let d = workspace.get_pane_group_view(3).unwrap().id();
+            // Build split [A, B] and park it, then build [C, D].
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(b, ctx);
+            let idx_c = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == c)
+                .unwrap();
+            workspace.activate_tab(idx_c, ctx); // parks [A,B]
+            workspace.open_tab_in_split_view(d, ctx); // active [C,D]
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "[A,B] dormant"
+            );
+            (a, b, c, d)
+        });
+
+        // ExitSplitView on active [C,D].
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.handle_action(&WorkspaceAction::ExitSplitView, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "[C,D] must be exited"
+            );
+            // Dormant [A,B] must survive.
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "unrelated dormant [A,B] must survive ExitSplitView"
+            );
+        });
+
+        // Switching back to A must restore [A,B].
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_a = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_a)
+                .unwrap();
+            workspace.activate_tab(idx_a, ctx);
+        });
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(workspace.split_view_state.is_active());
+            assert!(workspace.split_view_state.contains(id_a));
+            assert!(workspace.split_view_state.contains(id_b));
+            assert!(!workspace.split_view_state.contains(id_c));
+            assert!(!workspace.split_view_state.contains(id_d));
+        });
+    });
+}
+
+/// Blocker 3 regression: when C (from dormant [C,D]) is added to active [A,B],
+/// the dormant [C,D] must be purged so D does not later resurrect a stale split.
+#[test]
+fn test_add_to_active_split_purges_incoming_from_dormant() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c, id_d) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            workspace.add_terminal_tab(false, ctx); // C
+            workspace.add_terminal_tab(false, ctx); // D
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            let d = workspace.get_pane_group_view(3).unwrap().id();
+            // Build dormant [C, D], then active [A, B].
+            let idx_c = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == c)
+                .unwrap();
+            workspace.activate_tab(idx_c, ctx);
+            workspace.open_tab_in_split_view(d, ctx); // [C, D] active
+            workspace.activate_tab(0, ctx); // parks [C, D]
+            workspace.open_tab_in_split_view(b, ctx); // [A, B] active
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "[C,D] dormant"
+            );
+            (a, b, c, d)
+        });
+
+        // Add C (from dormant [C,D]) to active [A,B].
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.open_tab_in_split_view(id_c, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // [C,D] dormant must be purged because C was added to [A,B,C].
+            assert!(
+                workspace.split_view_state.dormant_groups.is_empty(),
+                "dormant [C,D] must be purged when C is added to [A,B]"
+            );
+            // Active split is now [A, B, C].
+            assert!(workspace.split_view_state.contains(id_a));
+            assert!(workspace.split_view_state.contains(id_b));
+            assert!(workspace.split_view_state.contains(id_c));
+        });
+
+        // Switch to D: must NOT resurrect [C,D].
+        workspace.update(&mut app, |workspace, ctx| {
+            let idx_d = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == id_d)
+                .unwrap();
+            workspace.activate_tab(idx_d, ctx);
+        });
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "D must not resurrect stale [C,D] after C was merged into [A,B,C]"
+            );
+        });
+    });
+}
+
+/// Blocker 5 regression: a 5-member group (> MAX_VISIBLE=4) is capped to
+/// MAX_VISIBLE when restored via NewWorkspaceSource::Restored.  The 5th tab
+/// is dropped; the first 4 survive as a dormant group, with weights and
+/// focus remapped to the survivors.
+#[test]
+fn test_restore_caps_oversized_group_at_max_visible() {
+    use crate::app_state::WindowSplitGroupSnapshot;
+
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+
+        // Build a source workspace with 5 tabs.
+        let source = mock_workspace(&mut app);
+        source.update(&mut app, |workspace, ctx| {
+            for _ in 0..4 {
+                workspace.add_terminal_tab(false, ctx);
+            }
+        });
+
+        // Take a snapshot and inject a 5-member split group:
+        // indices [0,1,2,3,4], weights [1,2,3,4,5], focus=4 (last tab).
+        let mut snapshot = source.update(&mut app, |workspace, ctx| {
+            workspace.snapshot(ctx.window_id(), false, ctx)
+        });
+        assert_eq!(snapshot.tabs.len(), 5, "source must have 5 tabs");
+        snapshot.split_groups = vec![WindowSplitGroupSnapshot {
+            tab_indices: vec![0, 1, 2, 3, 4],
+            slot_weights: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            focused_slot_index: Some(4), // focused on last (tab index 4)
+        }];
+
+        // Restore into a new workspace.
+        let restored = restored_workspace(&mut app, snapshot);
+
+        restored.read(&app, |workspace, _ctx| {
+            // Exactly 1 dormant group must be created from the snapshot.
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "exactly 1 dormant group must be restored"
+            );
+            let g = &workspace.split_view_state.dormant_groups[0];
+            // MAX_VISIBLE = 4, so the 5th member is dropped.
+            assert_eq!(
+                g.ids.len(),
+                SplitViewState::MAX_VISIBLE,
+                "capped group must have exactly MAX_VISIBLE members"
+            );
+            // Weights must travel with their IDs (first 4 weights: 1,2,3,4).
+            // Tab 0 must have weight 1.0.
+            let tab0_id = workspace.tabs[0].pane_group.id();
+            let tab3_id = workspace.tabs[3].pane_group.id();
+            assert_eq!(
+                g.slot_weights.get(&tab0_id).copied(),
+                Some(1.0),
+                "tab 0 must keep weight 1.0"
+            );
+            assert_eq!(
+                g.slot_weights.get(&tab3_id).copied(),
+                Some(4.0),
+                "tab 3 must keep weight 4.0"
+            );
+            // focused_slot_index was 4 (5th member, dropped) → no match →
+            // falls back to first surviving member (tab 0).
+            let tab0_id = workspace.tabs[0].pane_group.id();
+            assert_eq!(
+                g.focused_id,
+                Some(tab0_id),
+                "focus falls back to first member when original focused slot is dropped"
+            );
+        });
+    });
+}
+/// Blocker 5 regression: overlapping groups (tab A appears in both [A,B] and
+/// [A,C]) must be rejected.  After restore with active_tab_index=0 (tab A),
+/// the workspace activates group 1 [A,B] as the visible split, and group 2
+/// survives as dormant [C,D] with correctly remapped weights and focus.
+///
+/// Snapshot: active_tab_index=0, groups:
+///   Group 1: [A(0),B(1)]  weights [3.0, 2.0]  focus=A
+///   Group 2: [A(0),C(2),D(3)]  weights [9.0, 7.0, 5.0]  focus=C
+///
+/// Expected after restore (active_tab_index=0 activates group 1):
+///   Active split: [A, B] weights {A:3.0, B:2.0} focused=A.
+///   Dormant (1 group): [C, D] weights {C:7.0, D:5.0} focused=C.
+#[test]
+fn test_restore_rejects_overlapping_groups() {
+    use crate::app_state::WindowSplitGroupSnapshot;
+
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+
+        // Build a source workspace with 4 tabs (A, B, C, D).
+        let source = mock_workspace(&mut app);
+        source.update(&mut app, |workspace, ctx| {
+            for _ in 0..3 {
+                workspace.add_terminal_tab(false, ctx);
+            }
+        });
+
+        // Take a base snapshot and inject overlapping split groups.
+        // active_tab_index=0 so restore activates the group containing tab A.
+        let mut snapshot = source.update(&mut app, |workspace, ctx| {
+            workspace.snapshot(ctx.window_id(), false, ctx)
+        });
+        assert_eq!(snapshot.tabs.len(), 4, "source must have 4 tabs");
+        snapshot.active_tab_index = 0;
+        snapshot.split_groups = vec![
+            WindowSplitGroupSnapshot {
+                tab_indices: vec![0, 1],
+                slot_weights: vec![3.0, 2.0],
+                focused_slot_index: Some(0), // A
+            },
+            WindowSplitGroupSnapshot {
+                tab_indices: vec![0, 2, 3], // A is shared with group 1
+                slot_weights: vec![9.0, 7.0, 5.0],
+                focused_slot_index: Some(1), // C (orig_pos=1 → still C after A dropped)
+            },
+        ];
+
+        let restored = restored_workspace(&mut app, snapshot);
+
+        restored.read(&app, |workspace, _ctx| {
+            let tab_a_id = workspace.tabs[0].pane_group.id();
+            let tab_b_id = workspace.tabs[1].pane_group.id();
+            let tab_c_id = workspace.tabs[2].pane_group.id();
+            let tab_d_id = workspace.tabs[3].pane_group.id();
+
+            // active_tab_index=0 caused restore_group_for(A) to activate
+            // group 1 [A,B] as the visible split.
+            assert!(
+                workspace.split_view_state.is_active(),
+                "[A,B] must be the active split after restoring active tab A"
+            );
+            assert!(
+                workspace.split_view_state.contains(tab_a_id),
+                "active split must contain A"
+            );
+            assert!(
+                workspace.split_view_state.contains(tab_b_id),
+                "active split must contain B"
+            );
+            assert_eq!(
+                workspace.split_view_state.slot_weight(tab_a_id),
+                3.0,
+                "A must have weight 3.0 in active split"
+            );
+            assert_eq!(
+                workspace.split_view_state.slot_weight(tab_b_id),
+                2.0,
+                "B must have weight 2.0 in active split"
+            );
+            assert_eq!(
+                workspace.split_view_state.focused_id(),
+                Some(tab_a_id),
+                "active split focused slot must be A"
+            );
+
+            // Group 2 survived as dormant [C,D] after A was stripped.
+            assert_eq!(
+                workspace.split_view_state.dormant_groups.len(),
+                1,
+                "exactly 1 dormant group [C,D] must remain"
+            );
+            let g2 = &workspace.split_view_state.dormant_groups[0];
+            assert!(
+                !g2.ids.contains(&tab_a_id),
+                "dormant group must NOT contain A"
+            );
+            assert!(g2.ids.contains(&tab_c_id), "dormant group must contain C");
+            assert!(g2.ids.contains(&tab_d_id), "dormant group must contain D");
+            assert_eq!(g2.ids.len(), 2, "dormant group must have exactly 2 members");
+            assert_eq!(
+                g2.slot_weights.get(&tab_c_id).copied(),
+                Some(7.0),
+                "C must have weight 7.0 (orig_pos 1 of [A,C,D])"
+            );
+            assert_eq!(
+                g2.slot_weights.get(&tab_d_id).copied(),
+                Some(5.0),
+                "D must have weight 5.0 (orig_pos 2 of [A,C,D])"
+            );
+            assert_eq!(
+                g2.focused_id,
+                Some(tab_c_id),
+                "dormant group focus must be C (remapped from orig_pos 1)"
+            );
+        });
+    });
+}
