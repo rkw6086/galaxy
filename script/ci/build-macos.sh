@@ -189,7 +189,14 @@ verify_source
 # Resource/schema/license generation and all dependency checks are complete.
 # Release packaging needs the app bundle and executable outputs, not compiler
 # intermediates. Reclaim only exact owned paths before notarization copies.
-[[ ${RUNNER_TEMP:-} == /* && ${GALAXY_JOB_ID:-} =~ ^[0-9]+-[0-9]+$ && $CARGO_TARGET_DIR == "$RUNNER_TEMP/galaxy-build-$GALAXY_JOB_ID" && ! -L "$CARGO_TARGET_DIR" ]] || fail 'Compiler cleanup requires this exact job-owned build directory.'
+[[ ${RUNNER_TEMP:-} == /* && ${GALAXY_JOB_ID:-} =~ ^[0-9]+-[0-9]+$ && ! -L "$CARGO_TARGET_DIR" ]] || fail 'Compiler cleanup requires an exact hosted runner build directory.'
+if [[ -n ${GALAXY_BUILD_CACHE_ROOT:-} ]]; then
+  [[ $GALAXY_BUILD_CACHE_ROOT == "$RUNNER_TEMP/galaxy-ci-cache-v1" &&
+     ${GALAXY_CACHED_TARGET_DIR:-} == "$RUNNER_TEMP/galaxy-build" &&
+     $CARGO_TARGET_DIR == "$GALAXY_CACHED_TARGET_DIR" && ! -L "$GALAXY_BUILD_CACHE_ROOT" ]] || fail 'Compiler cleanup requires the validated stable cache target.'
+else
+  [[ $CARGO_TARGET_DIR == "$RUNNER_TEMP/galaxy-build-$GALAXY_JOB_ID" ]] || fail 'Compiler cleanup requires this exact job-owned build directory.'
+fi
 for base in "$CARGO_TARGET_DIR/release" "$CARGO_TARGET_DIR/$target/release"; do
   [[ ! -L "$CARGO_TARGET_DIR/$target" && ! -L "$base" ]] || continue
   for kind in deps build .fingerprint incremental; do

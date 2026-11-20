@@ -116,6 +116,18 @@ runners. Standard public-repository compute is free; per-job runtime limits and
 artifact/cache storage allowances still apply. Build parallelism is capped and
 release debug information is omitted to fit hosted runner resources.
 
+Native jobs reuse a bounded local sccache compiler cache (2 GiB per platform),
+public Cargo downloads, and version-checked packaging tools. Cache identities
+separate operating systems, architectures, runner images, toolchains, build
+flags, and dependency inputs. Stable compiler paths allow reuse between runs;
+application metadata, bundles, installers, signing, and notarization are rebuilt
+and checked for the current source and channel. Cache snapshots are saved only
+by successful trusted master Nightlies, before Apple credentials are available;
+pull requests and tagged builds may restore compatible master caches. Cargo
+credentials, signing material, and release payloads are excluded. Cache-service
+or compiler-cache setup failures fall back to ordinary compilation. The first
+run fills caches; later run statistics show actual reuse.
+
 Local validation remains `cargo build` only. The development machine does not
 launch the application; native CI validates build/package/signing behavior, and
 interactive installation and application behavior are checked on target devices.

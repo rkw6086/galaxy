@@ -7,6 +7,34 @@ set -euo pipefail
 : "${GITHUB_PATH:?Missing Actions path output}"
 : "${GITHUB_ENV:?Missing Actions environment output}"
 [[ "$RUNNER_TEMP" == /* && "$GALAXY_JOB_ID" =~ ^[0-9]+-[0-9]*$ ]]
+cached_tools=
+build_target="$RUNNER_TEMP/galaxy-build-$GALAXY_JOB_ID"
+if [[ -n ${GALAXY_BUILD_CACHE_ROOT:-} ]]; then
+  [[ $GALAXY_BUILD_CACHE_ROOT == "$RUNNER_TEMP/galaxy-ci-cache-v1" &&
+     ${GALAXY_CACHED_TOOLS_DIR:-} == "$GALAXY_BUILD_CACHE_ROOT/tools" &&
+     ${GALAXY_CACHED_TARGET_DIR:-} == "$RUNNER_TEMP/galaxy-build" ]] || {
+    echo 'Build cache paths must match the hosted runner cache directories.' >&2; exit 1;
+  }
+  for directory in "$GALAXY_BUILD_CACHE_ROOT" "$GALAXY_CACHED_TOOLS_DIR" "$GALAXY_CACHED_TOOLS_DIR/bin" "$GALAXY_CACHED_TARGET_DIR"; do
+    [[ ! -L $directory && ( ! -e $directory || -d $directory ) ]] || {
+      echo 'Build cache directories must be real directories, never symbolic links.' >&2; exit 1;
+    }
+  done
+  cached_tools=$GALAXY_CACHED_TOOLS_DIR
+  build_target=$GALAXY_CACHED_TARGET_DIR
+  mkdir -p "$cached_tools/bin"
+  for binary in cargo-bundle cargo-about; do
+    [[ ! -L "$cached_tools/bin/$binary" && ( ! -e "$cached_tools/bin/$binary" || -f "$cached_tools/bin/$binary" ) ]] || {
+      echo 'Cached tools must be regular files, never symbolic links.' >&2; exit 1;
+    }
+  done
+fi
+valid_tool() {
+  local actual
+  [[ -f $1 && ! -L $1 && -x $1 ]] || return 1
+  actual=$("$1" --version 2>/dev/null) || return 1
+  [[ $actual == "$2" ]]
+}
 test "$(uname -s)" = Darwin
 test "$(uname -m)" = arm64
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
@@ -55,17 +83,34 @@ done
 tools="$RUNNER_TEMP/galaxy-tools-$GALAXY_JOB_ID"
 [[ ! -e "$tools" && ! -L "$tools" ]]
 mkdir "$tools"
+mkdir "$tools/bin"
 export RUSTUP_TOOLCHAIN=1.97.1
 # Keep compiler intermediates inside the same job-owned cleanup boundary as tools.
 export CARGO_TARGET_DIR="$tools/build"
 # 0.11.0 has the required Cargo target-directory and named-binary support without
 # 0.12.0's mandatory Sigstore dependency, which fails to compile on this toolchain.
 # Apple signing is performed separately by package-macos.sh.
-cargo install --locked --root "$tools" --git https://github.com/burtonageo/cargo-bundle --rev 739f92c37c789b5511a448a389cbc76fcebd99df cargo-bundle
-cargo install --locked --root "$tools" cargo-about@0.8.4
+if [[ -n $cached_tools ]] && valid_tool "$cached_tools/bin/cargo-bundle" 'cargo-bundle v0.11.0'; then
+  cp "$cached_tools/bin/cargo-bundle" "$tools/bin/cargo-bundle"
+else
+  RUSTC_WRAPPER='' cargo install --locked --root "$tools" --git https://github.com/burtonageo/cargo-bundle --rev 739f92c37c789b5511a448a389cbc76fcebd99df cargo-bundle
+fi
+if [[ -n $cached_tools ]] && valid_tool "$cached_tools/bin/cargo-about" 'cargo-about 0.8.4'; then
+  cp "$cached_tools/bin/cargo-about" "$tools/bin/cargo-about"
+else
+  RUSTC_WRAPPER='' cargo install --locked --root "$tools" cargo-about@0.8.4
+fi
+valid_tool "$tools/bin/cargo-bundle" 'cargo-bundle v0.11.0' || { echo 'Expected cargo-bundle 0.11.0 from the pinned revision.' >&2; exit 1; }
+valid_tool "$tools/bin/cargo-about" 'cargo-about 0.8.4' || { echo 'Expected cargo-about 0.8.4.' >&2; exit 1; }
+if [[ -n $cached_tools ]]; then
+  for binary in cargo-bundle cargo-about; do
+    [[ ! -L "$cached_tools/bin/$binary" ]] || { echo 'Cached tools must not be symbolic links.' >&2; exit 1; }
+    cp "$tools/bin/$binary" "$cached_tools/bin/$binary"
+  done
+fi
 # Cargo install intermediates are not runtime tools. Hosted macOS runners have
 # a small ephemeral disk; reclaim only this job's exact installation directory.
-[[ "$tools" == "$RUNNER_TEMP/galaxy-tools-$GALAXY_JOB_ID" && -d "$tools/build" && ! -L "$tools/build" ]]
+[[ "$tools" == "$RUNNER_TEMP/galaxy-tools-$GALAXY_JOB_ID" && ! -L "$tools/build" ]]
 rm -rf -- "$tools/build"
 echo "$tools/bin" >> "$GITHUB_PATH"
 echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
@@ -80,5 +125,5 @@ echo "SDKROOT=$SDKROOT" >> "$GITHUB_ENV"
 echo "PROTOC=$PROTOC" >> "$GITHUB_ENV"
 echo "PROTOC_INCLUDE=$PROTOC_INCLUDE" >> "$GITHUB_ENV"
 echo "GALAXY_TOOLS_DIR=$tools" >> "$GITHUB_ENV"
-echo "CARGO_TARGET_DIR=$RUNNER_TEMP/galaxy-build-$GALAXY_JOB_ID" >> "$GITHUB_ENV"
+echo "CARGO_TARGET_DIR=$build_target" >> "$GITHUB_ENV"
 echo "GALAXY_RELEASE_DIR=$RUNNER_TEMP/galaxy-artifacts-$GALAXY_JOB_ID" >> "$GITHUB_ENV"

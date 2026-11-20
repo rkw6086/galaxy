@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Reuse bounded compiler caches, Cargo downloads, and pinned packaging tools across native GitHub builds, while rebuilding and verifying each release's application metadata and signed packages.
 - Prevent oversized model output limits from consuming the context window and blocking new chats. Keep context accounting, compaction, and the actual reply budget aligned.
 
 ## [4.0.0]

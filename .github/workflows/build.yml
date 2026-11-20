@@ -158,6 +158,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.17.0'
+      - name: Restore unsigned build caches
+        id: build_cache
+        uses: ./.github/actions/build-cache
       - name: Stage the tag-selected version or configure unsigned validation
         shell: bash
         run: |
@@ -173,6 +176,22 @@ jobs:
         run: bash script/ci/setup-macos.sh
       - name: Build the complete app without signing credentials
         run: bash script/ci/build-macos.sh
+      - name: Flush compiler cache and show reuse statistics
+        id: finish_cache
+        continue-on-error: true
+        run: node script/ci/cache-paths.mjs finish
+      - name: Retain unsigned cache for future trusted builds
+        if: >-
+          ${{ success() && steps.finish_cache.outcome == 'success' &&
+              steps.build_cache.outputs.cache-hit != 'true' &&
+              github.repository == 'rkw6086/galaxy' && github.ref == 'refs/heads/master' &&
+              (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.build_cache.outputs.paths }}
+          key: ${{ steps.build_cache.outputs.key }}
       - name: Sign and notarize the Apple Silicon DMG
         if: github.event_name != 'pull_request' && needs.prepare.outputs.channel != 'ci'
         env:
@@ -205,6 +224,10 @@ jobs:
           for kind in build artifacts tools; do
             rm -rf -- "$RUNNER_TEMP/galaxy-$kind-$GALAXY_JOB_ID"
           done
+          if [[ -n "${GALAXY_BUILD_CACHE_ROOT:-}" ]]; then
+            [[ "$GALAXY_BUILD_CACHE_ROOT" == "$RUNNER_TEMP/galaxy-ci-cache-v1" && "$CARGO_TARGET_DIR" == "$RUNNER_TEMP/galaxy-build" ]]
+            rm -rf -- "$CARGO_TARGET_DIR"
+          fi
 
   linux:
     needs: prepare
@@ -230,6 +253,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.17.0'
+      - name: Restore unsigned build caches
+        id: build_cache
+        uses: ./.github/actions/build-cache
       - name: Stage the tag-selected version
         if: needs.prepare.outputs.channel == 'release'
         run: |
@@ -239,6 +265,22 @@ jobs:
         run: bash script/ci/setup-linux.sh
       - name: Build and verify Linux packages
         run: bash script/ci/build-linux.sh
+      - name: Flush compiler cache and show reuse statistics
+        id: finish_cache
+        continue-on-error: true
+        run: node script/ci/cache-paths.mjs finish
+      - name: Retain unsigned cache for future trusted builds
+        if: >-
+          ${{ success() && steps.finish_cache.outcome == 'success' &&
+              steps.build_cache.outputs.cache-hit != 'true' &&
+              github.repository == 'rkw6086/galaxy' && github.ref == 'refs/heads/master' &&
+              (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.build_cache.outputs.paths }}
+          key: ${{ steps.build_cache.outputs.key }}
       - name: Transfer verified Linux downloads to publication
         if: github.event_name != 'pull_request' && needs.prepare.outputs.channel != 'ci'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -280,6 +322,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.17.0'
+      - name: Restore unsigned build caches
+        id: build_cache
+        uses: ./.github/actions/build-cache
       - name: Stage the tag-selected version
         if: needs.prepare.outputs.channel == 'release'
         run: |
@@ -290,6 +335,22 @@ jobs:
         run: ./script/ci/setup-windows.ps1
       - name: Build and verify the Windows installer
         run: ./script/ci/build-windows.ps1
+      - name: Flush compiler cache and show reuse statistics
+        id: finish_cache
+        continue-on-error: true
+        run: node script/ci/cache-paths.mjs finish
+      - name: Retain unsigned cache for future trusted builds
+        if: >-
+          ${{ success() && steps.finish_cache.outcome == 'success' &&
+              steps.build_cache.outputs.cache-hit != 'true' &&
+              github.repository == 'rkw6086/galaxy' && github.ref == 'refs/heads/master' &&
+              (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.build_cache.outputs.paths }}
+          key: ${{ steps.build_cache.outputs.key }}
       - name: Transfer verified Windows downloads to publication
         if: github.event_name != 'pull_request' && needs.prepare.outputs.channel != 'ci'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
