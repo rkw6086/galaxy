@@ -4252,6 +4252,455 @@ fn test_move_tab_to_group_expands_collapsed_group() {
 }
 
 #[test]
+fn test_active_tab_add_split_view_uses_new_tab_action() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            let assert_add_split_view_action = |items: Vec<MenuItem<WorkspaceAction>>| {
+                let fields = items
+                    .iter()
+                    .find_map(|item| match item {
+                        MenuItem::Item(fields) if fields.label() == "Add split view" => {
+                            Some(fields)
+                        }
+                        _ => None,
+                    })
+                    .expect("active tab should offer Add split view");
+                assert!(matches!(
+                    fields.on_select_action(),
+                    Some(WorkspaceAction::AddDefaultTabInSplitView)
+                ));
+            };
+            // Unsplit state: active tab should offer the action.
+            assert_add_split_view_action(
+                workspace.build_split_view_menu_items_for_tab(workspace.active_tab_index()),
+            );
+
+            // Split state: active tab (also a split member) should still offer it.
+            let first_id = workspace.active_tab_pane_group().id();
+            workspace.add_terminal_tab(false, ctx);
+            workspace.open_tab_in_split_view(first_id, ctx);
+            assert_add_split_view_action(
+                workspace.build_split_view_menu_items_for_tab(workspace.active_tab_index()),
+            );
+        });
+    });
+}
+
+#[test]
+fn test_add_split_view_from_unsplit_opens_new_tab_in_split() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            let source_id = workspace.active_tab_pane_group().id();
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "should start unsplit"
+            );
+
+            workspace.handle_action(&WorkspaceAction::AddDefaultTabInSplitView, ctx);
+
+            assert_eq!(workspace.tab_count(), 2, "a new tab should be created");
+            assert!(
+                workspace.split_view_state.is_active(),
+                "split should be active"
+            );
+            assert_eq!(
+                workspace.split_view_state.len(),
+                2,
+                "split should have 2 members"
+            );
+            assert!(
+                workspace.split_view_state.contains(source_id),
+                "source tab is a member"
+            );
+
+            let new_tab_id = workspace.active_tab_pane_group().id();
+            assert_ne!(source_id, new_tab_id, "a distinct new tab was created");
+            assert!(
+                workspace.split_view_state.contains(new_tab_id),
+                "new tab is a member"
+            );
+            assert_eq!(
+                workspace.split_view_state.focused_id(),
+                Some(new_tab_id),
+                "new tab is focused"
+            );
+        });
+    });
+}
+
+#[test]
+fn test_add_split_view_preserves_existing_split_members() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            // Build a 2-tab split [tab_a, tab_b].
+            let tab_a_id = workspace.active_tab_pane_group().id();
+            workspace.add_terminal_tab(false, ctx);
+            let tab_b_id = workspace.active_tab_pane_group().id();
+            workspace.open_tab_in_split_view(tab_a_id, ctx);
+            assert!(
+                workspace.split_view_state.is_active(),
+                "prerequisite: split active"
+            );
+
+            // Make tab_a the active/source tab.
+            let tab_a_index = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == tab_a_id)
+                .unwrap();
+            workspace.activate_tab(tab_a_index, ctx);
+
+            // Add split view — should grow to 3 members.
+            workspace.handle_action(&WorkspaceAction::AddDefaultTabInSplitView, ctx);
+
+            assert_eq!(workspace.tab_count(), 3);
+            assert!(workspace.split_view_state.is_active());
+            assert_eq!(workspace.split_view_state.len(), 3, "both prior + new");
+            assert!(
+                workspace.split_view_state.contains(tab_a_id),
+                "tab_a retained"
+            );
+            assert!(
+                workspace.split_view_state.contains(tab_b_id),
+                "tab_b retained"
+            );
+
+            let new_tab_id = workspace.active_tab_pane_group().id();
+            assert!(
+                workspace.split_view_state.contains(new_tab_id),
+                "new tab added"
+            );
+            assert_eq!(workspace.split_view_state.focused_id(), Some(new_tab_id));
+        });
+    });
+}
+
+#[test]
+fn test_add_split_view_not_shown_for_inactive_tab() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            let active_index = workspace.active_tab_index();
+            let inactive_index = active_index - 1;
+
+            let inactive_items = workspace.build_split_view_menu_items_for_tab(inactive_index);
+            let has_add = inactive_items
+                .iter()
+                .any(|item| matches!(item, MenuItem::Item(f) if f.label() == "Add split view"));
+            assert!(!has_add, "inactive tab must not offer Add split view");
+        });
+    });
+}
+
+#[test]
+fn test_add_split_view_hidden_at_max_capacity() {
+    // When the split already has MAX_VISIBLE members the "Add split view"
+    // item must not appear because there is no room for another tab.
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            // Build a full 4-tab split.
+            let first_id = workspace.active_tab_pane_group().id();
+            for _ in 1..SplitViewState::MAX_VISIBLE {
+                workspace.add_terminal_tab(false, ctx);
+                let new_id = workspace.active_tab_pane_group().id();
+                workspace.open_tab_in_split_view(new_id, ctx);
+            }
+            // Activate the first (source) tab so it is the active_tab_index.
+            let first_index = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == first_id)
+                .unwrap();
+            workspace.set_active_tab_index(first_index, ctx);
+
+            assert_eq!(
+                workspace.split_view_state.len(),
+                SplitViewState::MAX_VISIBLE,
+                "split must be at capacity"
+            );
+
+            // Menu must not offer "Add split view".
+            let items = workspace.build_split_view_menu_items_for_tab(workspace.active_tab_index());
+            let has_add = items
+                .iter()
+                .any(|item| matches!(item, MenuItem::Item(f) if f.label() == "Add split view"));
+            assert!(!has_add, "Add split view must be hidden at capacity");
+
+            // Dispatching the action must be a no-op (no new tab, no split change).
+            let tab_count_before = workspace.tab_count();
+            let split_len_before = workspace.split_view_state.len();
+            workspace.handle_action(&WorkspaceAction::AddDefaultTabInSplitView, ctx);
+            assert_eq!(
+                workspace.tab_count(),
+                tab_count_before,
+                "no new tab when at capacity"
+            );
+            assert_eq!(
+                workspace.split_view_state.len(),
+                split_len_before,
+                "split unchanged when at capacity"
+            );
+        });
+    });
+}
+
+#[test]
+fn test_add_default_tab_cmd_t_unchanged() {
+    // `AddDefaultTab` (Cmd-T) must remain a plain new-tab action with no
+    // split-view side-effects.
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            assert!(!workspace.split_view_state.is_active());
+
+            workspace.handle_action(&WorkspaceAction::AddDefaultTab, ctx);
+
+            assert_eq!(workspace.tab_count(), 2, "a new tab should be created");
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "Cmd-T must not activate split view"
+            );
+        });
+    });
+}
+
+#[test]
+fn test_add_split_view_source_is_middle_tab() {
+    // The source tab is not the first or last tab.  Set-difference ID detection
+    // must still find the correct new tab regardless of insertion order.
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            // Build: [tab_first, tab_source, tab_last]
+            workspace.add_terminal_tab(false, ctx);
+            workspace.add_terminal_tab(false, ctx);
+
+            // Activate the middle tab (index 1) as the source.
+            workspace.activate_tab(1, ctx);
+            let source_id = workspace.active_tab_pane_group().id();
+            assert_eq!(workspace.tab_count(), 3);
+            assert!(!workspace.split_view_state.is_active());
+
+            workspace.handle_action(&WorkspaceAction::AddDefaultTabInSplitView, ctx);
+
+            assert_eq!(workspace.tab_count(), 4, "one new tab created");
+            assert!(workspace.split_view_state.is_active(), "split is active");
+            assert_eq!(workspace.split_view_state.len(), 2);
+            assert!(
+                workspace.split_view_state.contains(source_id),
+                "source (middle) tab is a split member"
+            );
+            // The new tab must be in the split and focused.
+            let new_id = workspace.active_tab_pane_group().id();
+            assert_ne!(source_id, new_id);
+            assert!(
+                workspace.split_view_state.contains(new_id),
+                "new tab is a split member"
+            );
+            assert_eq!(workspace.split_view_state.focused_id(), Some(new_id));
+        });
+    });
+}
+
+#[test]
+fn test_add_split_view_preserves_resized_weights() {
+    // After the user drags a divider to adjust slot proportions, dispatching
+    // "Add split view" from a split member must carry those proportions to the
+    // restored split (up to the capped member count).
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            // Create a 2-tab split and simulate a manual weight adjustment.
+            let tab_a_id = workspace.active_tab_pane_group().id();
+            workspace.add_terminal_tab(false, ctx);
+            let tab_b_id = workspace.active_tab_pane_group().id();
+            workspace.open_tab_in_split_view(tab_a_id, ctx);
+            assert!(workspace.split_view_state.is_active());
+
+            // Simulate the user having resized: give tab_a weight 2.0, tab_b weight 1.0.
+            workspace.split_view_state.set_slot_weight(tab_a_id, 2.0);
+            workspace.split_view_state.set_slot_weight(tab_b_id, 1.0);
+
+            // Activate tab_a as the split source.
+            let tab_a_index = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == tab_a_id)
+                .unwrap();
+            workspace.activate_tab(tab_a_index, ctx);
+
+            // Dispatch Add split view.
+            workspace.handle_action(&WorkspaceAction::AddDefaultTabInSplitView, ctx);
+
+            assert_eq!(workspace.split_view_state.len(), 3);
+            // Weights for the two prior members must be preserved.
+            assert_eq!(
+                workspace.split_view_state.slot_weight(tab_a_id),
+                2.0,
+                "tab_a weight preserved"
+            );
+            assert_eq!(
+                workspace.split_view_state.slot_weight(tab_b_id),
+                1.0,
+                "tab_b weight preserved"
+            );
+            // The new tab gets the default weight.
+            let new_id = workspace.active_tab_pane_group().id();
+            assert_eq!(
+                workspace.split_view_state.slot_weight(new_id),
+                1.0,
+                "new tab gets default weight"
+            );
+        });
+    });
+}
+
+#[test]
+fn test_add_split_view_stale_async_source_no_op() {
+    // Simulate the Docker async stale-source race: the source tab is closed
+    // between the action dispatch and async completion.  The split must not
+    // be entered (no singleton or stale state left behind).
+    // We test this via `enter_split_view_with_new_tab` with a pending snapshot
+    // whose source_id references a now-closed tab (empty prior_split_ids).
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            // Capture the original source tab, then close it.
+            let source_id = workspace.active_tab_pane_group().id();
+            // Snapshot *before* closing (simulates action-dispatch state).
+            let pending = workspace.snapshot_split_view_source();
+
+            // Add a new tab so we still have more than one, then close the source.
+            workspace.add_terminal_tab(false, ctx);
+            workspace.add_terminal_tab(false, ctx);
+            // Close the original source tab by index.
+            let source_index = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == source_id)
+                .unwrap();
+            workspace.remove_tab(source_index, false, true, ctx);
+            assert!(
+                workspace.tab_index_for_pane_group_id(source_id).is_none(),
+                "source tab should be gone"
+            );
+
+            // Simulate async completion: a new tab was created (last tab).
+            let new_tab_id = workspace.tabs[workspace.tabs.len() - 1].pane_group.id();
+
+            // enter_split_view_with_new_tab with stale source must be a no-op.
+            workspace.enter_split_view_with_new_tab(new_tab_id, &pending, ctx);
+
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "split must not be entered when source is gone"
+            );
+        });
+    });
+}
+
+#[test]
+fn test_is_pending_split_source_current_staleness_cases() {
+    // Exercises every staleness condition checked by `is_pending_split_source_current`:
+    //   (a) active tab switched to a different live tab,
+    //   (b) split composition changed while source is still active,
+    //   (c) split reached MAX_VISIBLE capacity,
+    //   (d) all conditions valid — must return true.
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            // Build a 2-tab split: source (index 0) and tab_b.
+            let source_id = workspace.active_tab_pane_group().id();
+            workspace.add_terminal_tab(false, ctx);
+            let tab_b_id = workspace.active_tab_pane_group().id();
+            workspace.open_tab_in_split_view(source_id, ctx);
+            // Activate source so it is the active tab.
+            let source_index = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == source_id)
+                .unwrap();
+            workspace.activate_tab(source_index, ctx);
+            assert_eq!(
+                workspace.active_tab_pane_group().id(),
+                source_id,
+                "source is active"
+            );
+            assert!(workspace.split_view_state.is_active());
+
+            // Snapshot the valid state.
+            let pending = workspace.snapshot_split_view_source();
+
+            // (d) Valid state — must return true.
+            assert!(
+                workspace.is_pending_split_source_current(&pending),
+                "(d) all conditions met: should be current"
+            );
+
+            // (a) Switch active tab away (source is still alive).
+            let tab_b_index = workspace
+                .tabs
+                .iter()
+                .position(|t| t.pane_group.id() == tab_b_id)
+                .unwrap();
+            workspace.activate_tab(tab_b_index, ctx);
+            assert!(
+                !workspace.is_pending_split_source_current(&pending),
+                "(a) active tab switched: should be stale"
+            );
+            // Restore active tab to source.
+            workspace.activate_tab(source_index, ctx);
+
+            // (b) Split composition changed: remove tab_b.
+            workspace.remove_from_split_view(tab_b_id, ctx);
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "prerequisite: split exited"
+            );
+            assert!(
+                !workspace.is_pending_split_source_current(&pending),
+                "(b) split composition changed: should be stale"
+            );
+            // Rebuild the original split.
+            workspace.open_tab_in_split_view(source_id, ctx);
+            workspace.activate_tab(source_index, ctx);
+
+            // (c) Fill the split to MAX_VISIBLE capacity.
+            for _ in 2..SplitViewState::MAX_VISIBLE {
+                workspace.add_terminal_tab(false, ctx);
+                let extra_id = workspace.active_tab_pane_group().id();
+                workspace.open_tab_in_split_view(extra_id, ctx);
+            }
+            workspace.activate_tab(source_index, ctx);
+            assert_eq!(
+                workspace.split_view_state.len(),
+                SplitViewState::MAX_VISIBLE,
+                "split is at capacity"
+            );
+            assert!(
+                !workspace.is_pending_split_source_current(&pending),
+                "(c) at capacity: should be stale"
+            );
+        });
+    });
+}
+
+#[test]
 fn test_move_selected_tabs_to_group_expands_collapsed_group() {
     let _grouped_tabs_guard = FeatureFlag::GroupedTabs.override_enabled(true);
 
@@ -5853,4 +6302,528 @@ fn test_drop_tab_cleans_detach_bookkeeping_without_changing_survivor_selection()
             assert!(workspace.split_view_state.ids().is_empty());
         });
     });
+}
+
+// ---------------------------------------------------------------------------
+// Drag-to-split tests
+// ---------------------------------------------------------------------------
+
+/// Helper: set a `PendingDragSplit` on `workspace` directly (bypasses the
+/// position-cache geometry that is not populated in headless tests).
+fn set_pending_drag_split(
+    workspace: &mut Workspace,
+    target_id: galaxyui::EntityId,
+    source_id: galaxyui::EntityId,
+) {
+    workspace.pending_drag_split = Some(crate::workspace::view::PendingDragSplit {
+        target_id,
+        source_id,
+    });
+}
+
+/// Dropping with a pending split opens both tabs in split view with the target
+/// (hovered) tab on the left and the dragged (source) tab on the right.
+#[test]
+fn test_drop_with_pending_split_opens_split_view_target_left_source_right() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B at index 1
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            // Simulate dragging A over the center of B.
+            set_pending_drag_split(workspace, b, a); // target=B, source=A
+            (a, b)
+        });
+
+        // Trigger DropTab (non-cross-window; no active detach).
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // Split view must now be active with exactly two slots.
+            assert!(
+                workspace.split_view_state.is_active(),
+                "split view must be active after drag-to-split drop"
+            );
+            let ids = workspace.split_view_state.ids();
+            assert_eq!(ids.len(), 2, "split must have exactly two slots");
+            // Target (B) must be on the left (first), source (A) on the right.
+            assert_eq!(ids[0], id_b, "target tab must be the left (first) slot");
+            assert_eq!(ids[1], id_a, "source tab must be the right (second) slot");
+            // pending_drag_split must be cleared.
+            assert_eq!(
+                workspace.pending_drag_split, None,
+                "pending_drag_split must be cleared after drop"
+            );
+        });
+    });
+}
+
+/// Dropping without any pending split does NOT create a split view.
+#[test]
+fn test_drop_without_pending_split_does_not_create_split() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+                                                    // No pending_drag_split.
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "no split should be created when pending_drag_split is None"
+            );
+        });
+    });
+}
+
+/// Dragging a tab over itself should not set a pending split.
+/// (The center-zone loop skips `i == current_index`, so self-hover is never
+/// possible at the logic level; this test validates the invariant holds via
+/// the state API.)
+#[test]
+fn test_pending_drag_split_self_target_not_allowed() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            let id_a = workspace.get_pane_group_view(0).unwrap().id();
+            // Attempting to set source == target must result in a no-op split
+            // (IDs match, so `open_tab_in_split_view` guard rejects it).
+            set_pending_drag_split(workspace, id_a, id_a); // self-target
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // With source == target, `open_tab_in_split_view` returns early
+            // because a tab cannot split with itself.
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "a tab cannot be split with itself"
+            );
+            assert_eq!(workspace.pending_drag_split, None);
+        });
+    });
+}
+
+/// Stale IDs: if the target tab was closed between setting the pending split
+/// and the drop, the split is not committed and no crash occurs.
+#[test]
+fn test_pending_drag_split_stale_target_id_is_ignored() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            (a, b)
+        });
+
+        // Close B (the target), then set a pending split referencing the now-
+        // gone ID and drop.
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.close_tab(1, true, false, ctx);
+            assert_eq!(workspace.tab_count(), 1);
+        });
+
+        workspace.update(&mut app, |workspace, ctx| {
+            // Set stale pending split (target B no longer exists).
+            workspace.pending_drag_split = Some(crate::workspace::view::PendingDragSplit {
+                target_id: id_b,
+                source_id: id_a,
+            });
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(
+                !workspace.split_view_state.is_active(),
+                "stale target ID must not create a split"
+            );
+            assert_eq!(workspace.pending_drag_split, None);
+        });
+    });
+}
+
+/// StartTabDrag always clears any pending_drag_split from a previous gesture.
+#[test]
+fn test_start_tab_drag_clears_pending_drag_split() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            // Simulate a stale pending split from a previous drag.
+            set_pending_drag_split(workspace, b, a);
+            assert!(workspace.pending_drag_split.is_some());
+            // A new StartTabDrag must clear it.
+            workspace.handle_action(&WorkspaceAction::StartTabDrag, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            assert_eq!(
+                workspace.pending_drag_split, None,
+                "StartTabDrag must clear pending_drag_split"
+            );
+        });
+    });
+}
+
+/// When an existing split view is active and a drag-to-split drop happens,
+/// the existing split is exited first so the result is exactly the two
+/// dragged tabs, not a larger accumulated split.
+#[test]
+fn test_pending_drag_split_exits_prior_split_before_creating_new_pair() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b, id_c) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx); // B
+            workspace.add_terminal_tab(false, ctx); // C
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            let c = workspace.get_pane_group_view(2).unwrap().id();
+            // Open an existing split [A, C].
+            workspace.activate_tab(0, ctx);
+            workspace.open_tab_in_split_view(c, ctx);
+            assert!(workspace.split_view_state.is_active());
+            (a, b, c)
+        });
+
+        // Now drag A onto B's center zone and drop.
+        workspace.update(&mut app, |workspace, ctx| {
+            set_pending_drag_split(workspace, id_b, id_a); // target=B, source=A
+            workspace.handle_action(&WorkspaceAction::DropTab, ctx);
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            let ids = workspace.split_view_state.ids();
+            assert_eq!(ids.len(), 2);
+            // The prior member C must NOT be in the new split.
+            assert!(!ids.contains(&id_c), "prior split member C must be absent");
+            assert_eq!(ids[0], id_b, "target B must be left");
+            assert_eq!(ids[1], id_a, "source A must be right");
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Pure geometry tests for `select_drag_split_target`
+// These do not require App::test; they call the extracted helper directly.
+// ---------------------------------------------------------------------------
+
+fn make_candidate(index: usize, x: f32, width: f32) -> DragSplitCandidate {
+    DragSplitCandidate {
+        index,
+        id: galaxyui::EntityId::new(),
+        rect: RectF::from_points(
+            pathfinder_geometry::vector::vec2f(x, 0.),
+            pathfinder_geometry::vector::vec2f(x + width, 34.),
+        ),
+        skip: false,
+    }
+}
+
+fn make_candidate_v(index: usize, y: f32, height: f32) -> DragSplitCandidate {
+    DragSplitCandidate {
+        index,
+        id: galaxyui::EntityId::new(),
+        rect: RectF::from_points(
+            pathfinder_geometry::vector::vec2f(0., y),
+            pathfinder_geometry::vector::vec2f(220., y + height),
+        ),
+        skip: false,
+    }
+}
+
+/// Cursor at exact center of tab B → hits B's center zone.
+#[test]
+fn test_select_split_target_center_hits() {
+    let a = make_candidate(0, 0., 150.); // source
+    let b = make_candidate(1, 150., 150.); // target, center at x=225
+                                           // Cursor at exact center of B (x=225), y=17 (within 0..34 perp).
+    let cursor = pathfinder_geometry::vector::vec2f(225., 17.);
+    let result = select_drag_split_target(&[a, b], 0, cursor, false);
+    assert_eq!(result, Some(b.id), "center cursor must hit B");
+}
+
+/// Cursor at leading edge of tab B → misses (edge zone, not center).
+#[test]
+fn test_select_split_target_leading_edge_misses() {
+    let a = make_candidate(0, 0., 150.);
+    let b = make_candidate(1, 150., 150.); // center zone: 150+50=200 .. 150+100=250
+                                           // Cursor at x=155 — inside B but in the leading edge zone.
+    let cursor = pathfinder_geometry::vector::vec2f(155., 17.);
+    let result = select_drag_split_target(&[a, b], 0, cursor, false);
+    assert_eq!(result, None, "leading-edge cursor must not hit split zone");
+}
+
+/// Cursor at trailing edge of tab B → misses.
+#[test]
+fn test_select_split_target_trailing_edge_misses() {
+    let a = make_candidate(0, 0., 150.);
+    let b = make_candidate(1, 150., 150.); // center zone: 200..250
+                                           // Cursor at x=295 — inside B but in the trailing edge zone.
+    let cursor = pathfinder_geometry::vector::vec2f(295., 17.);
+    let result = select_drag_split_target(&[a, b], 0, cursor, false);
+    assert_eq!(result, None, "trailing-edge cursor must not hit split zone");
+}
+
+/// Self-hover: source_index matches the only center-zone candidate → None.
+#[test]
+fn test_select_split_target_self_skipped() {
+    let tab = make_candidate(0, 0., 150.);
+    let cursor = pathfinder_geometry::vector::vec2f(75., 17.); // center of tab
+    let result = select_drag_split_target(&[tab], 0, cursor, false);
+    assert_eq!(result, None, "source tab must never be a split target");
+}
+
+/// `skip=true` on the only candidate → None.
+#[test]
+fn test_select_split_target_skipped_candidate() {
+    let mut b = make_candidate(1, 150., 150.);
+    b.skip = true;
+    let a = make_candidate(0, 0., 150.);
+    let cursor = pathfinder_geometry::vector::vec2f(225., 17.);
+    let result = select_drag_split_target(&[a, b], 0, cursor, false);
+    assert_eq!(result, None, "skip=true candidate must not be a target");
+}
+
+/// Zero-width tab rect → skipped (non-visible / collapsed).
+#[test]
+fn test_select_split_target_zero_width_skipped() {
+    let a = make_candidate(0, 0., 150.);
+    let b = make_candidate(1, 150., 0.); // zero width → collapsed/hidden
+    let cursor = pathfinder_geometry::vector::vec2f(150., 17.);
+    let result = select_drag_split_target(&[a, b], 0, cursor, false);
+    assert_eq!(result, None, "zero-width tab must not match");
+}
+
+/// Perpendicular axis out of bounds → rejected (stale position-cache entry).
+#[test]
+fn test_select_split_target_perpendicular_out_of_bounds_rejected() {
+    let a = make_candidate(0, 0., 150.);
+    let b = make_candidate(1, 150., 150.); // rect y=[0..34]
+                                           // Cursor is in the center zone on X but above the tab on Y.
+    let cursor = pathfinder_geometry::vector::vec2f(225., 100.); // y=100 > 34
+    let result = select_drag_split_target(&[a, b], 0, cursor, false);
+    assert_eq!(result, None, "out-of-bounds perpendicular must be rejected");
+}
+
+/// Vertical layout: cursor at center on the Y axis hits target.
+#[test]
+fn test_select_split_target_vertical_center_hits() {
+    let a = make_candidate_v(0, 0., 36.);
+    let b = make_candidate_v(1, 36., 36.); // center zone y: 36+12=48 .. 36+24=60
+                                           // Cursor at y=54 (center of B), x=110 (within 0..220 perp).
+    let cursor = pathfinder_geometry::vector::vec2f(110., 54.);
+    let result = select_drag_split_target(&[a, b], 0, cursor, true);
+    assert_eq!(result, Some(b.id), "vertical center cursor must hit B");
+}
+
+/// Vertical layout: cursor at leading edge on Y → misses.
+#[test]
+fn test_select_split_target_vertical_leading_edge_misses() {
+    let a = make_candidate_v(0, 0., 36.);
+    let b = make_candidate_v(1, 36., 36.); // center zone y: 48..60
+                                           // Cursor at y=38 — in leading edge zone.
+    let cursor = pathfinder_geometry::vector::vec2f(110., 38.);
+    let result = select_drag_split_target(&[a, b], 0, cursor, true);
+    assert_eq!(
+        result, None,
+        "vertical leading-edge cursor must not hit split zone"
+    );
+}
+
+/// is_tab_split_drop_target returns false when pending_drag_split is None.
+#[test]
+fn test_is_tab_split_drop_target_no_pending() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+        });
+        workspace.read(&app, |workspace, _ctx| {
+            assert!(!workspace.is_tab_split_drop_target(0));
+            assert!(!workspace.is_tab_split_drop_target(1));
+        });
+    });
+}
+
+/// is_tab_split_drop_target returns true only for the target tab's index.
+#[test]
+fn test_is_tab_split_drop_target_correct_index() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (id_a, id_b) = workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            let a = workspace.get_pane_group_view(0).unwrap().id();
+            let b = workspace.get_pane_group_view(1).unwrap().id();
+            // B is the target, A is the source.
+            set_pending_drag_split(workspace, b, a);
+            (a, b)
+        });
+
+        workspace.read(&app, |workspace, _ctx| {
+            // Index 1 (B) is the target → true.
+            assert!(
+                workspace.is_tab_split_drop_target(1),
+                "target tab index must return true"
+            );
+            // Index 0 (A, the source) is not the target → false.
+            assert!(
+                !workspace.is_tab_split_drop_target(0),
+                "source tab index must return false"
+            );
+            let _ = (id_a, id_b); // silence unused warning
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// is_eligible_split_candidate tests
+// ---------------------------------------------------------------------------
+
+fn bar_rect() -> RectF {
+    RectF::from_points(
+        pathfinder_geometry::vector::vec2f(0., 0.),
+        pathfinder_geometry::vector::vec2f(600., 34.),
+    )
+}
+
+fn tab_inside_bar(x: f32) -> RectF {
+    RectF::from_points(
+        pathfinder_geometry::vector::vec2f(x, 0.),
+        pathfinder_geometry::vector::vec2f(x + 150., 34.),
+    )
+}
+
+fn tab_outside_bar() -> RectF {
+    // rect whose center (875, 17) is outside bar_rect (0..600 x 0..34)
+    RectF::from_points(
+        pathfinder_geometry::vector::vec2f(800., 0.),
+        pathfinder_geometry::vector::vec2f(950., 34.),
+    )
+}
+
+/// Visible tab inside the bar → eligible.
+#[test]
+fn test_eligible_visible_inside_bar() {
+    assert!(
+        is_eligible_split_candidate(tab_inside_bar(0.), &[bar_rect()], false, false),
+        "visible tab inside bar must be eligible"
+    );
+}
+
+/// Detached tab (cross-window preview) → ineligible even if rect is in bar.
+#[test]
+fn test_eligible_detached_rejected() {
+    assert!(
+        !is_eligible_split_candidate(tab_inside_bar(0.), &[bar_rect()], true, false),
+        "detached tab must not be eligible"
+    );
+}
+
+/// Collapsed-group member → ineligible.
+#[test]
+fn test_eligible_collapsed_group_rejected() {
+    assert!(
+        !is_eligible_split_candidate(tab_inside_bar(0.), &[bar_rect()], false, true),
+        "collapsed-group member must not be eligible"
+    );
+}
+
+/// Stale rect outside the active bar (nonzero dims) → ineligible.
+/// This is the key case: a tab with a real nonzero rect that is simply outside
+/// the visible bar region (e.g. a floating ghost chip or overflow-clipped slot)
+/// must be excluded even though its geometry looks valid.
+#[test]
+fn test_eligible_stale_nonzero_rect_outside_bar_rejected() {
+    assert!(
+        !is_eligible_split_candidate(tab_outside_bar(), &[bar_rect()], false, false),
+        "nonzero rect outside bar must not be eligible (stale position-cache entry)"
+    );
+}
+
+/// Sole-grouped-member tab with valid rect inside bar → eligible target.
+/// The sole-member exemption only affects the *source* draggable path; a
+/// different tab can legitimately drop onto a sole-member tab to open a split.
+#[test]
+fn test_eligible_sole_grouped_member_is_eligible_target() {
+    // is_eligible_split_candidate does not receive a sole-member flag;
+    // the caller no longer sets skip=true for sole members.  Verify the
+    // helper treats a plain in-bar non-detached non-collapsed tab as eligible.
+    assert!(
+        is_eligible_split_candidate(tab_inside_bar(150.), &[bar_rect()], false, false),
+        "sole-grouped-member tab must be eligible as a split target"
+    );
+}
+
+/// Empty bar_rects (first frame, cache not populated) → all rects accepted.
+#[test]
+fn test_eligible_empty_bar_rects_accepts_all() {
+    // When the position cache hasn’t populated yet, bar_rects is empty and
+    // the helper should not reject any non-detached, non-collapsed candidate.
+    assert!(
+        is_eligible_split_candidate(tab_outside_bar(), &[], false, false),
+        "empty bar_rects must accept all non-detached non-collapsed candidates"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// NaN cursor / NaN rect tests for select_drag_split_target
+// ---------------------------------------------------------------------------
+
+/// NaN cursor x → returns None immediately.
+#[test]
+fn test_select_split_target_nan_cursor_x_returns_none() {
+    let a = make_candidate(0, 0., 150.);
+    let b = make_candidate(1, 150., 150.);
+    let cursor = pathfinder_geometry::vector::vec2f(f32::NAN, 17.);
+    let result = select_drag_split_target(&[a, b], 0, cursor, false);
+    assert_eq!(result, None, "NaN cursor x must return None");
+}
+
+/// NaN cursor y → returns None.
+#[test]
+fn test_select_split_target_nan_cursor_y_returns_none() {
+    let a = make_candidate(0, 0., 150.);
+    let b = make_candidate(1, 150., 150.);
+    let cursor = pathfinder_geometry::vector::vec2f(225., f32::NAN);
+    let result = select_drag_split_target(&[a, b], 0, cursor, false);
+    assert_eq!(result, None, "NaN cursor y must return None");
+}
+
+/// NaN rect min_x → that candidate is skipped, None returned.
+#[test]
+fn test_select_split_target_nan_rect_skipped() {
+    let a = make_candidate(0, 0., 150.);
+    // Manually construct a candidate with a NaN rect.
+    let mut b = make_candidate(1, 150., 150.);
+    b.rect = RectF::from_points(
+        pathfinder_geometry::vector::vec2f(f32::NAN, 0.),
+        pathfinder_geometry::vector::vec2f(f32::NAN + 150., 34.),
+    );
+    let cursor = pathfinder_geometry::vector::vec2f(225., 17.);
+    let result = select_drag_split_target(&[a, b], 0, cursor, false);
+    assert_eq!(result, None, "candidate with NaN rect must be skipped");
 }

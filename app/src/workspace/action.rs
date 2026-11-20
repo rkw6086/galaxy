@@ -276,6 +276,10 @@ pub enum WorkspaceAction {
     /// Unpins the active tab's group.
     UnpinActiveTabGroup,
     AddDefaultTab,
+    /// Create a new default-session tab (using the same logic as `AddDefaultTab` / Cmd-T)
+    /// and immediately open it alongside the currently active tab in split view.
+    /// Existing split members are preserved when there is capacity.
+    AddDefaultTabInSplitView,
     AddTerminalTab {
         hide_homepage: bool,
     },
@@ -1007,6 +1011,7 @@ impl WorkspaceAction {
             | ToggleTabColor { .. }
             | ToggleTabGroupColor { .. }
             | AddDefaultTab
+            | AddDefaultTabInSplitView
             | AddTerminalTab { .. }
             | AddTabWithShell { .. }
             | AddGetStartedTab

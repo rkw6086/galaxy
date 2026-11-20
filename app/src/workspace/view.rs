@@ -946,6 +946,173 @@ struct ModalWithTab<V> {
 struct PendingSessionConfigReplacement {
     old_pane_group_id: EntityId,
 }
+/// Tracks the pending drag-to-split operation while a tab is being dragged over
+/// the center zone of another tab.  When the drag is dropped, `target_id` becomes
+/// the **left** split member and `source_id` becomes the **right** member.
+///
+/// This state is set only for same-window tab drags; cross-window drags do not
+/// use this path.  It is cleared on drag start, drag leave, drop, and cancel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PendingDragSplit {
+    /// The pane-group that is being hovered (will become the left slot).
+    pub(crate) target_id: EntityId,
+    /// The pane-group that is being dragged (will become the right slot).
+    pub(crate) source_id: EntityId,
+}
+
+/// A candidate tab entry passed to [`select_drag_split_target`].
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DragSplitCandidate {
+    /// Index of the tab in `Workspace::tabs`.
+    pub(crate) index: usize,
+    /// Stable pane-group identity.
+    pub(crate) id: EntityId,
+    /// Rendered bounding rect from the position cache
+    /// (`element_position_by_id(tab_position_id(index))`).
+    pub(crate) rect: RectF,
+    /// `true` when this tab must be excluded from split targets regardless of
+    /// geometry.  Set by the caller using [`is_eligible_split_candidate`].
+    pub(crate) skip: bool,
+}
+
+/// Returns `true` when a tab is a **visible**, **reachable** split target.
+///
+/// A tab is eligible unless **any** of the following holds:
+/// - `detached` – the tab is a cross-window drag placeholder that has left
+///   this window's tab bar.
+/// - `in_collapsed_group` – the tab belongs to a collapsed group and is not
+///   painted; its position-cache rect is stale.
+/// - The tab's painted rect is **outside** every active tab-bar rect – this
+///   catches stale / overflow-clipped entries (e.g. a slot that has scrolled
+///   out of the visible bar area or a floating ghost chip from a cross-window
+///   drag whose `SavePosition` key inadvertently matches a real tab's id).
+///
+/// **Sole-grouped-member tabs are eligible targets.** The fact that their
+/// *source* draggable belongs to the group draggable is irrelevant to whether
+/// they can be the *target* of another tab's center-zone drop.
+///
+/// `tab_bar_rects` is the slice returned by `tab_bar_rects_for_window`.  When
+/// it is empty (position cache not yet populated on the first frame) all rects
+/// are accepted so the first-frame fallback in `on_tab_drag` still works.
+pub(crate) fn is_eligible_split_candidate(
+    rect: RectF,
+    tab_bar_rects: &[RectF],
+    detached: bool,
+    in_collapsed_group: bool,
+) -> bool {
+    if detached || in_collapsed_group {
+        return false;
+    }
+    // If the bar rects are known, the candidate's rect center must lie inside
+    // at least one of them (same test as `rect_is_within_tab_bar`).
+    if !tab_bar_rects.is_empty()
+        && !tab_bar_rects
+            .iter()
+            .any(|bar| bar.contains_point(rect.center()))
+    {
+        return false;
+    }
+    true
+}
+
+/// Pure, position-cache-free target selection for drag-to-split.
+///
+/// Given:
+/// - `candidates` – every tab in the workspace (caller fills `skip` for
+///   invisible/detached/collapsed-group members).
+/// - `source_index` – the index of the tab being dragged; self-hover is
+///   always rejected.
+/// - `cursor` – the actual mouse position in window coordinates (from
+///   `DraggableState::dragging_mouse_position()`).
+/// - `use_vertical` – `true` for the vertical tabs panel layout (Y axis
+///   is the primary drag axis); `false` for the horizontal tab bar (X
+///   axis).
+///
+/// Returns the `EntityId` of the **first** candidate whose center zone the
+/// cursor hits, or `None` when the cursor is in an edge zone or over no
+/// candidate.
+///
+/// **Center zone** is the middle third of the candidate's primary-axis
+/// extent.  The perpendicular axis is fully validated to reject stale
+/// position-cache entries for off-screen tabs.  Candidates with zero or
+/// negative-length primary extent are skipped (non-finite / collapsed
+/// slots).
+pub(crate) fn select_drag_split_target(
+    candidates: &[DragSplitCandidate],
+    source_index: usize,
+    cursor: pathfinder_geometry::vector::Vector2F,
+    use_vertical: bool,
+) -> Option<EntityId> {
+    // Reject non-finite cursor coordinates immediately: NaN comparisons are
+    // always false, which would silently pass the center-zone test.  An
+    // infinite cursor position is equally nonsensical.
+    if !cursor.x().is_finite() || !cursor.y().is_finite() {
+        return None;
+    }
+    for c in candidates {
+        if c.skip || c.index == source_index {
+            continue;
+        }
+        // Reject non-finite rect coordinates for this candidate (position-cache
+        // may contain uninitialized / overflow entries).
+        if !c.rect.min_x().is_finite()
+            || !c.rect.min_y().is_finite()
+            || !c.rect.max_x().is_finite()
+            || !c.rect.max_y().is_finite()
+        {
+            continue;
+        }
+        // Primary axis (the axis along which tabs are laid out).
+        let (primary_start, primary_end, primary_cursor) = if use_vertical {
+            (c.rect.min_y(), c.rect.max_y(), cursor.y())
+        } else {
+            (c.rect.min_x(), c.rect.max_x(), cursor.x())
+        };
+        let primary_len = primary_end - primary_start;
+        // Skip zero / negative / non-finite extents.
+        if !primary_len.is_finite() || primary_len <= 0.0 {
+            continue;
+        }
+        // Center zone = middle third of the primary extent.
+        let zone = primary_len / 3.0;
+        let center_start = primary_start + zone;
+        let center_end = primary_end - zone;
+        if primary_cursor < center_start || primary_cursor > center_end {
+            continue;
+        }
+        // Perpendicular axis: validate the cursor is within the tab's painted
+        // bounds so stale position-cache entries for scrolled-off tabs are
+        // excluded.
+        let (perp_start, perp_end, perp_cursor) = if use_vertical {
+            (c.rect.min_x(), c.rect.max_x(), cursor.x())
+        } else {
+            (c.rect.min_y(), c.rect.max_y(), cursor.y())
+        };
+        let perp_len = perp_end - perp_start;
+        if !perp_len.is_finite() || perp_len <= 0.0 {
+            continue;
+        }
+        if perp_cursor < perp_start || perp_cursor > perp_end {
+            continue;
+        }
+        return Some(c.id);
+    }
+    None
+}
+
+/// Saved before a new tab is created by `AddDefaultTabInSplitView` so the
+/// split can be (re)built once the tab actually exists.  Used by both the
+/// async Docker spawn callback and the tab-config params modal Submit path.
+pub(crate) struct PendingSplitViewSource {
+    /// The tab that was active when "Add split view" was chosen.
+    pub(crate) source_id: EntityId,
+    /// Ordered snapshot of `split_view_state.ids()` taken before creation.
+    /// Empty when no split was active.  Used to restore prior members.
+    pub(crate) prior_split_ids: Vec<EntityId>,
+    /// Per-slot flex weights captured before creation so resized proportions
+    /// survive the implicit `SplitViewState::clear()` that tab activation causes.
+    pub(crate) prior_split_weights: HashMap<EntityId, f32>,
+}
 enum PendingSessionConfigTabConfigChipTutorial {
     WhenBootstrapped {
         has_project: bool,
@@ -1232,6 +1399,15 @@ impl SplitViewState {
         self.slot_weights.get(&id).copied().unwrap_or(1.0)
     }
 
+    /// Explicitly set the flex weight for a slot that is already a member.
+    /// No-ops when `id` is not in the split.  Used to restore user-adjusted
+    /// weights when rebuilding the split after async tab creation.
+    pub(crate) fn set_slot_weight(&mut self, id: EntityId, weight: f32) {
+        if self.pane_group_ids.contains(&id) {
+            self.slot_weights.insert(id, weight);
+        }
+    }
+
     /// Ordered slice of dividers between adjacent visible slots.
     pub(crate) fn dividers(&self) -> &[SplitViewDivider] {
         &self.dividers
@@ -1393,6 +1569,13 @@ impl SplitViewState {
         self.drag_state = None;
     }
 
+    /// Returns the `EntityId` of the divider currently being dragged, or
+    /// `None` when no drag is in progress.  Used during rendering to give
+    /// the active divider a distinct visual appearance.
+    pub(crate) fn dragging_divider_id(&self) -> Option<EntityId> {
+        self.drag_state.as_ref().map(|s| s.divider_id)
+    }
+
     /// Reset to the inactive state.
     pub(crate) fn clear(&mut self) {
         self.pane_group_ids.clear();
@@ -1520,6 +1703,10 @@ pub struct Workspace {
     tab_config_params_modal: ModalViewState<Modal<TabConfigParamsModal>>,
     session_config_modal: ModalViewState<Modal<SessionConfigModal>>,
     pending_session_config_replacement: Option<PendingSessionConfigReplacement>,
+    /// Pending state for `AddDefaultTabInSplitView` when tab creation is
+    /// asynchronous (Docker sandbox) or deferred through the params modal.
+    /// Consumed exactly once when the new tab is confirmed to exist.
+    pending_split_view_source: Option<PendingSplitViewSource>,
     /// When set, the guided onboarding tutorial will start after the session
     /// config modal is closed (submitted or dismissed).
     pending_onboarding_intention: Option<OnboardingIntention>,
@@ -1653,6 +1840,11 @@ pub struct Workspace {
     /// view.  State is keyed by stable `EntityId` and is intentionally
     /// **not persisted** – it is always reset to inactive on startup.
     split_view_state: SplitViewState,
+    /// Set while a tab is dragged over the **center zone** of a different tab
+    /// (same window, same-window drag only).  On drop this triggers an
+    /// immediate split: `target_id` on the left, `source_id` on the right.
+    /// Cleared on drag start, drag leave, drop, and drag cancel.
+    pending_drag_split: Option<PendingDragSplit>,
     /// The pane-group ID of the tab currently being dragged out of the window
     /// (i.e. `tab_data.detached == true`).  Set when a drag crosses the
     /// tab-bar boundary; cleared in `DropTab`. Normal multi-tab returns
@@ -3940,6 +4132,7 @@ impl Workspace {
             tab_config_params_modal,
             session_config_modal,
             pending_session_config_replacement: None,
+            pending_split_view_source: None,
             pending_onboarding_intention: None,
             pending_session_config_tab_config_chip: false,
             show_session_config_tab_config_chip: false,
@@ -4047,6 +4240,7 @@ impl Workspace {
                 Self::build_remove_tab_config_confirmation_dialog(ctx),
             create_auth_secret_modal: None,
             split_view_state: SplitViewState::default(),
+            pending_drag_split: None,
             detached_tab_pane_group_id: None,
         };
 
@@ -5823,6 +6017,20 @@ impl Workspace {
                     .as_ref(app)
                     .split_view_color()
             })
+    }
+
+    /// Returns `true` when the tab at `tab_index` is currently the **target**
+    /// of a pending drag-to-split operation (i.e. the user is hovering the
+    /// dragged tab over its center zone).  Used by all three render sites
+    /// (horizontal tab bar, horizontal tab group members, and vertical tabs)
+    /// to apply the same drag-target highlight without duplicating the lookup.
+    pub(crate) fn is_tab_split_drop_target(&self, tab_index: usize) -> bool {
+        let Some(pending) = self.pending_drag_split else {
+            return false;
+        };
+        self.tabs
+            .get(tab_index)
+            .is_some_and(|tab| tab.pane_group.id() == pending.target_id)
     }
 
     /// Finds the pane containing a terminal viewing the given ambient agent conversation,
@@ -9506,6 +9714,8 @@ impl Workspace {
     /// `tab_index`.  Returns an empty vec when no entries apply.
     ///
     /// Entry rules (all keyed by stable `EntityId`):
+    /// - The active tab also offers "Add split view", using the same action
+    ///   as the new-tab shortcut so default session settings are respected.
     /// - Tab that is in an active split and is the **currently focused slot**:
     ///   show "Exit Split View" (closes the whole split).
     /// - Tab that is in an active split but is **not** the focused slot:
@@ -9523,7 +9733,7 @@ impl Workspace {
         };
         let pane_group_id = tab.pane_group.id();
 
-        if self.split_view_state.contains(pane_group_id) {
+        let mut menu_items = if self.split_view_state.contains(pane_group_id) {
             // Tab is already in the split.
             if self.split_view_state.focused_id() == Some(pane_group_id) {
                 // Focused slot: offer to exit the whole split.
@@ -9554,13 +9764,276 @@ impl Workspace {
                 .into_item()]
         } else {
             vec![]
+        };
+        // Show "Add split view" on the active tab only when there is room in
+        // the split for the new tab that the action will create (< MAX_VISIBLE).
+        if tab_index == self.active_tab_index
+            && self.split_view_state.len() < SplitViewState::MAX_VISIBLE
+        {
+            menu_items.insert(
+                0,
+                MenuItemFields::new("Add split view")
+                    .with_on_select_action(WorkspaceAction::AddDefaultTabInSplitView)
+                    .into_item(),
+            );
         }
+        menu_items
     }
 
     /// Find the tab index for a pane-group entity ID, if it still lives in
     /// this workspace window.
     fn tab_index_for_pane_group_id(&self, id: EntityId) -> Option<usize> {
         self.tabs.iter().position(|t| t.pane_group.id() == id)
+    }
+
+    /// Called after a new tab has been synchronously created by
+    /// `AddDefaultTabInSplitView`.  Rebuilds the split to include the
+    /// explicitly supplied `new_tab_id` alongside the prior members, restoring
+    /// user-adjusted weights where possible.
+    ///
+    /// - `new_tab_id` — the pane-group ID of the tab that was just created;
+    ///   must already exist in `self.tabs`.
+    /// - `pending` — the snapshot taken before creation; `prior_split_ids` is
+    ///   empty when no split was active.
+    ///
+    /// When `prior_split_ids` is empty a fresh split `[source_id, new_tab_id]`
+    /// is created.  When non-empty the existing live members are restored (up
+    /// to `MAX_VISIBLE − 1`) and the new tab is appended.
+    /// No-ops when fewer than two valid tabs can be assembled (e.g. source was
+    /// closed while the async callback was in-flight).
+    fn enter_split_view_with_new_tab(
+        &mut self,
+        new_tab_id: EntityId,
+        pending: &PendingSplitViewSource,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        // The new tab must actually exist.
+        if self.tab_index_for_pane_group_id(new_tab_id).is_none() {
+            log::warn!("enter_split_view_with_new_tab: new_tab_id not found; aborting");
+            return;
+        }
+        // Determine which IDs go into the (new) split.
+        let ids_to_add: Vec<EntityId> = if pending.prior_split_ids.is_empty() {
+            // Fresh split: source tab + new tab.
+            // If source was closed in the meantime, skip the split entirely.
+            if self
+                .tab_index_for_pane_group_id(pending.source_id)
+                .is_none()
+            {
+                log::warn!("enter_split_view_with_new_tab: source tab gone; aborting");
+                return;
+            }
+            vec![pending.source_id, new_tab_id]
+        } else {
+            // Restore live prior members (capped to leave room for new tab).
+            let keep_count = SplitViewState::MAX_VISIBLE.saturating_sub(1);
+            let live_prior: Vec<EntityId> = pending
+                .prior_split_ids
+                .iter()
+                .filter(|&&id| self.tab_index_for_pane_group_id(id).is_some())
+                .copied()
+                .take(keep_count)
+                .collect();
+            if live_prior.is_empty() {
+                // All prior members were closed; treat as a fresh split between
+                // source and new tab (source may also be gone).
+                if self
+                    .tab_index_for_pane_group_id(pending.source_id)
+                    .is_some()
+                {
+                    vec![pending.source_id, new_tab_id]
+                } else {
+                    log::warn!("enter_split_view_with_new_tab: prior members and source gone");
+                    return;
+                }
+            } else {
+                live_prior
+                    .into_iter()
+                    .chain(std::iter::once(new_tab_id))
+                    .collect()
+            }
+        };
+        // Need at least 2 members to form a valid split.
+        if ids_to_add.len() < 2 {
+            return;
+        }
+        for &id in &ids_to_add {
+            self.split_view_state.add(id);
+            // Restore user-adjusted weight if one was saved.
+            if let Some(&w) = pending.prior_split_weights.get(&id) {
+                self.split_view_state.set_slot_weight(id, w);
+            }
+        }
+        // Focus the newly created tab.
+        self.split_view_state.set_focused_id(new_tab_id);
+        self.sync_workspace_split_view_state(ctx);
+        ctx.dispatch_global_action("workspace:save_app", ());
+        ctx.notify();
+    }
+
+    /// Collect the pane-group IDs of every tab currently in this workspace
+    /// as a `HashSet`.  Used for set-difference new-tab identification.
+    fn current_tab_id_set(&self) -> HashSet<EntityId> {
+        self.tabs.iter().map(|t| t.pane_group.id()).collect()
+    }
+
+    /// Build a `PendingSplitViewSource` snapshot from the current workspace
+    /// state.  Call this *before* any tab-creation side-effects.
+    fn snapshot_split_view_source(&self) -> PendingSplitViewSource {
+        let source_id = self.active_tab_pane_group().id();
+        let prior_split_ids: Vec<EntityId> = self.split_view_state.ids().to_vec();
+        let prior_split_weights: HashMap<EntityId, f32> = prior_split_ids
+            .iter()
+            .map(|&id| (id, self.split_view_state.slot_weight(id)))
+            .collect();
+        PendingSplitViewSource {
+            source_id,
+            prior_split_ids,
+            prior_split_weights,
+        }
+    }
+
+    /// Find the single tab that was added since `ids_before` was collected.
+    /// Returns `None` if zero or more than one new tab appeared (defensive).
+    fn new_tab_id_since(ids_before: &HashSet<EntityId>, tabs: &[TabData]) -> Option<EntityId> {
+        let mut new_ids = tabs
+            .iter()
+            .map(|t| t.pane_group.id())
+            .filter(|id| !ids_before.contains(id));
+        let first = new_ids.next()?;
+        // If a second new ID exists something unexpected happened; bail.
+        if new_ids.next().is_some() {
+            return None;
+        }
+        Some(first)
+    }
+
+    /// Check whether the async split request captured in `pending` is still
+    /// coherent with the current workspace state.  Returns `true` only when:
+    ///
+    /// 1. The active tab is still the source tab (`active_tab_pane_group().id()
+    ///    == pending.source_id`),
+    /// 2. The split membership is unchanged (`split_view_state.ids()` equals
+    ///    `pending.prior_split_ids` in order), and
+    /// 3. There is room for one more member (`split_view_state.len() <
+    ///    MAX_VISIBLE`).
+    ///
+    /// Any change made by the user between the action dispatch and the async
+    /// callback (switching tabs, adding/removing split members, filling the
+    /// split to capacity) causes this to return `false` so the caller can
+    /// bail out before creating or focusing a tab that would override the new
+    /// arrangement.
+    pub(crate) fn is_pending_split_source_current(&self, pending: &PendingSplitViewSource) -> bool {
+        // Active tab must still be the source.
+        if self.active_tab_pane_group().id() != pending.source_id {
+            return false;
+        }
+        // Split composition must be unchanged.
+        if self.split_view_state.ids() != pending.prior_split_ids.as_slice() {
+            return false;
+        }
+        // Must still have room for the new member.
+        self.split_view_state.len() < SplitViewState::MAX_VISIBLE
+    }
+
+    /// Shared implementation for `AddDefaultTab` and `AddDefaultTabInSplitView`.
+    ///
+    /// When `split_dest` is `None` this behaves exactly like Cmd-T: a new tab
+    /// is created according to the user's default session mode and no split view
+    /// logic is applied.
+    ///
+    /// When `split_dest` is `Some(pending)` the new tab is additionally opened
+    /// alongside the prior split members.  For async creation paths (Docker
+    /// sandbox, TabConfig-with-params modal) the pending state is either stored
+    /// in `self.pending_split_view_source` for modal completion, or validated
+    /// then consumed inside the spawn closure for Docker.
+    fn add_default_tab_internal(
+        &mut self,
+        split_dest: Option<PendingSplitViewSource>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let effective_mode = AISettings::as_ref(ctx).default_session_mode(ctx);
+        match effective_mode {
+            DefaultSessionMode::TabConfig => {
+                let ai_settings = AISettings::as_ref(ctx);
+                if let Some(config) = ai_settings.resolved_default_tab_config(ctx) {
+                    if config.params.is_empty() {
+                        // Synchronous creation: use set-difference to identify
+                        // the new tab reliably regardless of insertion position.
+                        let ids_before = self.current_tab_id_set();
+                        self.open_tab_config(config, ctx);
+                        if let Some(pending) = split_dest {
+                            if let Some(new_id) = Self::new_tab_id_since(&ids_before, &self.tabs) {
+                                self.enter_split_view_with_new_tab(new_id, &pending, ctx);
+                            }
+                        }
+                    } else {
+                        // Parameterized config shows a modal; store the pending
+                        // state (if any) so the Submit callback can enter split
+                        // view once the user confirms the params.
+                        self.pending_split_view_source = split_dest;
+                        self.open_tab_config(config, ctx);
+                    }
+                } else {
+                    // Config missing or deleted — clear and fall through to Terminal.
+                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                        report_if_error!(settings
+                            .default_session_mode_internal
+                            .set_value(DefaultSessionMode::Terminal, ctx));
+                        report_if_error!(settings
+                            .default_tab_config_path
+                            .set_value(String::new(), ctx));
+                    });
+                    let ids_before = self.current_tab_id_set();
+                    self.add_terminal_tab(false, ctx);
+                    if let Some(pending) = split_dest {
+                        if let Some(new_id) = Self::new_tab_id_since(&ids_before, &self.tabs) {
+                            self.enter_split_view_with_new_tab(new_id, &pending, ctx);
+                        }
+                    }
+                }
+            }
+            DefaultSessionMode::CloudAgent => {
+                let ids_before = self.current_tab_id_set();
+                self.add_ambient_agent_tab(ctx);
+                if let Some(pending) = split_dest {
+                    if let Some(new_id) = Self::new_tab_id_since(&ids_before, &self.tabs) {
+                        self.enter_split_view_with_new_tab(new_id, &pending, ctx);
+                    }
+                }
+            }
+            DefaultSessionMode::DockerSandbox => {
+                // Delegate to the shared helper which owns the sbx resolution,
+                // async spawn, staleness validation, and set-difference ID detection.
+                self.add_docker_sandbox_tab_internal(split_dest, ctx);
+            }
+            // Terminal and Agent: add_terminal_tab applies DefaultSessionMode::Agent
+            // internally, so both modes are covered by the same call.
+            DefaultSessionMode::Terminal | DefaultSessionMode::Agent => {
+                let ids_before = self.current_tab_id_set();
+                self.add_terminal_tab(false, ctx);
+                if let Some(pending) = split_dest {
+                    if let Some(new_id) = Self::new_tab_id_since(&ids_before, &self.tabs) {
+                        self.enter_split_view_with_new_tab(new_id, &pending, ctx);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Entry point for `AddDefaultTabInSplitView` (right-click "Add split view").
+    /// Validates capacity, snapshots split state, then delegates to the shared
+    /// `add_default_tab_internal` helper.
+    fn add_default_tab_in_split_view(&mut self, ctx: &mut ViewContext<Self>) {
+        // Guard: if the split is already at capacity a new tab cannot join.
+        // The menu suppresses this item in that state, but be defensive.
+        if self.split_view_state.len() >= SplitViewState::MAX_VISIBLE {
+            log::warn!("add_default_tab_in_split_view: split already at capacity; ignoring");
+            return;
+        }
+        // Snapshot pre-creation state; tab creation clears split view.
+        let pending = self.snapshot_split_view_source();
+        self.add_default_tab_internal(Some(pending), ctx);
     }
 
     /// Open the tab identified by `pane_group_id` in split view alongside the
@@ -11398,6 +11871,7 @@ impl Workspace {
     fn cancel_tab_config_params_modal(&mut self, ctx: &mut ViewContext<Self>) {
         let pending_intention = self.pending_onboarding_intention.take();
         self.pending_session_config_replacement = None;
+        self.pending_split_view_source = None;
         self.pending_session_config_tab_config_chip = false;
         self.close_tab_config_params_modal(ctx);
 
@@ -11417,6 +11891,10 @@ impl Workspace {
                 let should_track_existing_config_open =
                     self.pending_session_config_replacement.is_none();
                 let worktree_name = self.maybe_generate_worktree_name(config);
+                // Snapshot before creation so we can identify the new tab
+                // and consume any pending split-view source (set by
+                // `AddDefaultTabInSplitView` when the config had params).
+                let ids_before = self.current_tab_id_set();
                 self.open_tab_config_with_params(
                     config.as_ref().clone(),
                     params.clone(),
@@ -11434,6 +11912,14 @@ impl Workspace {
                 }
                 self.close_tab_config_params_modal(ctx);
                 self.complete_pending_session_config_replacement(ctx);
+
+                // If this Submit was triggered by `AddDefaultTabInSplitView`,
+                // enter split view now that the new tab exists.
+                if let Some(pending_split) = self.pending_split_view_source.take() {
+                    if let Some(new_tab_id) = Self::new_tab_id_since(&ids_before, &self.tabs) {
+                        self.enter_split_view_with_new_tab(new_tab_id, &pending_split, ctx);
+                    }
+                }
 
                 // The new tab has setup commands (worktree creation); wait for
                 // them to finish before starting the onboarding tutorial, but
@@ -13197,6 +13683,23 @@ impl Workspace {
     }
 
     fn add_docker_sandbox_tab(&mut self, ctx: &mut ViewContext<Self>) {
+        self.add_docker_sandbox_tab_internal(None, ctx);
+    }
+
+    /// Shared implementation used by both `AddDockerSandboxTab` (plain) and
+    /// the Docker branch of `add_default_tab_internal` (with split view).
+    ///
+    /// When `split_dest` is `Some(pending)` the workspace state is validated
+    /// against `pending` via `is_pending_split_source_current` *before* the
+    /// tab is created.  If the workspace has changed (active tab switched, split
+    /// composition altered, or capacity reached) the entire closure returns
+    /// without creating or focusing a tab so the existing arrangement is
+    /// preserved.
+    fn add_docker_sandbox_tab_internal(
+        &mut self,
+        split_dest: Option<PendingSplitViewSource>,
+        ctx: &mut ViewContext<Self>,
+    ) {
         if !FeatureFlag::LocalDockerSandbox.is_enabled() {
             log::warn!("Local docker sandbox feature flag is disabled");
             return;
@@ -13206,11 +13709,6 @@ impl Workspace {
         // `local_tty`. Other builds (e.g. wasm/remote_tty) log and bail.
         #[cfg(feature = "local_tty")]
         {
-            // Resolve sbx via the user's interactive shell PATH (same mechanism
-            // MCP servers use) so we find it when installed via homebrew on Apple
-            // Silicon, `~/.local/bin`, `nvm`-style paths, etc. This is async
-            // because capturing the interactive PATH requires spawning the user's
-            // login shell.
             let window_id = ctx.window_id();
             let sbx_future = resolve_sbx_path_from_user_shell(ctx);
             ctx.spawn(sbx_future, move |me, sbx_path, ctx| {
@@ -13218,10 +13716,25 @@ impl Workspace {
                     log::error!("sbx binary not found; cannot create Docker sandbox");
                     return;
                 };
+                // When a split destination was requested, validate that the
+                // workspace is still in the exact state captured at dispatch
+                // time before creating or focusing any tab.  Any user change
+                // (switching tabs, altering split membership, filling the split
+                // to capacity) makes the split request stale; in that case the
+                // entire async callback exits without touching workspace state.
+                if let Some(ref pending) = split_dest {
+                    if !me.is_pending_split_source_current(pending) {
+                        log::warn!(
+                            "add_docker_sandbox_tab_internal: split request stale; aborting"
+                        );
+                        return;
+                    }
+                }
                 let shell = AvailableShell::new_docker_sandbox_shell(
                     sbx_path,
                     DEFAULT_DOCKER_SANDBOX_BASE_IMAGE.map(str::to_owned),
                 );
+                let ids_before = me.current_tab_id_set();
                 me.add_new_session_tab_internal_with_default_session_mode_behavior(
                     NewSessionSource::Tab,
                     Some(window_id),
@@ -13231,12 +13744,16 @@ impl Workspace {
                     DefaultSessionModeBehavior::Ignore,
                     ctx,
                 );
+                if let Some(pending) = split_dest {
+                    if let Some(new_id) = Self::new_tab_id_since(&ids_before, &me.tabs) {
+                        me.enter_split_view_with_new_tab(new_id, &pending, ctx);
+                    }
+                }
                 ctx.notify();
             });
         }
         #[cfg(not(feature = "local_tty"))]
         {
-            let _ = ctx;
             log::warn!("Docker sandbox requires the `local_tty` feature; ignoring request");
         }
     }
@@ -20586,13 +21103,16 @@ impl Workspace {
             TabCloseButtonPosition::default()
         };
 
+        // Highlight this tab when a pane-drag hovers directly over it (OverTab)
+        // or when it is the pending drag-to-split target (cursor over center zone).
         let is_drag_target = self
             .hovered_tab_index
             .as_ref()
             .is_some_and(|hovered_index| match hovered_index {
                 TabBarHoverIndex::OverTab(idx) => *idx == tab_index,
                 TabBarHoverIndex::BeforeTab { .. } => false,
-            });
+            })
+            || self.is_tab_split_drop_target(tab_index);
 
         TabComponent::new(
             tab_index,
@@ -20708,8 +21228,10 @@ impl Workspace {
                 let effective_color = self
                     .split_view_color_for_tab(tab, ctx)
                     .or_else(|| tab.color());
-                // Highlight the member when a drag is hovering directly over it.
-                let is_drag_target = self.hovered_tab_index == Some(TabBarHoverIndex::OverTab(idx));
+                // Highlight the member when a drag is hovering directly over it
+                // or when it is the pending drag-to-split target.
+                let is_drag_target = self.hovered_tab_index == Some(TabBarHoverIndex::OverTab(idx))
+                    || self.is_tab_split_drop_target(idx);
                 let member = TabComponent::new(
                     idx,
                     tab_bar_state,
@@ -22755,6 +23277,17 @@ impl Workspace {
                     });
                 let divider_color =
                     split_color.unwrap_or_else(|| appearance.theme().outline().into_solid());
+                // Hover/active-drag colours for the divider bar and grip.
+                let divider_hover_color = appearance
+                    .theme()
+                    .main_text_color(appearance.theme().background())
+                    .into_solid();
+                // The UIBuilder is cloned so it can be captured by value in
+                // the Hoverable closure below (closures cannot hold references).
+                let ui_builder = appearance.ui_builder().clone();
+                // Capture which divider (if any) is currently being dragged so
+                // the active divider can render with a distinct appearance.
+                let active_drag_id = self.split_view_state.dragging_divider_id();
                 let mut row = Flex::row();
                 let last_idx = split_pane_groups.len().saturating_sub(1);
                 // Collect divider positions to render them as positioned
@@ -22816,33 +23349,115 @@ impl Workspace {
                 let mut stack = Stack::new().with_constrain_absolute_children();
                 stack.add_child(saved_row);
                 for (divider_id, mouse_state, pos_id) in divider_positions {
-                    // Visual: 1px coloured bar.  Hit target: 9px wide transparent
-                    // container (4px transparent padding each side + 1px bar)
-                    // so the user can grab the divider without pixel-perfect aim.
-                    let divider_bar = ConstrainedBox::new(
-                        Rect::new().with_background_color(divider_color).finish(),
-                    )
-                    .with_width(1.0);
+                    let is_active_drag = active_drag_id == Some(divider_id);
+                    let ui_builder = ui_builder.clone();
 
-                    // 4px transparent padding on each side widens the
-                    // clickable area to 9px total (4+1+4) while keeping the
-                    // 1px visual line.
-                    const DIVIDER_HIT_PADDING: f32 = 4.0;
-                    let hit_area = Container::new(divider_bar.finish())
-                        .with_padding_left(DIVIDER_HIT_PADDING)
-                        .with_padding_right(DIVIDER_HIT_PADDING)
+                    let hoverable = Hoverable::new(mouse_state, move |state| {
+                        let is_hovered = state.is_hovered();
+                        // Choose bar colour: active-drag > hover > idle.
+                        let bar_color = if is_active_drag || is_hovered {
+                            divider_hover_color
+                        } else {
+                            divider_color
+                        };
+
+                        // Grip: three 2×2 px dots stacked vertically.
+                        // dot_color is dim at rest and bright on hover/drag.
+                        let dot_color = if is_active_drag || is_hovered {
+                            coloru_with_opacity(bar_color, 220)
+                        } else {
+                            coloru_with_opacity(bar_color, 100)
+                        };
+                        let dot = || {
+                            ConstrainedBox::new(
+                                Rect::new()
+                                    .with_background_color(dot_color)
+                                    .with_corner_radius(CornerRadius::with_all(Radius::Pixels(1.)))
+                                    .finish(),
+                            )
+                            .with_width(2.)
+                            .with_height(2.)
+                            .finish()
+                        };
+                        // The Flex column containing the three dots.  Its width
+                        // is at most 2px (the dot width) so Align can safely
+                        // centre it within the 9px ConstrainedBox.
+                        let grip_column = Flex::column()
+                            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                            .with_child(dot())
+                            .with_child(Container::new(dot()).with_margin_top(3.).finish())
+                            .with_child(Container::new(dot()).with_margin_top(3.).finish())
+                            .finish();
+                        // Align centres grip_column both horizontally and
+                        // vertically.  Critically, Align's layout returns
+                        // constraint.max as its own size — so it *must* receive
+                        // a finite max constraint.  That is guaranteed by the
+                        // outer ConstrainedBox(width=TOTAL_HIT_WIDTH) below.
+                        let grip = Align::new(grip_column).finish();
+
+                        // The 1px bar is wrapped in Align so it also fills the
+                        // 9px constraint and paints centred (at x=4).  Using
+                        // Align here instead of a 4+1+4 Container means no
+                        // extra size is added — the outer ConstrainedBox drives
+                        // the total width precisely.
+                        let bar_align = Align::new(
+                            ConstrainedBox::new(
+                                Rect::new().with_background_color(bar_color).finish(),
+                            )
+                            .with_width(1.0)
+                            .finish(),
+                        )
                         .finish();
 
-                    let hoverable = Hoverable::new(mouse_state, |_| hit_area)
-                        .on_mouse_down(move |ctx, _, position| {
-                            ctx.dispatch_typed_action(WorkspaceAction::StartSplitViewResize {
-                                divider_id,
-                                start_x: position.x(),
-                            });
-                        })
-                        .with_cursor(Cursor::ResizeLeftRight)
-                        .with_propagate_drag()
-                        .finish();
+                        // Stack bar_align and grip as normal (non-positioned)
+                        // children.  Both receive the same 9px constraint from
+                        // the outer ConstrainedBox, so neither expands beyond it.
+                        let mut bar_stack = Stack::new().with_child(bar_align).with_child(grip);
+
+                        // Show tooltip above the divider on hover.
+                        // add_positioned_overlay_child uses WindowByPosition
+                        // bounds so the tooltip escapes any parent Clipped
+                        // regions.  Being a positioned child it does not
+                        // contribute to bar_stack's own size.
+                        if is_hovered {
+                            let tooltip = ui_builder
+                                .tool_tip("Drag to resize".to_string())
+                                .build()
+                                .finish();
+                            bar_stack.add_positioned_overlay_child(
+                                tooltip,
+                                OffsetPositioning::offset_from_parent(
+                                    vec2f(0., -4.),
+                                    ParentOffsetBounds::WindowByPosition,
+                                    ParentAnchor::TopMiddle,
+                                    ChildAnchor::BottomMiddle,
+                                ),
+                            );
+                        }
+
+                        // ConstrainedBox(width = 9) is the single source of
+                        // truth for the overlay's width.  It clamps the
+                        // constraint passed to bar_stack (and therefore to
+                        // every Align inside it) to exactly TOTAL_HIT_WIDTH px
+                        // regardless of what the outer positioned-child
+                        // constraint would otherwise allow.  Height is
+                        // unconstrained so the overlay stretches to match the
+                        // full split-row height (identical to the previous
+                        // behaviour).
+                        const TOTAL_HIT_WIDTH: f32 = 9.0;
+                        ConstrainedBox::new(bar_stack.finish())
+                            .with_width(TOTAL_HIT_WIDTH)
+                            .finish()
+                    })
+                    .on_mouse_down(move |ctx, _, position| {
+                        ctx.dispatch_typed_action(WorkspaceAction::StartSplitViewResize {
+                            divider_id,
+                            start_x: position.x(),
+                        });
+                    })
+                    .with_cursor(Cursor::ResizeLeftRight)
+                    .with_propagate_drag()
+                    .finish();
 
                     // Anchor the 9px hit overlay centred on the 1px placeholder.
                     // Using ChildAnchor::TopMiddle / PositionedElementAnchor::TopMiddle
@@ -24807,37 +25422,10 @@ impl TypedActionView for Workspace {
                 }
             }
             AddDefaultTab => {
-                let effective_mode = AISettings::as_ref(ctx).default_session_mode(ctx);
-                match effective_mode {
-                    DefaultSessionMode::TabConfig => {
-                        let ai_settings = AISettings::as_ref(ctx);
-                        if let Some(config) = ai_settings.resolved_default_tab_config(ctx) {
-                            self.open_tab_config(config, ctx);
-                        } else {
-                            // Config missing or deleted — clear and fall through to Terminal.
-                            AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                                report_if_error!(settings
-                                    .default_session_mode_internal
-                                    .set_value(DefaultSessionMode::Terminal, ctx));
-                                report_if_error!(settings
-                                    .default_tab_config_path
-                                    .set_value(String::new(), ctx));
-                            });
-                            self.add_terminal_tab(false, ctx);
-                        }
-                    }
-                    DefaultSessionMode::CloudAgent => {
-                        self.add_ambient_agent_tab(ctx);
-                    }
-                    DefaultSessionMode::DockerSandbox => {
-                        self.add_docker_sandbox_tab(ctx);
-                    }
-                    // Terminal and Agent are handled by the existing path
-                    // (add_terminal_tab applies DefaultSessionMode::Agent internally).
-                    DefaultSessionMode::Terminal | DefaultSessionMode::Agent => {
-                        self.add_terminal_tab(false, ctx);
-                    }
-                }
+                self.add_default_tab_internal(None, ctx);
+            }
+            AddDefaultTabInSplitView => {
+                self.add_default_tab_in_split_view(ctx);
             }
             AddTerminalTab { hide_homepage } => {
                 self.add_new_session_tab_internal_with_default_session_mode_behavior(
@@ -25382,6 +25970,8 @@ impl TypedActionView for Workspace {
                 // If we are renaming a tab, finish the rename before dragging.
                 self.finish_tab_rename(ctx);
                 self.current_workspace_state.is_tab_being_dragged = true;
+                // Clear any stale pending drag-split from a previous gesture.
+                self.pending_drag_split = None;
             }
             StartGroupDrag(_group_id) => {
                 self.clear_tab_multi_selection(ctx);
@@ -25834,6 +26424,62 @@ impl TypedActionView for Workspace {
                 // Multi-tab returns restore focus through the put-back handoff.
                 self.detached_tab_pane_group_id = None;
                 send_telemetry_from_ctx!(TelemetryEvent::DragAndDropTab, ctx);
+                // If a pending drag-split was set (cursor over another tab's
+                // center zone during this same-window drag), commit it now:
+                // open `target_id` and `source_id` in split view with the
+                // target on the left and the source on the right.
+                // This path is skipped for cross-window drops (the pending
+                // split would have been cleared when the drag detached).
+                if !is_cross_window {
+                    if let Some(pending) = self.pending_drag_split.take() {
+                        // Revalidate: both IDs must still exist and must differ.
+                        // A source==target pair cannot split (open_tab_in_split_view
+                        // guards this too, but we avoid disrupting the existing split
+                        // state for a stale/invalid pair by checking first).
+                        let target_still_exists = self
+                            .tab_index_for_pane_group_id(pending.target_id)
+                            .is_some();
+                        let source_still_exists = self
+                            .tab_index_for_pane_group_id(pending.source_id)
+                            .is_some();
+                        let ids_differ = pending.target_id != pending.source_id;
+                        if target_still_exists && source_still_exists && ids_differ {
+                            // Exit any pre-existing split so we start fresh.
+                            if self.split_view_state.is_active() {
+                                self.split_view_state.clear();
+                                self.sync_workspace_split_view_state(ctx);
+                            }
+                            // Activate the target tab first so it becomes the
+                            // focused/left slot, then add the source as the
+                            // right slot using the split-view helper.
+                            if let Some(target_idx) =
+                                self.tab_index_for_pane_group_id(pending.target_id)
+                            {
+                                self.set_active_tab_index(target_idx, ctx);
+                            }
+                            self.open_tab_in_split_view(pending.source_id, ctx);
+                            // Focus the source (right) slot so the user can
+                            // start typing immediately after the drop.
+                            if let Some(source_idx) =
+                                self.tab_index_for_pane_group_id(pending.source_id)
+                            {
+                                self.set_active_tab_index(source_idx, ctx);
+                                self.focus_active_tab(ctx);
+                            }
+                            ctx.dispatch_global_action("workspace:save_app", ());
+                        }
+                        // Always notify after consuming the pending state so
+                        // the split-target highlight is cleared on the next
+                        // frame (whether or not the commit succeeded).
+                        ctx.notify();
+                        // Whether or not we committed, the pending state is now
+                        // consumed (taken above) – nothing more to do.
+                        return;
+                    }
+                } else {
+                    // Cross-window drop: discard any stale pending split.
+                    self.pending_drag_split = None;
+                }
                 if is_cross_window {
                     let drop_result =
                         CrossWindowTabDrag::handle(ctx).update(ctx, |drag, ctx| drag.on_drop(ctx));
@@ -29086,7 +29732,13 @@ impl Workspace {
             })
         };
 
+        // Cross-window drag is already in progress: forward the event and
+        // clear any stale pending split (the drag has left the same-window
+        // path).
         if CrossWindowTabDrag::as_ref(ctx).is_active() {
+            if self.pending_drag_split.take().is_some() {
+                ctx.notify();
+            }
             let window_id = ctx.window_id();
             let drag_result = CrossWindowTabDrag::handle(ctx)
                 .update(ctx, |drag, ctx| drag.on_drag(window_id, position, ctx));
@@ -29140,6 +29792,11 @@ impl Workspace {
 
         if let Some(tab_data) = self.tabs.get(current_index) {
             if tab_data.detached {
+                // Tab is mid-detach (cross-window preview in flight); clear any
+                // pending split and exit — the same-window path doesn't apply.
+                if self.pending_drag_split.take().is_some() {
+                    ctx.notify();
+                }
                 return;
             }
         }
@@ -29148,6 +29805,11 @@ impl Workspace {
         if (is_drag_outside_tab_bar || source_is_single_tab)
             && FeatureFlag::DragTabsToWindows.is_enabled()
         {
+            // Drag has left the tab bar; clear any pending split before entering
+            // the detach / cross-window path.
+            if self.pending_drag_split.take().is_some() {
+                ctx.notify();
+            }
             let source_was_single_tab = source_is_single_tab;
             if !source_was_single_tab {
                 if let Some(tab_data) = self.tabs.get_mut(current_index) {
@@ -29248,6 +29910,101 @@ impl Workspace {
         let use_vertical_tabs =
             FeatureFlag::VerticalTabs.is_enabled() && *TabSettings::as_ref(ctx).use_vertical_tabs;
         let groups_enabled = FeatureFlag::GroupedTabs.is_enabled();
+
+        // --- Drag-to-split: center-zone detection ---
+        // Delegates the geometry check to the pure `select_drag_split_target`
+        // helper so the logic can be unit-tested without a live position cache.
+        // See that function's documentation for the center-zone definition.
+        //
+        // We use the actual mouse cursor from `draggable_state` rather than
+        // the translated rectangle `position` so the zone test matches the
+        // pixel the user is pointing at.  This is a same-window-only feature;
+        // cross-window drags return early above.
+        if self.tabs.len() > 1 {
+            let source_id = self.tabs[current_index].pane_group.id();
+            // Obtain the actual cursor position in window coordinates.
+            let cursor_opt = self.tabs[current_index]
+                .draggable_state
+                .dragging_mouse_position();
+            if let Some(cursor) = cursor_opt {
+                // Fetch the active tab-bar rects for clipping validation.
+                // Candidates outside the bar are ineligible (stale rects).
+                // If the cursor is itself outside the bar, no split target
+                // can be hit; clear pending and fall through to normal reorder.
+                let split_tab_bar_rects = tab_bar_rects_for_window(ctx.window_id(), ctx);
+                let cursor_in_bar = split_tab_bar_rects.is_empty()
+                    || split_tab_bar_rects.iter().any(|r| r.contains_point(cursor));
+                if !cursor_in_bar {
+                    if self.pending_drag_split.take().is_some() {
+                        ctx.notify();
+                    }
+                } else {
+                    // Build the candidate list using `is_eligible_split_candidate`
+                    // so the eligibility rules are centrally defined and testable.
+                    // Sole-grouped-member tabs are eligible targets; only their
+                    // *source* draggable is group-level, not their target role.
+                    let candidates: Vec<DragSplitCandidate> = self
+                        .tabs
+                        .iter()
+                        .enumerate()
+                        .map(|(i, tab)| {
+                            let rect = ctx
+                                .element_position_by_id(tab_position_id(i))
+                                .unwrap_or(RectF::default());
+                            let in_collapsed_group = tab
+                                .group_id
+                                .and_then(|gid| self.tab_groups.get(&gid))
+                                .is_some_and(|g| g.collapsed);
+                            let skip = !is_eligible_split_candidate(
+                                rect,
+                                &split_tab_bar_rects,
+                                tab.detached,
+                                in_collapsed_group,
+                            );
+                            DragSplitCandidate {
+                                index: i,
+                                id: tab.pane_group.id(),
+                                rect,
+                                skip,
+                            }
+                        })
+                        .collect();
+                    let new_target_id = select_drag_split_target(
+                        &candidates,
+                        current_index,
+                        cursor,
+                        use_vertical_tabs,
+                    );
+                    let new_pending = new_target_id.map(|target_id| PendingDragSplit {
+                        target_id,
+                        source_id,
+                    });
+                    if self.pending_drag_split != new_pending {
+                        self.pending_drag_split = new_pending;
+                        ctx.notify();
+                    }
+                    // When the cursor is in a center zone: freeze tab order and
+                    // skip the normal reorder logic so tabs don't swap while
+                    // the user is aiming at the split target.
+                    if self.pending_drag_split.is_some() {
+                        return;
+                    }
+                }
+            } else {
+                // Cursor position unavailable (shouldn't happen in a live drag,
+                // but guard defensively).
+                if self.pending_drag_split.take().is_some() {
+                    ctx.notify();
+                }
+            }
+        } else {
+            // Single-tab window: split drag is not applicable; ensure clean state.
+            if self.pending_drag_split.is_some() {
+                self.pending_drag_split = None;
+                ctx.notify();
+            }
+        }
+        // --- end drag-to-split ---
 
         if groups_enabled {
             // Reassign membership when the dragged tab enters a different

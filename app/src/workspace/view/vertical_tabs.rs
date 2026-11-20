@@ -2185,7 +2185,8 @@ fn render_tab_group_internal(
     let is_menu_open_for_tab = workspace
         .show_tab_right_click_menu
         .is_some_and(|(idx, _)| idx == tab_index);
-    let is_drag_target = workspace.hovered_tab_index == Some(TabBarHoverIndex::OverTab(tab_index));
+    let is_drag_target = workspace.hovered_tab_index == Some(TabBarHoverIndex::OverTab(tab_index))
+        || workspace.is_tab_split_drop_target(tab_index);
     let summary = matches!(resolved_mode, VerticalTabsResolvedMode::Summary)
         .then(|| build_vertical_tabs_summary_data(pane_group, &visible_pane_ids, app));
     let summary_pane_kind_icons = matches!(resolved_mode, VerticalTabsResolvedMode::Summary)
