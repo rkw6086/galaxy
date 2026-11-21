@@ -1,0 +1,82 @@
+[
+  {
+    "path": "app/src/app_menus.rs",
+    "line": 198,
+    "symbol": "PRIVACY_POLICY_URL",
+    "resolved_reference": "https://www.warp.dev/privacy",
+    "source_url": "https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/app_menus.rs#L198",
+    "context": "links::PRIVACY_POLICY_URL.into(),"
+  },
+  {
+    "path": "app/src/app_menus.rs",
+    "line": 934,
+    "symbol": "USER_DOCS_URL",
+    "resolved_reference": "https://docs.warp.dev/",
+    "source_url": "https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/app_menus.rs#L934",
+    "context": "link_menu_item(\"Galaxy Documentation...\", links::USER_DOCS_URL.into()),"
+  },
+  {
+    "path": "app/src/app_menus.rs",
+    "line": 935,
+    "symbol": "GITHUB_ISSUES_URL",
+    "resolved_reference": "https://github.com/warpdotdev/Warp/issues",
+    "source_url": "https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/app_menus.rs#L935",
+    "context": "link_menu_item(\"GitHub Issues...\", links::GITHUB_ISSUES_URL.into()),"
+  },
+  {
+    "path": "app/src/app_menus.rs",
+    "line": 936,
+    "symbol": "SLACK_URL",
+    "resolved_reference": "http://go.warp.dev/join-preview",
+    "source_url": "https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/app_menus.rs#L936",
+    "context": "link_menu_item(\"Galaxy Slack Community...\", links::SLACK_URL.into()),"
+  },
+  {
+    "path": "app/src/resource_center/view.rs",
+    "line": 256,
+    "symbol": "USER_DOCS_URL",
+    "resolved_reference": "https://docs.warp.dev/",
+    "source_url": "https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/resource_center/view.rs#L256",
+    "context": "ResourceCenterFooterItem::Docs => ctx.open_url(links::USER_DOCS_URL),"
+  },
+  {
+    "path": "app/src/resource_center/view.rs",
+    "line": 257,
+    "symbol": "SLACK_URL",
+    "resolved_reference": "http://go.warp.dev/join-preview",
+    "source_url": "https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/resource_center/view.rs#L257",
+    "context": "ResourceCenterFooterItem::Slack => ctx.open_url(links::SLACK_URL),"
+  },
+  {
+    "path": "app/src/settings_view/privacy_page.rs",
+    "line": 53,
+    "symbol": "PRIVACY_POLICY_URL",
+    "resolved_reference": "https://www.warp.dev/privacy",
+    "source_url": "https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/privacy_page.rs#L53",
+    "context": "use crate::util::links::PRIVACY_POLICY_URL;"
+  },
+  {
+    "path": "app/src/workspace/view.rs",
+    "line": 6771,
+    "symbol": "SLACK_URL",
+    "resolved_reference": "http://go.warp.dev/join-preview",
+    "source_url": "https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view.rs#L6771",
+    "context": "ctx.open_url(links::SLACK_URL);"
+  },
+  {
+    "path": "app/src/workspace/view.rs",
+    "line": 6775,
+    "symbol": "USER_DOCS_URL",
+    "resolved_reference": "https://docs.warp.dev/",
+    "source_url": "https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view.rs#L6775",
+    "context": "ctx.open_url(links::USER_DOCS_URL);"
+  },
+  {
+    "path": "app/src/workspace/view.rs",
+    "line": 6794,
+    "symbol": "PRIVACY_POLICY_URL",
+    "resolved_reference": "https://www.warp.dev/privacy",
+    "source_url": "https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view.rs#L6794",
+    "context": "ctx.open_url(links::PRIVACY_POLICY_URL);"
+  }
+]

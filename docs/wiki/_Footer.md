@@ -1,0 +1,1 @@
+Galaxy documentation · [Home](https://github.com/rkw6086/galaxy/wiki/Home) · [Downloads](https://github.com/rkw6086/galaxy/releases) · [Source](https://github.com/rkw6086/galaxy) · [Troubleshooting and reporting](https://github.com/rkw6086/galaxy/wiki/Troubleshooting#reporting-a-problem)

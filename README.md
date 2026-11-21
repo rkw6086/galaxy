@@ -21,6 +21,13 @@ Apple Silicon macOS installers. See [repository synchronization](docs/github-syn
 - Explicit network boundaries: model traffic goes only to configured providers, and network tools
   remain opt-in.
 
+## Documentation
+
+[User and technical guides](docs/wiki/README.md) cover installation, updates, providers,
+profiles, tools, local data, troubleshooting, and the runtime architecture. The
+[Warp documentation reference audit](docs/wiki/Warp-Documentation-Reference-Audit.md)
+tracks inherited help and support links and their proposed Galaxy replacements.
+
 ## Building from source
 
 Galaxy is a Rust workspace. Platform setup and the common development tools are installed with:
@@ -50,8 +57,8 @@ focused commands used by the project.
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Bug reports should include
 reproduction steps, expected and actual behavior, platform details, and relevant logs or
-screenshots that do not contain secrets. Security issues must be reported privately according to
-[SECURITY.md](SECURITY.md).
+screenshots that do not contain secrets. Do not disclose security-sensitive details in public
+issues; see the [current support and private-reporting guidance](docs/wiki/Troubleshooting.md#reporting-a-problem).
 
 UI changes should include manual verification, and visual changes should include before-and-after
 screenshots when practical. Changes to local persistence, provider boundaries, or agent execution

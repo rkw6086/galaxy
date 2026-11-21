@@ -1,0 +1,1375 @@
+# Warp website reference inventory
+
+Audited source: `600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca`. This is a static source inventory, not an endorsement of Warp-hosted services or a runtime test. No upstream documentation text was copied.
+
+Found **531** literal link/contact occurrences in **142** tracked files, **361** unique literal references. The `docs.warp.dev` subset contains **115** occurrences and **83** unique URLs. Domain mentions and indirect constant consumers are recorded separately.
+
+## Categories
+
+| Category | Occurrences |
+| --- | ---: |
+| endpoint_or_compatibility_identifier | 8 |
+| historical_or_upstream_record | 151 |
+| maintainer_skill_or_instruction | 80 |
+| other_tracked_reference | 1 |
+| packaging_or_infrastructure | 21 |
+| repository_documentation_or_contact | 13 |
+| repository_or_developer_documentation | 1 |
+| retained_hosted_or_gated_ui | 50 |
+| runtime_ui_or_message_candidate | 91 |
+| source_comment_or_developer_reference | 15 |
+| test_or_test_documentation | 98 |
+| user_visible_configuration_template | 2 |
+
+## URL and contact appendix
+
+### Agents, providers and editor
+
+Suggested Galaxy destination: Configuration-and-Providers / Technical-Overview.
+
+- `https://docs.warp.dev/agent-platform/capabilities/agent-profiles-permissions`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:162](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L162) — runtime_ui_or_message_candidate
+  - [app/src/ai/agent_tips.rs:302](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L302) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/capabilities/codebase-context`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:155](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L155) — runtime_ui_or_message_candidate
+  - [app/src/settings_view/ai_page.rs:4683](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/ai_page.rs#L4683) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/capabilities/full-terminal-use`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:190](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L190) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/capabilities/full-terminal-use#session-level-approvals`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:316](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L316) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/capabilities/mcp`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:204](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L204) — runtime_ui_or_message_candidate
+  - [app/src/settings_view/ai_page.rs:4761](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/ai_page.rs#L4761) — runtime_ui_or_message_candidate
+  - [app/src/settings_view/ai_page.rs:5239](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/ai_page.rs#L5239) — runtime_ui_or_message_candidate
+  - [app/src/settings_view/mcp_servers/list_page.rs:1182](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/mcp_servers/list_page.rs#L1182) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/capabilities/mcp#file-based-mcp-servers`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/settings_view/ai_page.rs:5285](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/ai_page.rs#L5285) — runtime_ui_or_message_candidate
+  - [app/src/settings_view/mcp_servers/list_page.rs:1144](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/mcp_servers/list_page.rs#L1144) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/capabilities/planning`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:109](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L109) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/capabilities/rules`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:232](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L232) — runtime_ui_or_message_candidate
+  - [app/src/ai/agent_tips.rs:309](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L309) — runtime_ui_or_message_candidate
+  - [app/src/settings_view/ai_page.rs:5370](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/ai_page.rs#L5370) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/capabilities/rules#project-rules-1`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:281](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L281) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/capabilities/slash-commands`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:95](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L95) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/local-agents/agent-context/blocks-as-context#attaching-blocks-as-context`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:148](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L148) — runtime_ui_or_message_candidate
+  - [app/src/ai/agent_tips.rs:274](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L274) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/local-agents/agent-context/images-as-context`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:183](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L183) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/local-agents/agent-context/urls-as-context`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:288](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L288) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/local-agents/agent-context/using-to-add-context`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:141](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L141) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/local-agents/interacting-with-agents`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:253](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L253) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/local-agents/interacting-with-agents/conversation-forking`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:169](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L169) — runtime_ui_or_message_candidate
+  - [app/src/ai/agent_tips.rs:239](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L239) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/local-agents/interacting-with-agents/voice`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:461](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L461) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/warp-agents/agent-notifications`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/workspace/hoa_onboarding/hoa_onboarding_flow.rs:472](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/hoa_onboarding/hoa_onboarding_flow.rs#L472) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/warps-agent/capabilities-overview/computer-use`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [.agents/skills/review-pr-local/SKILL.md:38](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/review-pr-local/SKILL.md#L38) — maintainer_skill_or_instruction
+  - [.agents/skills/review-pr-local/SKILL.md:38](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/review-pr-local/SKILL.md#L38) — maintainer_skill_or_instruction
+- `https://docs.warp.dev/code/code-review`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/ai/agent_tips.rs:197](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L197) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/code/overview#built-in-code-editor`
+  - Suggested treatment: Configuration-and-Providers / Technical-Overview
+  - [app/src/terminal/view/open_in_warp.rs:33](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/open_in_warp.rs#L33) — runtime_ui_or_message_candidate
+
+### Changelog
+
+Suggested Galaxy destination: GitHub Releases / CHANGELOG.md.
+
+- `https://docs.warp.dev/changelog`
+  - Suggested treatment: GitHub Releases / CHANGELOG.md
+  - [app/src/ai/blocklist/agent_view/zero_state_block.rs:1093](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/blocklist/agent_view/zero_state_block.rs#L1093) — runtime_ui_or_message_candidate
+  - [app/src/resource_center/section_views/changelog_section.rs:370](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/resource_center/section_views/changelog_section.rs#L370) — runtime_ui_or_message_candidate
+
+### General documentation
+
+Suggested Galaxy destination: Home.
+
+- `https://docs.warp.dev/`
+  - Suggested treatment: Home
+  - [FAQ.md:137](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/FAQ.md#L137) — repository_documentation_or_contact
+  - [app/src/util/links.rs:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/util/links.rs#L3) — runtime_ui_or_message_candidate
+
+### Hosted agents and hosted CLI
+
+Suggested Galaxy destination: Known-Limitations; do not advertise inherited hosted features.
+
+- `https://docs.warp.dev/agent-platform/cloud-agents/environments`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/terminal/view/ambient_agent/tips.rs:57](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L57) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/harnesses/authentication/`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/ai/auth_secret_types.rs:39](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/auth_secret_types.rs#L39) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/harnesses/authentication/#connecting-claude-code-credentials`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/ai/auth_secret_types.rs:43](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/auth_secret_types.rs#L43) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/harnesses/authentication/#connecting-codex-credentials`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/ai/auth_secret_types.rs:41](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/auth_secret_types.rs#L41) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/integrations`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/terminal/view/ambient_agent/tips.rs:65](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L65) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/integrations/github-actions`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/terminal/view/ambient_agent/tips.rs:53](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L53) — retained_hosted_or_gated_ui
+  - [app/src/terminal/view/ambient_agent/tips.rs:73](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L73) — retained_hosted_or_gated_ui
+  - [app/src/terminal/view/ambient_agent/tips.rs:77](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L77) — retained_hosted_or_gated_ui
+  - [app/src/terminal/view/ambient_agent/tips.rs:81](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L81) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/integrations/linear`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/terminal/view/ambient_agent/tips.rs:49](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L49) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/integrations/slack`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/terminal/view/ambient_agent/tips.rs:109](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L109) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/managing-cloud-agents`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/ai/agent_sdk/ambient.rs:567](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_sdk/ambient.rs#L567) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/cloud-agents/managing-cloud-agents#in-app-agent-notifications`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/ai/agent_tips.rs:330](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L330) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/agent-platform/cloud-agents/overview`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/ai/agent_management/cloud_setup_guide_view.rs:34](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_management/cloud_setup_guide_view.rs#L34) — retained_hosted_or_gated_ui
+  - [app/src/ai/blocklist/agent_view/zero_state_block.rs:52](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/blocklist/agent_view/zero_state_block.rs#L52) — runtime_ui_or_message_candidate
+  - [app/src/terminal/view/ambient_agent/first_time_setup.rs:166](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/first_time_setup.rs#L166) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/secrets`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/terminal/view/ambient_agent/tips.rs:93](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L93) — retained_hosted_or_gated_ui
+  - [app/src/terminal/view/ambient_agent/tips.rs:97](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L97) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/triggers`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/terminal/view/ambient_agent/tips.rs:89](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L89) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/triggers/scheduled-agents`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/terminal/view/ambient_agent/tips.rs:45](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L45) — retained_hosted_or_gated_ui
+  - [app/src/terminal/view/ambient_agent/tips.rs:69](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L69) — retained_hosted_or_gated_ui
+  - [app/src/terminal/view/ambient_agent/tips.rs:101](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L101) — retained_hosted_or_gated_ui
+  - [app/src/terminal/view/ambient_agent/tips.rs:105](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L105) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/agent-platform/cloud-agents/viewing-cloud-agent-runs`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/terminal/view/ambient_agent/tips.rs:61](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L61) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/reference/api-and-sdk`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/terminal/view/ambient_agent/tips.rs:85](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L85) — retained_hosted_or_gated_ui
+  - [app/src/terminal/view/ambient_agent/tips.rs:113](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/ambient_agent/tips.rs#L113) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/reference/cli/api-keys`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/settings_view/platform_page.rs:47](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/platform_page.rs#L47) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/reference/cli/api-keys/#personal-vs-agent-keys`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/settings_view/platform/create_api_key_modal.rs:36](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/platform/create_api_key_modal.rs#L36) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/reference/cli/integration-setup`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/ai/agent_tips.rs:218](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L218) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/reference/cli/integration-setup#creating-an-environment`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/ai/agent_management/cloud_setup_guide_view.rs:36](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_management/cloud_setup_guide_view.rs#L36) — retained_hosted_or_gated_ui
+- `https://oz.warp.dev`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/ai/agent_management/cloud_setup_guide_view.rs:37](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_management/cloud_setup_guide_view.rs#L37) — retained_hosted_or_gated_ui
+  - [app/src/workspace/view/launch_modal/oz_launch.rs:103](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view/launch_modal/oz_launch.rs#L103) — retained_hosted_or_gated_ui
+  - [app/src/workspace/view/openwarp_launch_modal/view.rs:30](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view/openwarp_launch_modal/view.rs#L30) — retained_hosted_or_gated_ui
+- `https://oz.warp.dev/agents?new=true`
+  - Suggested treatment: Known-Limitations; do not advertise inherited hosted features
+  - [app/src/settings_view/platform/create_api_key_modal.rs:34](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/platform/create_api_key_modal.rs#L34) — retained_hosted_or_gated_ui
+
+### Hosted billing
+
+Suggested Galaxy destination: Known-Limitations; remove or hide unsupported hosted billing UI.
+
+- `https://docs.warp.dev/support-and-billing/sending-us-feedback`
+  - Suggested treatment: Known-Limitations; remove or hide unsupported hosted billing UI
+  - [app/src/ai/blocklist/block/cli.rs:1659](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/blocklist/block/cli.rs#L1659) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/support-and-community/plans-and-billing/add-on-credits`
+  - Suggested treatment: Known-Limitations; remove or hide unsupported hosted billing UI
+  - [app/src/workspace/view/free_tier_limit_hit_modal.rs:236](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view/free_tier_limit_hit_modal.rs#L236) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/support-and-community/plans-and-billing/add-on-credits#id-2.-enable-auto-reload`
+  - Suggested treatment: Known-Limitations; remove or hide unsupported hosted billing UI
+  - [app/src/terminal/enable_auto_reload_modal.rs:227](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/enable_auto_reload_modal.rs#L227) — retained_hosted_or_gated_ui
+- `https://warp.dev/contact-sales`
+  - Suggested treatment: Known-Limitations; remove or hide unsupported hosted billing UI
+  - [app/src/settings_view/admin_actions.rs:28](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/admin_actions.rs#L28) — retained_hosted_or_gated_ui
+- `https://www.warp.dev/pricing`
+  - Suggested treatment: Known-Limitations; remove or hide unsupported hosted billing UI
+  - [app/src/workspace/view/build_plan_migration_modal.rs:635](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view/build_plan_migration_modal.rs#L635) — retained_hosted_or_gated_ui
+  - [app/src/workspace/view/build_plan_migration_modal.rs:650](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view/build_plan_migration_modal.rs#L650) — retained_hosted_or_gated_ui
+
+### Launch and tab configuration
+
+Suggested Galaxy destination: Getting-Started / Configuration-and-Providers.
+
+- `https://docs.warp.dev/terminal/sessions/launch-configurations`
+  - Suggested treatment: Getting-Started / Configuration-and-Providers
+  - [app/src/launch_configs/save_modal.rs:535](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/launch_configs/save_modal.rs#L535) — runtime_ui_or_message_candidate
+  - [app/src/user_config/mod.rs:35](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/user_config/mod.rs#L35) — user_visible_configuration_template
+  - [app/src/workspace/view.rs:7137](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view.rs#L7137) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/windows/tab-configs`
+  - Suggested treatment: Getting-Started / Configuration-and-Providers
+  - [app/resources/tab_configs/new_tab_config_template.toml:7](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/resources/tab_configs/new_tab_config_template.toml#L7) — user_visible_configuration_template
+
+### Legal and privacy
+
+Suggested Galaxy destination: Galaxy licensing and privacy policy review; not a blind wiki substitution.
+
+- `https://warp.dev/privacy`
+  - Suggested treatment: Galaxy licensing and privacy policy review; not a blind wiki substitution
+  - [REVIEW.md:85](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/REVIEW.md#L85) — historical_or_upstream_record
+  - [app/src/ai/blocklist/telemetry_banner.rs:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/blocklist/telemetry_banner.rs#L21) — runtime_ui_or_message_candidate
+  - [app/src/auth/auth_view_shared_helpers.rs:24](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/auth/auth_view_shared_helpers.rs#L24) — retained_hosted_or_gated_ui
+- `https://warp.dev/terms-of-service`
+  - Suggested treatment: Galaxy licensing and privacy policy review; not a blind wiki substitution
+  - [resources/linux/rpm/app/warp.spec.template:12](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/app/warp.spec.template#L12) — packaging_or_infrastructure
+  - [resources/linux/rpm/cli/warp.spec.template:12](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/cli/warp.spec.template#L12) — packaging_or_infrastructure
+- `https://www.warp.dev/privacy`
+  - Suggested treatment: Galaxy licensing and privacy policy review; not a blind wiki substitution
+  - [app/src/util/links.rs:7](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/util/links.rs#L7) — runtime_ui_or_message_candidate
+- `https://www.warp.dev/terms-of-service`
+  - Suggested treatment: Galaxy licensing and privacy policy review; not a blind wiki substitution
+  - [app/src/auth/auth_view_body.rs:45](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/auth/auth_view_body.rs#L45) — retained_hosted_or_gated_ui
+  - [app/src/auth/login_slide.rs:48](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/auth/login_slide.rs#L48) — retained_hosted_or_gated_ui
+  - [crates/onboarding/src/slides/theme_picker_slide.rs:56](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/onboarding/src/slides/theme_picker_slide.rs#L56) — runtime_ui_or_message_candidate
+
+### Local Drive and workflows
+
+Suggested Galaxy destination: Configuration-and-Providers.
+
+- `https://docs.warp.dev/knowledge-and-collaboration/warp-drive`
+  - Suggested treatment: Configuration-and-Providers
+  - [app/src/ai/agent_tips.rs:127](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L127) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/knowledge-and-collaboration/warp-drive#import-and-export`
+  - Suggested treatment: Configuration-and-Providers
+  - [app/src/drive/import/modal_body.rs:39](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/drive/import/modal_body.rs#L39) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/knowledge-and-collaboration/warp-drive/workflows`
+  - Suggested treatment: Configuration-and-Providers
+  - [app/src/workflows/categories.rs:766](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workflows/categories.rs#L766) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/entry/yaml-workflows`
+  - Suggested treatment: Configuration-and-Providers
+  - [app/src/settings_view/features_page.rs:7345](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/features_page.rs#L7345) — runtime_ui_or_message_candidate
+
+### Privacy and security
+
+Suggested Galaxy destination: Galaxy privacy and security documentation.
+
+- `https://docs.warp.dev/getting-started/privacy#exhaustive-telemetry-table`
+  - Suggested treatment: Galaxy privacy and security documentation
+  - [.github/PULL_REQUEST_TEMPLATE/feature_flag.md:31](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.github/PULL_REQUEST_TEMPLATE/feature_flag.md#L31) — repository_or_developer_documentation
+- `https://docs.warp.dev/support-and-community/privacy-and-security/privacy#exhaustive-telemetry-table`
+  - Suggested treatment: Galaxy privacy and security documentation
+  - [app/src/server/telemetry/events_tests.rs:14](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/server/telemetry/events_tests.rs#L14) — test_or_test_documentation
+
+### Service/update endpoint or compatibility identifier
+
+Suggested Galaxy destination: Retain if required by upstream compatibility/integration; contextual review.
+
+- `https://app.warp.dev`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/terminal/input_tests.rs:2832](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/input_tests.rs#L2832) — test_or_test_documentation
+  - [app/src/terminal/input_tests.rs:3066](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/input_tests.rs#L3066) — test_or_test_documentation
+  - [app/src/terminal/input_tests.rs:3321](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/input_tests.rs#L3321) — test_or_test_documentation
+  - [app/src/terminal/input_tests.rs:5032](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/input_tests.rs#L5032) — test_or_test_documentation
+  - [app/src/terminal/input_tests.rs:5779](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/input_tests.rs#L5779) — test_or_test_documentation
+  - [app/src/terminal/input_tests.rs:5816](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/input_tests.rs#L5816) — test_or_test_documentation
+  - [crates/galaxy_core/src/channel/config.rs:74](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxy_core/src/channel/config.rs#L74) — endpoint_or_compatibility_identifier
+  - [crates/galaxy_core/src/channel/state_tests.rs:18](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxy_core/src/channel/state_tests.rs#L18) — test_or_test_documentation
+  - [crates/remote_server/src/setup.rs:609](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/remote_server/src/setup.rs#L609) — endpoint_or_compatibility_identifier
+- `https://app.warp.dev/download/cli`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [crates/remote_server/src/install_remote_server.sh:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/remote_server/src/install_remote_server.sh#L15) — endpoint_or_compatibility_identifier
+  - [crates/remote_server/src/setup.rs:610](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/remote_server/src/setup.rs#L610) — endpoint_or_compatibility_identifier
+- `https://app.warp.dev/download?package=appimage`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/onboarding-verification-skill/SKILL.md:97](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/onboarding-verification-skill/SKILL.md#L97) — maintainer_skill_or_instruction
+- `https://app.warp.dev/download?package=appimage_arm64`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/onboarding-verification-skill/SKILL.md:98](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/onboarding-verification-skill/SKILL.md#L98) — maintainer_skill_or_instruction
+- `https://app.warp.dev/download?package=deb`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/onboarding-verification-skill/SKILL.md:90](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/onboarding-verification-skill/SKILL.md#L90) — maintainer_skill_or_instruction
+- `https://app.warp.dev/download?package=deb_arm64`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/onboarding-verification-skill/SKILL.md:91](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/onboarding-verification-skill/SKILL.md#L91) — maintainer_skill_or_instruction
+- `https://app.warp.dev/download?package=pacman`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/onboarding-verification-skill/SKILL.md:94](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/onboarding-verification-skill/SKILL.md#L94) — maintainer_skill_or_instruction
+- `https://app.warp.dev/download?package=pacman_arm64`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/onboarding-verification-skill/SKILL.md:95](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/onboarding-verification-skill/SKILL.md#L95) — maintainer_skill_or_instruction
+- `https://app.warp.dev/download?package=rpm`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/onboarding-verification-skill/SKILL.md:92](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/onboarding-verification-skill/SKILL.md#L92) — maintainer_skill_or_instruction
+- `https://app.warp.dev/download?package=rpm_arm64`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/onboarding-verification-skill/SKILL.md:93](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/onboarding-verification-skill/SKILL.md#L93) — maintainer_skill_or_instruction
+- `https://app.warp.dev/get_warp`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/wasm_nux_dialog.rs:279](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/wasm_nux_dialog.rs#L279) — endpoint_or_compatibility_identifier
+- `https://app.warp.dev/session/test-session`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/drive/sharing/qr_code_tests.rs:5](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/drive/sharing/qr_code_tests.rs#L5) — test_or_test_documentation
+- `https://releases.warp.dev/channel_versions.json`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [crates/galaxyui_extras/src/secure_storage/linux.rs:104](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui_extras/src/secure_storage/linux.rs#L104) — endpoint_or_compatibility_identifier
+- `https://releases.warp.dev/linux/deb`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [resources/linux/debian/common/postinst.repo.template:110](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/debian/common/postinst.repo.template#L110) — packaging_or_infrastructure
+- `https://releases.warp.dev/linux/keys/warp.asc`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [resources/linux/debian/common/postinst.repo.template:9](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/debian/common/postinst.repo.template#L9) — packaging_or_infrastructure
+  - [script/linux/bundle_rpm:78](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/script/linux/bundle_rpm#L78) — packaging_or_infrastructure
+- `https://releases.warp.dev/linux/keys/warp.asc$|gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-@@REPO_NAME@@|`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [resources/linux/rpm/app/warp.spec.template:165](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/app/warp.spec.template#L165) — packaging_or_infrastructure
+  - [resources/linux/rpm/app/warp.spec.template:187](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/app/warp.spec.template#L187) — packaging_or_infrastructure
+  - [resources/linux/rpm/cli/warp.spec.template:161](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/cli/warp.spec.template#L161) — packaging_or_infrastructure
+  - [resources/linux/rpm/cli/warp.spec.template:183](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/cli/warp.spec.template#L183) — packaging_or_infrastructure
+- `https://releases.warp.dev/linux/pacman/`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/autoupdate/linux.rs:521](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/autoupdate/linux.rs#L521) — endpoint_or_compatibility_identifier
+- `https://releases.warp.dev/linux/rpm/@@RELEASE_CHANNEL@@`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [resources/linux/rpm/app/warp.spec.template:173](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/app/warp.spec.template#L173) — packaging_or_infrastructure
+  - [resources/linux/rpm/app/warp.spec.template:196](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/app/warp.spec.template#L196) — packaging_or_infrastructure
+  - [resources/linux/rpm/cli/warp.spec.template:169](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/cli/warp.spec.template#L169) — packaging_or_infrastructure
+  - [resources/linux/rpm/cli/warp.spec.template:192](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/cli/warp.spec.template#L192) — packaging_or_infrastructure
+- `https://releases.warp.dev/{channel}/{version}/cli/{os}/{arch}/warp-{channel}-{os}-{arch}.tar.gz`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/alokedesai/APP-3797/PRODUCT.md:64](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/alokedesai/APP-3797/PRODUCT.md#L64) — historical_or_upstream_record
+- `https://rtc.app.warp.dev`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [crates/galaxy_core/src/channel/state_tests.rs:6](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxy_core/src/channel/state_tests.rs#L6) — test_or_test_documentation
+- `https://staging.warp.dev`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/server/server_api/auth_tests.rs:31](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/server/server_api/auth_tests.rs#L31) — test_or_test_documentation
+  - [app/src/server/server_api/auth_tests.rs:35](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/server/server_api/auth_tests.rs#L35) — test_or_test_documentation
+  - [specs/REV-1599/TECH.md:25](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REV-1599/TECH.md#L25) — historical_or_upstream_record
+  - [specs/REV-1599/TECH.md:494](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REV-1599/TECH.md#L494) — historical_or_upstream_record
+- `https://staging.warp.dev/block/FNBafyVtxvjmdNIx6HxUM5`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [crates/integration/tests/INTEGRATION_TESTING.md:106](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/integration/tests/INTEGRATION_TESTING.md#L106) — test_or_test_documentation
+- `https://staging.warp.dev/graphql/v2`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [crates/galaxy_graphql_schema/graphql.config.js:6](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxy_graphql_schema/graphql.config.js#L6) — endpoint_or_compatibility_identifier
+- `https://staging.warp.dev/proxy/customToken?key=api_key`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/server/server_api/auth_tests.rs:32](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/server/server_api/auth_tests.rs#L32) — test_or_test_documentation
+- `https://staging.warp.dev/proxy/token?key=api_key`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/server/server_api/auth_tests.rs:36](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/server/server_api/auth_tests.rs#L36) — test_or_test_documentation
+
+### Terminal and appearance
+
+Suggested Galaxy destination: Getting-Started.
+
+- `https://docs.warp.dev/getting-started/keyboard-shortcuts`
+  - Suggested treatment: Getting-Started
+  - [app/src/resource_center/keybindings_page.rs:59](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/resource_center/keybindings_page.rs#L59) — source_comment_or_developer_reference
+  - [app/src/resource_center/utils.rs:2](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/resource_center/utils.rs#L2) — source_comment_or_developer_reference
+- `https://docs.warp.dev/knowledge-and-collaboration/session-sharing`
+  - Suggested treatment: Getting-Started
+  - [crates/galaxy_cli/src/share.rs:14](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxy_cli/src/share.rs#L14) — source_comment_or_developer_reference
+- `https://docs.warp.dev/terminal/appearance/custom-themes`
+  - Suggested treatment: Getting-Started
+  - [app/src/settings_view/appearance_page.rs:2821](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/appearance_page.rs#L2821) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/appearance/prompt`
+  - Suggested treatment: Getting-Started
+  - [app/src/resource_center/sections.rs:66](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/resource_center/sections.rs#L66) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/appearance/prompt#custom-prompt-compatibility-table`
+  - Suggested treatment: Getting-Started
+  - [app/src/terminal/view.rs:639](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view.rs#L639) — runtime_ui_or_message_candidate
+  - [app/src/terminal/view/block_onboarding/onboarding_prompt_block.rs:69](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/block_onboarding/onboarding_prompt_block.rs#L69) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/appearance/size-opacity-blurring`
+  - Suggested treatment: Getting-Started
+  - [app/src/settings_view/appearance_page.rs:3411](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/appearance_page.rs#L3411) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/blocks/block-actions#copy-input-output-of-block`
+  - Suggested treatment: Getting-Started
+  - [app/src/ai/agent_tips.rs:176](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L176) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/blocks/sticky-command-header`
+  - Suggested treatment: Getting-Started
+  - [app/src/settings_view/features_page.rs:4660](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/features_page.rs#L4660) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/command-palette`
+  - Suggested treatment: Getting-Started
+  - [app/src/ai/agent_tips.rs:116](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L116) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/input/universal-input#input-modes`
+  - Suggested treatment: Getting-Started
+  - [app/src/ai/agent_tips.rs:102](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_tips.rs#L102) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/integrations-and-plugins`
+  - Suggested treatment: Getting-Started
+  - [app/src/resource_center/sections.rs:72](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/resource_center/sections.rs#L72) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/more-features/full-screen-apps#mouse-and-scroll-reporting`
+  - Suggested treatment: Getting-Started
+  - [app/src/settings_view/features_page.rs:6793](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/features_page.rs#L6793) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/more-features/full-screen-apps#padding`
+  - Suggested treatment: Getting-Started
+  - [app/src/settings_view/appearance_page.rs:5416](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/appearance_page.rs#L5416) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/more-features/linux#native-wayland`
+  - Suggested treatment: Getting-Started
+  - [app/src/workspace/view.rs:25628](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view.rs#L25628) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/more-features/markdown-viewer`
+  - Suggested treatment: Getting-Started
+  - [app/src/settings_view/features/external_editor.rs:361](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/features/external_editor.rs#L361) — runtime_ui_or_message_candidate
+  - [app/src/terminal/view/open_in_warp.rs:32](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/open_in_warp.rs#L32) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/more-features/notifications`
+  - Suggested treatment: Getting-Started
+  - [app/src/settings_view/features_page.rs:831](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/features_page.rs#L831) — runtime_ui_or_message_candidate
+  - [app/src/terminal/view.rs:655](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view.rs#L655) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/more-features/text-selection`
+  - Suggested treatment: Getting-Started
+  - [app/src/settings_view/features_page.rs:7058](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/features_page.rs#L7058) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/sessions/session-restoration`
+  - Suggested treatment: Getting-Started
+  - [app/src/settings_view/features_page.rs:4575](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/features_page.rs#L4575) — runtime_ui_or_message_candidate
+  - [app/src/settings_view/features_page.rs:4607](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/features_page.rs#L4607) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/windows/global-hotkey`
+  - Suggested treatment: Getting-Started
+  - [app/src/settings_view/features_page.rs:5633](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/features_page.rs#L5633) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/{path}`
+  - Suggested treatment: Getting-Started
+  - [app/src/terminal/view.rs:20560](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view.rs#L20560) — runtime_ui_or_message_candidate
+
+### Troubleshooting, shells and updates
+
+Suggested Galaxy destination: Troubleshooting.
+
+- `https://docs.warp.dev/getting-started/supported-shells`
+  - Suggested treatment: Troubleshooting
+  - [app/src/pane_group/mod.rs:279](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/pane_group/mod.rs#L279) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/help/known-issues#linux-1`
+  - Suggested treatment: Troubleshooting
+  - [crates/galaxyui/src/rendering/wgpu/resources.rs:781](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui/src/rendering/wgpu/resources.rs#L781) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/support-and-community/troubleshooting-and-support/known-issues`
+  - Suggested treatment: Troubleshooting
+  - [app/src/terminal/view.rs:635](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view.rs#L635) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/support-and-community/troubleshooting-and-support/known-issues#debugging`
+  - Suggested treatment: Troubleshooting
+  - [app/src/terminal/view/shell_terminated_banner.rs:229](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/shell_terminated_banner.rs#L229) — runtime_ui_or_message_candidate
+  - [app/src/terminal/view/shell_terminated_banner.rs:267](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/shell_terminated_banner.rs#L267) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/support-and-community/troubleshooting-and-support/known-issues#shells`
+  - Suggested treatment: Troubleshooting
+  - [app/src/ai/agent_sdk/driver.rs:3489](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/agent_sdk/driver.rs#L3489) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/support-and-community/troubleshooting-and-support/sending-us-feedback`
+  - Suggested treatment: Troubleshooting
+  - [.agents/skills/triage-issue-local/SKILL.md:26](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/triage-issue-local/SKILL.md#L26) — maintainer_skill_or_instruction
+  - [app/src/ai/blocklist/block.rs:6837](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/blocklist/block.rs#L6837) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/support-and-community/troubleshooting-and-support/troubleshooting-login-issues`
+  - Suggested treatment: Troubleshooting
+  - [app/src/auth/login_failure_notification.rs:12](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/auth/login_failure_notification.rs#L12) — retained_hosted_or_gated_ui
+- `https://docs.warp.dev/support-and-community/troubleshooting-and-support/updating-warp`
+  - Suggested treatment: Troubleshooting
+  - [app/src/workspace/view.rs:12810](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view.rs#L12810) — runtime_ui_or_message_candidate
+- `https://docs.warp.dev/terminal/more-features/notifications#troubleshooting-notifications`
+  - Suggested treatment: Troubleshooting
+  - [app/src/terminal/view.rs:657](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view.rs#L657) — runtime_ui_or_message_candidate
+
+### Upstream blog
+
+Suggested Galaxy destination: Retain if required by upstream compatibility/integration; contextual review.
+
+- `https://warp.dev/your-blog-link`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/create-launch-modal/SKILL.md:277](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/create-launch-modal/SKILL.md#L277) — maintainer_skill_or_instruction
+- `https://www.warp.dev/blog/how-warp-uses-warp`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/resource_center/sections.rs:78](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/resource_center/sections.rs#L78) — runtime_ui_or_message_candidate
+- `https://www.warp.dev/blog/multi-harness-cloud-agent-orchestration`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/workspace/view/orchestration_launch_modal/view.rs:23](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view/orchestration_launch_modal/view.rs#L23) — retained_hosted_or_gated_ui
+
+### Upstream community
+
+Suggested Galaxy destination: Galaxy GitHub Issues; do not claim a Galaxy Slack exists.
+
+- `http://go.warp.dev/join-preview`
+  - Suggested treatment: Galaxy GitHub Issues; do not claim a Galaxy Slack exists
+  - [app/src/util/links.rs:6](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/util/links.rs#L6) — runtime_ui_or_message_candidate
+- `https://go.warp.dev/join-preview`
+  - Suggested treatment: Galaxy GitHub Issues; do not claim a Galaxy Slack exists
+  - [FAQ.md:139](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/FAQ.md#L139) — repository_documentation_or_contact
+- `https://warpcommunity.slack.com/archives/C0B0LM8N4DB`
+  - Suggested treatment: Galaxy GitHub Issues; do not claim a Galaxy Slack exists
+  - [FAQ.md:139](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/FAQ.md#L139) — repository_documentation_or_contact
+
+### Upstream issue/security reporting
+
+Suggested Galaxy destination: Galaxy GitHub Issues for routine bugs only; private/security channels need maintainer approval, and numbered upstream history stays intact.
+
+- `https://github.com/warpdotdev/Warp/issues`
+  - Suggested treatment: Galaxy GitHub Issues for routine bugs only; private/security channels need maintainer approval, and numbered upstream history stays intact
+  - [app/src/terminal/model/grid/grid_handler_tests.rs:729](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/grid/grid_handler_tests.rs#L729) — test_or_test_documentation
+  - [app/src/terminal/model/grid/grid_handler_tests.rs:747](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/grid/grid_handler_tests.rs#L747) — test_or_test_documentation
+  - [app/src/util/links.rs:5](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/util/links.rs#L5) — runtime_ui_or_message_candidate
+- `https://github.com/warpdotdev/Warp/issues/1262`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [app/assets/bundled/bootstrap/bash_body.sh:1212](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/assets/bundled/bootstrap/bash_body.sh#L1212) — source_comment_or_developer_reference
+- `https://github.com/warpdotdev/Warp/issues/1869`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [crates/integration/src/test/ctrl_d.rs:54](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/integration/src/test/ctrl_d.rs#L54) — test_or_test_documentation
+- `https://github.com/warpdotdev/Warp/issues/2636`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [app/assets/bundled/bootstrap/bash_body.sh:1269](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/assets/bundled/bootstrap/bash_body.sh#L1269) — source_comment_or_developer_reference
+  - [crates/integration/src/test/bootstrapping.rs:255](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/integration/src/test/bootstrapping.rs#L255) — test_or_test_documentation
+- `https://github.com/warpdotdev/Warp/issues/6120`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [crates/galaxyui/src/rendering/wgpu/resources.rs:524](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui/src/rendering/wgpu/resources.rs#L524) — source_comment_or_developer_reference
+  - [crates/galaxyui/src/rendering/wgpu/resources.rs:536](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui/src/rendering/wgpu/resources.rs#L536) — source_comment_or_developer_reference
+  - [crates/galaxyui/src/windowing/winit/window.rs:665](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui/src/windowing/winit/window.rs#L665) — source_comment_or_developer_reference
+  - [crates/galaxyui/src/windowing/winit/window.rs:670](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui/src/windowing/winit/window.rs#L670) — runtime_ui_or_message_candidate
+- `https://github.com/warpdotdev/Warp/issues/7588`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [app/src/terminal/local_tty/shell.rs:689](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/local_tty/shell.rs#L689) — source_comment_or_developer_reference
+- `https://github.com/warpdotdev/Warp/issues/8935`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [crates/galaxyui/src/windowing/winit/window.rs:1352](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui/src/windowing/winit/window.rs#L1352) — source_comment_or_developer_reference
+- `https://github.com/warpdotdev/Warp/issues/new/choose`
+  - Suggested treatment: Galaxy GitHub Issues for routine bugs only; private/security channels need maintainer approval, and numbered upstream history stays intact
+  - [app/src/autoupdate/linux.rs:371](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/autoupdate/linux.rs#L371) — runtime_ui_or_message_candidate
+  - [app/src/terminal/view/shell_terminated_banner.rs:219](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/shell_terminated_banner.rs#L219) — runtime_ui_or_message_candidate
+  - [app/src/terminal/view/shell_terminated_banner.rs:257](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/shell_terminated_banner.rs#L257) — runtime_ui_or_message_candidate
+  - [app/src/util/links.rs:10](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/util/links.rs#L10) — runtime_ui_or_message_candidate
+- `https://github.com/warpdotdev/Warp/issues/new?assignees=&labels=Bug&projects=&template=01_bug_report.yml`
+  - Suggested treatment: Galaxy GitHub Issues for routine bugs only; private/security channels need maintainer approval, and numbered upstream history stays intact
+  - [app/src/terminal/view/block_onboarding/onboarding_prompt_block.rs:242](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/block_onboarding/onboarding_prompt_block.rs#L242) — runtime_ui_or_message_candidate
+- `https://github.com/warpdotdev/Warp/issues/new?assignees=&labels=Bugs,SSH-tmux&projects=&template=03_ssh_tmux.yml`
+  - Suggested treatment: Galaxy GitHub Issues for routine bugs only; private/security channels need maintainer approval, and numbered upstream history stays intact
+  - [app/src/terminal/ssh/error.rs:44](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/ssh/error.rs#L44) — runtime_ui_or_message_candidate
+- `https://github.com/warpdotdev/Warp/security/advisories/new`
+  - Suggested treatment: Maintainer-approved private Galaxy reporting route; currently unpublished/disabled. Never a public issue or unverified Warp contact.
+  - [FAQ.md:144](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/FAQ.md#L144) — repository_documentation_or_contact
+  - [SECURITY.md:12](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/SECURITY.md#L12) — repository_documentation_or_contact
+- `https://github.com/warpdotdev/warp/issues`
+  - Suggested treatment: Galaxy GitHub Issues for routine bugs only; private/security channels need maintainer approval, and numbered upstream history stays intact
+  - [FAQ.md:138](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/FAQ.md#L138) — repository_documentation_or_contact
+- `https://github.com/warpdotdev/warp/issues/10090`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [specs/GH10090/product.md:2](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH10090/product.md#L2) — historical_or_upstream_record
+  - [specs/GH10090/tech.md:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH10090/tech.md#L3) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/issues/10207`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [specs/gh-10207/TECH.md:5](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/gh-10207/TECH.md#L5) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/issues/10474`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [crates/galaxy_terminal/src/shell/mod_tests.rs:274](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxy_terminal/src/shell/mod_tests.rs#L274) — test_or_test_documentation
+- `https://github.com/warpdotdev/warp/issues/10618`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [crates/galaxyui/src/rendering/wgpu/resources.rs:558](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui/src/rendering/wgpu/resources.rs#L558) — source_comment_or_developer_reference
+- `https://github.com/warpdotdev/warp/issues/11212`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [app/src/terminal/view_tests.rs:7818](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view_tests.rs#L7818) — test_or_test_documentation
+- `https://github.com/warpdotdev/warp/issues/11368`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [specs/GH11368/product.md:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH11368/product.md#L3) — historical_or_upstream_record
+  - [specs/GH11368/tech.md:5](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH11368/tech.md#L5) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/issues/11477`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [app/src/terminal/view/link_detection_tests.rs:41](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view/link_detection_tests.rs#L41) — test_or_test_documentation
+- `https://github.com/warpdotdev/warp/issues/11520`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [app/assets/bundled/bootstrap/zsh_body.sh:1282](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/assets/bundled/bootstrap/zsh_body.sh#L1282) — source_comment_or_developer_reference
+- `https://github.com/warpdotdev/warp/issues/11697`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [app/src/ai/blocklist/block/find_tests.rs:20](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/blocklist/block/find_tests.rs#L20) — test_or_test_documentation
+- `https://github.com/warpdotdev/warp/issues/11912`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [specs/gh-11912/PRODUCT.md:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/gh-11912/PRODUCT.md#L3) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/issues/12243`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [specs/GH12243/product.md:2](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/product.md#L2) — historical_or_upstream_record
+  - [specs/GH12243/tech.md:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L3) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/issues/2618`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [specs/GH478/product.md:4](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH478/product.md#L4) — historical_or_upstream_record
+  - [specs/GH478/tech.md:4](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH478/tech.md#L4) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/issues/478`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [specs/GH478/product.md:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH478/product.md#L3) — historical_or_upstream_record
+  - [specs/GH478/tech.md:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH478/tech.md#L3) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/issues/4856`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [crates/galaxyui/src/rendering/wgpu/resources.rs:509](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui/src/rendering/wgpu/resources.rs#L509) — source_comment_or_developer_reference
+- `https://github.com/warpdotdev/warp/issues/4879`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [crates/galaxyui/src/rendering/wgpu/resources.rs:559](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui/src/rendering/wgpu/resources.rs#L559) — source_comment_or_developer_reference
+- `https://github.com/warpdotdev/warp/issues/5678`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [.agents/skills/changelog-draft/SKILL.md:139](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/SKILL.md#L139) — maintainer_skill_or_instruction
+  - [.agents/skills/changelog-draft/SKILL.md:222](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/SKILL.md#L222) — maintainer_skill_or_instruction
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:92](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L92) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/issues/5957`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [specs/andy/CODE-1786/PRODUCT.md:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/andy/CODE-1786/PRODUCT.md#L3) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/issues/6191`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [specs/andy/CODE-1779/PRODUCT.md:4](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/andy/CODE-1779/PRODUCT.md#L4) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/issues/7043`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [specs/GH7043/product.md:2](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH7043/product.md#L2) — historical_or_upstream_record
+  - [specs/GH7043/tech.md:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH7043/tech.md#L3) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/issues/9044`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [app/src/platform/windows.rs:13](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/platform/windows.rs#L13) — source_comment_or_developer_reference
+- `https://github.com/warpdotdev/warp/issues/9059`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [app/src/terminal/view_tests.rs:7059](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view_tests.rs#L7059) — test_or_test_documentation
+- `https://github.com/warpdotdev/warp/issues/9233`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [FAQ.md:69](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/FAQ.md#L69) — repository_documentation_or_contact
+  - [specs/GH7043/product.md:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH7043/product.md#L3) — historical_or_upstream_record
+  - [specs/GH7043/tech.md:4](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH7043/tech.md#L4) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/issues/9542`
+  - Suggested treatment: Preserve the numbered upstream issue as historical/technical context; do not redirect its issue ID into Galaxy.
+  - [app/src/terminal/find/model/block_list_tests.rs:355](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/find/model/block_list_tests.rs#L355) — test_or_test_documentation
+  - [app/src/terminal/find/model/block_list_tests.rs:420](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/find/model/block_list_tests.rs#L420) — test_or_test_documentation
+- `https://github.com/warpdotdev/warp/issues/new/choose`
+  - Suggested treatment: Galaxy GitHub Issues for routine bugs only; private/security channels need maintainer approval, and numbered upstream history stays intact
+  - [FAQ.md:13](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/FAQ.md#L13) — repository_documentation_or_contact
+
+### Upstream support/contact
+
+Suggested Galaxy destination: Maintainer-approved Galaxy contact; private/security/CoC reports never belong in public issues.
+
+- `feedback@warp.dev`
+  - Suggested treatment: Maintainer-approved Galaxy support contact; only sanitized routine non-sensitive bugs belong in Galaxy GitHub Issues.
+  - [app/src/settings_view/teams_page.rs:932](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/teams_page.rs#L932) — retained_hosted_or_gated_ui
+  - [app/src/settings_view/teams_page.rs:940](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/teams_page.rs#L940) — retained_hosted_or_gated_ui
+- `security@warp.dev`
+  - Suggested treatment: Maintainer-approved private Galaxy reporting route; currently unpublished/disabled. Never a public issue or unverified Warp contact.
+  - [FAQ.md:144](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/FAQ.md#L144) — repository_documentation_or_contact
+  - [FAQ.md:144](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/FAQ.md#L144) — repository_documentation_or_contact
+  - [SECURITY.md:11](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/SECURITY.md#L11) — repository_documentation_or_contact
+  - [SECURITY.md:11](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/SECURITY.md#L11) — repository_documentation_or_contact
+- `support@warp.dev`
+  - Suggested treatment: Maintainer-approved Galaxy support contact; only sanitized routine non-sensitive bugs belong in Galaxy GitHub Issues.
+  - [app/src/ai/blocklist/prompt/prompt_alert.rs:309](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/blocklist/prompt/prompt_alert.rs#L309) — runtime_ui_or_message_candidate
+  - [app/src/billing/shared_objects_creation_denied_body.rs:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/billing/shared_objects_creation_denied_body.rs#L21) — retained_hosted_or_gated_ui
+  - [app/src/billing/shared_objects_creation_denied_body.rs:101](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/billing/shared_objects_creation_denied_body.rs#L101) — retained_hosted_or_gated_ui
+  - [app/src/drive/index.rs:199](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/drive/index.rs#L199) — runtime_ui_or_message_candidate
+  - [app/src/settings_view/admin_actions.rs:23](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/admin_actions.rs#L23) — retained_hosted_or_gated_ui
+  - [crates/galaxyui/src/browser_tests.rs:14](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui/src/browser_tests.rs#L14) — test_or_test_documentation
+  - [crates/galaxyui/src/browser_tests.rs:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/galaxyui/src/browser_tests.rs#L15) — test_or_test_documentation
+- `warp-coc at warp.dev`
+  - Suggested treatment: Maintainer-approved private Galaxy reporting route; currently unpublished/disabled. Never a public issue or unverified Warp contact.
+  - [CODE_OF_CONDUCT.md:39](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/CODE_OF_CONDUCT.md#L39) — repository_documentation_or_contact
+
+### Upstream website or source reference
+
+Suggested Galaxy destination: Retain if required by upstream compatibility/integration; contextual review.
+
+- `http://warp.dev`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/notebooks/link_tests.rs:147](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/link_tests.rs#L147) — test_or_test_documentation
+- `https://auth.warp.dev`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REV-1599/TECH.md:502](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REV-1599/TECH.md#L502) — historical_or_upstream_record
+- `https://github.com/warpdotdev/Warp/pull/42`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/remote_server/diff_state_proto_tests.rs:100](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/remote_server/diff_state_proto_tests.rs#L100) — test_or_test_documentation
+- `https://github.com/warpdotdev/warp`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/workspace/view/openwarp_launch_modal/view.rs:28](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view/openwarp_launch_modal/view.rs#L28) — retained_hosted_or_gated_ui
+- `https://github.com/warpdotdev/warp/blob/0b2273da3443eacc8d78b748f37962427e968fe5/app/src/terminal/local_tty/terminal_manager.rs#L139`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/terminal-manager-view-abstraction/TECH.md:10](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/terminal-manager-view-abstraction/TECH.md#L10) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/0b2273da3443eacc8d78b748f37962427e968fe5/app/src/terminal/terminal_manager.rs#L24`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/terminal-manager-view-abstraction/TECH.md:11](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/terminal-manager-view-abstraction/TECH.md#L11) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/0b2273da3443eacc8d78b748f37962427e968fe5/app/src/terminal/writeable_pty/terminal_manager_util.rs#L23`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/terminal-manager-view-abstraction/TECH.md:9](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/terminal-manager-view-abstraction/TECH.md#L9) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/1cdb4794e6d30f9c60d76167ec9b4ee823bc6a10/app/src/ai/agent_sdk/config_file.rs#L99-L136`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/managed-mcp-cli-resolution/TECH.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/managed-mcp-cli-resolution/TECH.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/1cdb4794e6d30f9c60d76167ec9b4ee823bc6a10/app/src/ai/agent_sdk/driver.rs#L1310-L1387`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/managed-mcp-cli-resolution/TECH.md:18](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/managed-mcp-cli-resolution/TECH.md#L18) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/1cdb4794e6d30f9c60d76167ec9b4ee823bc6a10/app/src/ai/agent_sdk/driver.rs#L1897-L1942`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/managed-mcp-cli-resolution/TECH.md:19](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/managed-mcp-cli-resolution/TECH.md#L19) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/1cdb4794e6d30f9c60d76167ec9b4ee823bc6a10/app/src/ai/agent_sdk/driver.rs#L2440-L2526`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/managed-mcp-cli-resolution/TECH.md:20](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/managed-mcp-cli-resolution/TECH.md#L20) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/1cdb4794e6d30f9c60d76167ec9b4ee823bc6a10/app/src/ai/agent_sdk/driver.rs#L971-L1045`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/managed-mcp-cli-resolution/TECH.md:17](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/managed-mcp-cli-resolution/TECH.md#L17) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/1cdb4794e6d30f9c60d76167ec9b4ee823bc6a10/app/src/ai/agent_sdk/mcp_config.rs#L7-L60`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/managed-mcp-cli-resolution/TECH.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/managed-mcp-cli-resolution/TECH.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/1cdb4794e6d30f9c60d76167ec9b4ee823bc6a10/app/src/ai/mcp/parsing.rs#L256-L374`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/managed-mcp-cli-resolution/TECH.md:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/managed-mcp-cli-resolution/TECH.md#L21) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/1cdb4794e6d30f9c60d76167ec9b4ee823bc6a10/app/src/ai/mcp/templatable_installation.rs#L100-L155`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/managed-mcp-cli-resolution/TECH.md:22](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/managed-mcp-cli-resolution/TECH.md#L22) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/1cdb4794e6d30f9c60d76167ec9b4ee823bc6a10/app/src/server/server_api.rs#L1630-L1680`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/managed-mcp-cli-resolution/TECH.md:23](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/managed-mcp-cli-resolution/TECH.md#L23) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/1cdb4794e6d30f9c60d76167ec9b4ee823bc6a10/crates/warp_cli/src/mcp.rs#L14-L24`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/managed-mcp-cli-resolution/TECH.md:14](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/managed-mcp-cli-resolution/TECH.md#L14) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/1cdb4794e6d30f9c60d76167ec9b4ee823bc6a10/crates/warp_cli/src/mcp.rs#L51-L70`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/managed-mcp-cli-resolution/TECH.md:14](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/managed-mcp-cli-resolution/TECH.md#L14) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/46265f499a3a32a488f640c0fce7565bb763496f/app/src/ai/blocklist/action_model/execute/call_mcp_tool.rs#L105-L126`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-2527/TECH.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-2527/TECH.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/46265f499a3a32a488f640c0fce7565bb763496f/app/src/ai/blocklist/block.rs#L2043-L2080`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-2527/TECH.md:14](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-2527/TECH.md#L14) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/46265f499a3a32a488f640c0fce7565bb763496f/app/src/ai/blocklist/inline_action/inline_action_header.rs#L96-L107`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-2527/TECH.md:18](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-2527/TECH.md#L18) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/46265f499a3a32a488f640c0fce7565bb763496f/app/src/ai/blocklist/inline_action/requested_command.rs#L1393-L1484`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-2527/TECH.md:11](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-2527/TECH.md#L11) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/46265f499a3a32a488f640c0fce7565bb763496f/app/src/ai/blocklist/inline_action/requested_command.rs#L1438-L1445`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-2527/TECH.md:12](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-2527/TECH.md#L12) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/46265f499a3a32a488f640c0fce7565bb763496f/app/src/ai/blocklist/inline_action/requested_command.rs#L475-L481`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-2527/TECH.md:13](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-2527/TECH.md#L13) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/46265f499a3a32a488f640c0fce7565bb763496f/crates/ai/src/agent/action_result/mod.rs#L1056-L1077`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-2527/TECH.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-2527/TECH.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/46265f499a3a32a488f640c0fce7565bb763496f/crates/warp_core/src/ui/theme/color.rs#L361-L424`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-2527/TECH.md:17](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-2527/TECH.md#L17) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/code_review/code_review_view.rs#L6266`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L21) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/code_review/code_review_view.rs#L6293`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:13](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L13) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/code_review/code_review_view.rs#L6397`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:9](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L9) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/code_review/diff_state/local.rs#L1281`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:22](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L22) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/code_review/diff_state/local.rs#L999`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L21) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/code_review/diff_state/mod.rs#L270`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:12](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L12) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/code_review/diff_state/mod.rs#L336`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:12](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L12) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/code_review/git_dialog/mod.rs#L479`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:9](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L9) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/code_review/git_status_update.rs#L587`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L21) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/remote_server/diff_state_tracker.rs#L28`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/remote_server/server_model.rs#L2506`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/remote_server/server_model.rs#L2587`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/app/src/util/git.rs#L327`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:22](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L22) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/crates/remote_server/proto/diff_state.proto#L197`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/crates/remote_server/src/client/mod.rs#L1060`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/4ca690bee7655421f82280ae166f05e3a91a47f5/crates/remote_server/src/manager.rs#L1985`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/remote-git-operations/TECH.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/remote-git-operations/TECH.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/CONTRIBUTING.md#L90-L107`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:8](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L8) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/block.rs#L1100-L1102`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:10](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L10) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/ansi_handler.rs#L1500-L1534`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/ansi_handler.rs#L1536-L1582`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/grid_handler.rs#L330-L340`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:11](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L11) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/grid_handler.rs#L490-L492`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:12](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L12) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/grid_handler_tests.rs#L1511-L1530`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:23](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L23) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/grid_handler_tests.rs#L1533-L1563`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:24](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L24) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/grid_handler_tests.rs#L1769-L1774`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:25](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L25) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/grid_handler_tests.rs#L2001-L2022`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:26](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L26) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/grid_handler_tests.rs#L2208-L2247`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:27](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L27) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/grid_storage/resize.rs#L308-L363`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:17](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L17) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/grid_storage/resize.rs#L365-L390`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:18](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L18) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/resize.rs#L57-L82`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:13](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L13) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/model/grid/resize.rs#L98-L158`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:14](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L14) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/app/src/terminal/view.rs#L12935-L12955`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:9](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L9) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/crates/warp_terminal/src/model/grid/flat_storage/mod.rs#L124-L140`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L21) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/crates/warp_terminal/src/model/grid/flat_storage/mod.rs#L185-L217`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:20](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L20) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/crates/warp_terminal/src/model/grid/flat_storage/row_iterator.rs#L86-L133`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:22](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L22) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/55b411ec694a5c16a01929bcaef1d8f971677ca2/crates/warp_terminal/src/model/grid/row.rs#L66-L92`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/GH12243/tech.md:19](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/GH12243/tech.md#L19) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/68acdf7601cc1824d4f4dd250485aca8329efc17/app/src/features.rs#L480`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/codex-warp-plugin/TECH.md:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/codex-warp-plugin/TECH.md#L21) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/68acdf7601cc1824d4f4dd250485aca8329efc17/app/src/terminal/cli_agent_sessions/listener/mod.rs#L14`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/codex-warp-plugin/TECH.md:10](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/codex-warp-plugin/TECH.md#L10) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/68acdf7601cc1824d4f4dd250485aca8329efc17/app/src/terminal/cli_agent_sessions/listener/mod.rs#L87`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/codex-warp-plugin/TECH.md:11](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/codex-warp-plugin/TECH.md#L11) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/68acdf7601cc1824d4f4dd250485aca8329efc17/app/src/terminal/cli_agent_sessions/plugin_manager/claude.rs#L17`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/codex-warp-plugin/TECH.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/codex-warp-plugin/TECH.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/68acdf7601cc1824d4f4dd250485aca8329efc17/app/src/terminal/cli_agent_sessions/plugin_manager/codex.rs#L17`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/codex-warp-plugin/TECH.md:14](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/codex-warp-plugin/TECH.md#L14) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/68acdf7601cc1824d4f4dd250485aca8329efc17/app/src/terminal/cli_agent_sessions/plugin_manager/codex.rs#L57`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/codex-warp-plugin/TECH.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/codex-warp-plugin/TECH.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/68acdf7601cc1824d4f4dd250485aca8329efc17/app/src/terminal/cli_agent_sessions/plugin_manager/mod.rs#L222`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/codex-warp-plugin/TECH.md:17](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/codex-warp-plugin/TECH.md#L17) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/68acdf7601cc1824d4f4dd250485aca8329efc17/crates/warp_features/src/lib.rs#L789`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/codex-warp-plugin/TECH.md:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/codex-warp-plugin/TECH.md#L21) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/assets/bundled/bootstrap/bash_body.sh#L432`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:41](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L41) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/assets/bundled/bootstrap/fish.sh#L267`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:41](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L41) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/assets/bundled/bootstrap/pwsh.ps1#L442`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:41](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L41) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/assets/bundled/bootstrap/zsh_body.sh#L301`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:41](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L41) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/model/ansi/mod.rs#L552-L609`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:18](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L18) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/model/block.rs#L1560-L1620`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:31](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L31) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/model/block.rs#L3329-L3400`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L21) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/model/block/serialized_block.rs#L160-L365`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:33](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L33) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/model/blocks.rs#L2801-L2840`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:26](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L26) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/model/blocks.rs#L2975-L3055`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:32](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L32) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/model/blocks.rs#L3715-L3795`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:20](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L20) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/model/terminal_model.rs#L1639-L1695`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:25](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L25) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/model/terminal_model.rs#L2700-L2780`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:19](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L19) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/model/terminal_model.rs#L3010-L3050`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:37](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L37) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/shared_session/sharer/network.rs#L1518-L1595`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:38](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L38) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/shared_session/viewer/event_loop.rs#L180-L305`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:39](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L39) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/73858e86d5aa813907d7f076c14ceb485bcc2c35/app/src/terminal/writeable_pty/pty_controller.rs#L492-L610`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1973/TECH.md:27](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1973/TECH.md#L27) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/84276e0732860798fa49eb7372e6ee90cdf1728b/app/src/ai/agent/conversation.rs#L4205`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1894/TECH.md:22](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L22) — historical_or_upstream_record
+  - [specs/REMOTE-1894/TECH.md:30](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L30) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/84276e0732860798fa49eb7372e6ee90cdf1728b/app/src/ai/agent_sdk/driver.rs#L2793`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1894/TECH.md:23](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L23) — historical_or_upstream_record
+  - [specs/REMOTE-1894/TECH.md:32](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L32) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/84276e0732860798fa49eb7372e6ee90cdf1728b/app/src/ai/blocklist/controller.rs#L2783`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1894/TECH.md:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L21) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/84276e0732860798fa49eb7372e6ee90cdf1728b/app/src/ai/blocklist/controller/response_stream.rs#L388`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1894/TECH.md:50](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L50) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/84276e0732860798fa49eb7372e6ee90cdf1728b/app/src/ai/blocklist/controller/response_stream.rs#L41`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1894/TECH.md:20](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L20) — historical_or_upstream_record
+  - [specs/REMOTE-1894/TECH.md:40](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L40) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/84276e0732860798fa49eb7372e6ee90cdf1728b/app/src/ai/blocklist/local_agent_task_sync_model.rs#L322`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1894/TECH.md:24](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L24) — historical_or_upstream_record
+  - [specs/REMOTE-1894/TECH.md:33](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L33) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/84276e0732860798fa49eb7372e6ee90cdf1728b/app/src/server/server_api.rs#L341`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1894/TECH.md:44](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L44) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/ai/blocklist/block/status_bar.rs#L231-L248`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/ai/blocklist/block/status_bar.rs#L838`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:12](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L12) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/ai/blocklist/queued_query.rs#L366`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:9](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L9) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/settings/ai.rs#L496-L533`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/settings_view/ai_page.rs#L5771-L5790`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:17](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L17) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/settings_view/mod.rs#L521-L522`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:17](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L17) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/terminal/input.rs#L13778`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:10](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L10) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/terminal/input.rs#L14409`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/terminal/input.rs#L6141`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:11](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L11) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/terminal/model/block/interaction_mode.rs#L102`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:13](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L13) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/terminal/view.rs#L27035`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:14](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L14) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/8e984f0d784f38684472054978db10f39ff7ea5c/app/src/workspace/view.rs#L22371`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-839/TECH.md:17](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-839/TECH.md#L17) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/a90be740b2416c91728a0d7bd172169e4b5ab5a0/app/src/ai/aws_credentials.rs#L303`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REV-1599/TECH.md:14](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REV-1599/TECH.md#L14) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/a90be740b2416c91728a0d7bd172169e4b5ab5a0/crates/ai/src/api_keys.rs#L292`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REV-1599/TECH.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REV-1599/TECH.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/a90be740b2416c91728a0d7bd172169e4b5ab5a0/crates/ai/src/aws_credentials.rs#L38`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REV-1599/TECH.md:13](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REV-1599/TECH.md#L13) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/a90be740b2416c91728a0d7bd172169e4b5ab5a0/crates/managed_secrets/src/gcp.rs#L198`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REV-1599/TECH.md:17](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REV-1599/TECH.md#L17) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/a90be740b2416c91728a0d7bd172169e4b5ab5a0/crates/managed_secrets/src/manager.rs#L215`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REV-1599/TECH.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REV-1599/TECH.md#L16) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e367c9de8b9629600885e40b029c10c8915f9ec8/app/src/server/telemetry/events.rs#L2945-L2963`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-4717/TECH.md:12](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-4717/TECH.md#L12) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e367c9de8b9629600885e40b029c10c8915f9ec8/app/src/terminal/input.rs#L12808`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-4717/TECH.md:7](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-4717/TECH.md#L7) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e367c9de8b9629600885e40b029c10c8915f9ec8/app/src/terminal/input.rs#L3755-L3793`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-4717/TECH.md:8](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-4717/TECH.md#L8) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e367c9de8b9629600885e40b029c10c8915f9ec8/app/src/terminal/input.rs#L9756-L9763`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-4717/TECH.md:11](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-4717/TECH.md#L11) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e367c9de8b9629600885e40b029c10c8915f9ec8/app/src/terminal/view/queued_prompts_panel.rs#L580-L620`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-4717/TECH.md:9](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-4717/TECH.md#L9) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e367c9de8b9629600885e40b029c10c8915f9ec8/app/src/terminal/view/queued_prompts_panel.rs#L853-L903`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/APP-4717/TECH.md:10](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/APP-4717/TECH.md#L10) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e36e8ddf823d6a25a5225251a7db60698f5da74d/app/src/terminal/model/blocks.rs#L1173-L1180`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/tui-transcript-view/TECH.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/tui-transcript-view/TECH.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e36e8ddf823d6a25a5225251a7db60698f5da74d/app/src/terminal/model/blocks.rs#L121-L196`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/tui-transcript-view/TECH.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/tui-transcript-view/TECH.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e36e8ddf823d6a25a5225251a7db60698f5da74d/app/src/terminal/model/blocks.rs#L225-L270`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/tui-transcript-view/TECH.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/tui-transcript-view/TECH.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e36e8ddf823d6a25a5225251a7db60698f5da74d/app/src/terminal/model/blocks.rs#L2349-L2351`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/tui-transcript-view/TECH.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/tui-transcript-view/TECH.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e36e8ddf823d6a25a5225251a7db60698f5da74d/app/src/terminal/view.rs#L6030-L6220`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/tui-transcript-view/TECH.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/tui-transcript-view/TECH.md#L15) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e36e8ddf823d6a25a5225251a7db60698f5da74d/crates/warpui_core/src/elements/tui/mod.rs#L96-L140`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/tui-transcript-view/TECH.md:13](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/tui-transcript-view/TECH.md#L13) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/e36e8ddf823d6a25a5225251a7db60698f5da74d/crates/warpui_core/src/presenter/tui.rs#L81-L208`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/tui-transcript-view/TECH.md:13](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/tui-transcript-view/TECH.md#L13) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/blob/master/CONTRIBUTING.md`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/workspace/view/openwarp_launch_modal/view.rs:29](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view/openwarp_launch_modal/view.rs#L29) — retained_hosted_or_gated_ui
+- `https://github.com/warpdotdev/warp/pull/10030`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:34](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L34) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/10057`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:30](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L30) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/10096`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:36](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L36) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/10114`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:35](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L35) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/10120`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:14](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L14) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/10176`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:71](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L71) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/10184`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:32](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L32) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/10219`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:29](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L29) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/10490#issuecomment-4423492563`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/gh-10207/TECH.md:25](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/gh-10207/TECH.md#L25) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/pull/10490#issuecomment-4427103160`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/gh-10207/TECH.md:38](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/gh-10207/TECH.md#L38) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/pull/10777`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/QUALITY-672/TECH.md:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/QUALITY-672/TECH.md#L3) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/pull/123`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/ai/blocklist/context_model_tests.rs:387](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/blocklist/context_model_tests.rs#L387) — test_or_test_documentation
+  - [app/src/ai/blocklist/context_model_tests.rs:444](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/blocklist/context_model_tests.rs#L444) — test_or_test_documentation
+- `https://github.com/warpdotdev/warp/pull/1234`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/SKILL.md:55](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/SKILL.md#L55) — maintainer_skill_or_instruction
+  - [.agents/skills/changelog-draft/SKILL.md:205](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/SKILL.md#L205) — maintainer_skill_or_instruction
+  - [.agents/skills/changelog-draft/SKILL.md:218](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/SKILL.md#L218) — maintainer_skill_or_instruction
+  - [.agents/skills/changelog-draft/SKILL.md:237](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/SKILL.md#L237) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/1235`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/SKILL.md:208](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/SKILL.md#L208) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/1236`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/SKILL.md:211](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/SKILL.md#L211) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/1237`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/SKILL.md:214](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/SKILL.md#L214) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/12431`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [specs/REMOTE-1894/TECH.md:3](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/specs/REMOTE-1894/TECH.md#L3) — historical_or_upstream_record
+- `https://github.com/warpdotdev/warp/pull/2147483648`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/ai/blocklist/context_model_tests.rs:408](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/ai/blocklist/context_model_tests.rs#L408) — test_or_test_documentation
+- `https://github.com/warpdotdev/warp/pull/9244`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:52](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L52) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9252`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:61](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L61) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9273`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:25](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L25) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9275`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:10](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L10) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9285`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:53](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L53) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9297`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:47](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L47) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9305`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:11](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L11) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9320`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:62](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L62) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9322`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:68](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L68) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9326`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:58](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L58) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9332`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:63](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L63) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9345`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:51](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L51) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9347`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:66](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L66) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9352`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:72](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L72) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9360`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:21](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L21) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9366`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:49](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L49) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9388`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:67](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L67) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9397`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:48](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L48) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9424`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:44](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L44) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9437`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:43](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L43) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9448`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:33](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L33) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9471`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:65](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L65) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9474`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:64](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L64) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9475`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:24](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L24) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9476`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:45](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L45) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9491`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:39](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L39) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9492`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:38](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L38) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9493`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:16](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L16) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9497`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:22](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L22) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9500`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:23](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L23) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9503`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:56](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L56) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9514`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:57](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L57) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9540`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:54](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L54) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9553`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:18](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L18) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9555`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:26](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L26) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9590`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:60](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L60) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9617`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:59](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L59) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9655`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:79](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L79) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9665`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:55](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L55) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9681`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:20](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L20) — maintainer_skill_or_instruction
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:50](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L50) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9730`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:31](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L31) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9837`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:15](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L15) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9852`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:46](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L46) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9863`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:41](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L41) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9866`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:17](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L17) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9877`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:37](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L37) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9891`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:40](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L40) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9987`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:42](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L42) — maintainer_skill_or_instruction
+- `https://github.com/warpdotdev/warp/pull/9993`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [.agents/skills/changelog-draft/examples/changelog-draft-example.md:19](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/.agents/skills/changelog-draft/examples/changelog-draft-example.md#L19) — maintainer_skill_or_instruction
+- `https://warp.dev`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/notebooks/editor/model_tests.rs:402](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L402) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:408](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L408) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:420](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L420) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:434](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L434) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:444](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L444) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:791](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L791) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:806](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L806) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:3003](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L3003) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:3017](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L3017) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:3017](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L3017) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:3017](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L3017) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:3017](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L3017) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:3034](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L3034) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:3034](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L3034) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:3034](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L3034) — test_or_test_documentation
+  - [app/src/notebooks/editor/model_tests.rs:3034](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/model_tests.rs#L3034) — test_or_test_documentation
+  - [app/src/notebooks/editor/view_tests.rs:616](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/view_tests.rs#L616) — test_or_test_documentation
+  - [app/src/notebooks/editor/view_tests.rs:628](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/view_tests.rs#L628) — test_or_test_documentation
+  - [app/src/notebooks/editor/view_tests.rs:659](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/view_tests.rs#L659) — test_or_test_documentation
+  - [app/src/notebooks/editor/view_tests.rs:895](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/editor/view_tests.rs#L895) — test_or_test_documentation
+  - [app/src/notebooks/link_tests.rs:256](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/link_tests.rs#L256) — test_or_test_documentation
+  - [app/src/notebooks/link_tests.rs:257](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/notebooks/link_tests.rs#L257) — test_or_test_documentation
+  - [app/src/terminal/view_tests.rs:5375](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view_tests.rs#L5375) — test_or_test_documentation
+  - [app/src/terminal/view_tests.rs:5377](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view_tests.rs#L5377) — test_or_test_documentation
+  - [app/src/terminal/view_tests.rs:5378](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/view_tests.rs#L5378) — test_or_test_documentation
+  - [app/src/workspace/view.rs:21196](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view.rs#L21196) — runtime_ui_or_message_candidate
+  - [crates/app-installation-detection/src/lib.rs:40](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/app-installation-detection/src/lib.rs#L40) — other_tracked_reference
+  - [crates/editor/src/content/buffer_tests.rs:3151](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/buffer_tests.rs#L3151) — test_or_test_documentation
+  - [crates/editor/src/content/edit_tests.rs:62](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/edit_tests.rs#L62) — test_or_test_documentation
+  - [crates/editor/src/content/edit_tests.rs:77](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/edit_tests.rs#L77) — test_or_test_documentation
+  - [crates/editor/src/content/edit_tests.rs:86](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/edit_tests.rs#L86) — test_or_test_documentation
+  - [crates/editor/src/content/edit_tests.rs:100](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/edit_tests.rs#L100) — test_or_test_documentation
+  - [crates/editor/src/content/edit_tests.rs:130](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/edit_tests.rs#L130) — test_or_test_documentation
+  - [crates/editor/src/content/edit_tests.rs:136](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/edit_tests.rs#L136) — test_or_test_documentation
+  - [crates/editor/src/content/edit_tests.rs:151](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/edit_tests.rs#L151) — test_or_test_documentation
+  - [crates/editor/src/content/edit_tests.rs:176](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/edit_tests.rs#L176) — test_or_test_documentation
+  - [crates/editor/src/content/edit_tests.rs:191](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/edit_tests.rs#L191) — test_or_test_documentation
+  - [crates/editor/src/content/edit_tests.rs:208](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/edit_tests.rs#L208) — test_or_test_documentation
+  - [crates/editor/src/content/edit_tests.rs:895](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/edit_tests.rs#L895) — test_or_test_documentation
+  - [crates/editor/src/content/find_tests.rs:47](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/content/find_tests.rs#L47) — test_or_test_documentation
+  - [crates/editor/src/render/model/mod_tests.rs:1397](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/render/model/mod_tests.rs#L1397) — test_or_test_documentation
+  - [crates/editor/src/render/model/mod_tests.rs:1412](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/render/model/mod_tests.rs#L1412) — test_or_test_documentation
+  - [crates/editor/src/render/model/mod_tests.rs:1420](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/render/model/mod_tests.rs#L1420) — test_or_test_documentation
+  - [crates/editor/src/render/model/mod_tests.rs:1424](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/render/model/mod_tests.rs#L1424) — test_or_test_documentation
+  - [crates/editor/src/render/model/table_offset_map_tests.rs:149](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/render/model/table_offset_map_tests.rs#L149) — test_or_test_documentation
+  - [crates/editor/src/render/model/table_offset_map_tests.rs:161](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/editor/src/render/model/table_offset_map_tests.rs#L161) — test_or_test_documentation
+  - [crates/markdown_parser/src/markdown_parser_tests.rs:853](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/markdown_parser/src/markdown_parser_tests.rs#L853) — test_or_test_documentation
+  - [crates/markdown_parser/src/markdown_parser_tests.rs:858](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/markdown_parser/src/markdown_parser_tests.rs#L858) — test_or_test_documentation
+  - [crates/markdown_parser/src/markdown_parser_tests.rs:1068](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/markdown_parser/src/markdown_parser_tests.rs#L1068) — test_or_test_documentation
+  - [crates/markdown_parser/src/markdown_parser_tests.rs:1075](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/markdown_parser/src/markdown_parser_tests.rs#L1075) — test_or_test_documentation
+  - [crates/markdown_parser/src/markdown_parser_tests.rs:1433](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/markdown_parser/src/markdown_parser_tests.rs#L1433) — test_or_test_documentation
+  - [crates/markdown_parser/src/markdown_parser_tests.rs:1436](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/markdown_parser/src/markdown_parser_tests.rs#L1436) — test_or_test_documentation
+  - [crates/markdown_parser/src/markdown_parser_tests.rs:2801](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/markdown_parser/src/markdown_parser_tests.rs#L2801) — test_or_test_documentation
+  - [crates/markdown_parser/src/markdown_parser_tests.rs:2812](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/crates/markdown_parser/src/markdown_parser_tests.rs#L2812) — test_or_test_documentation
+  - [resources/linux/arch/app/PKGBUILD.template:6](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/arch/app/PKGBUILD.template#L6) — packaging_or_infrastructure
+  - [resources/linux/arch/cli/PKGBUILD.template:6](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/arch/cli/PKGBUILD.template#L6) — packaging_or_infrastructure
+  - [resources/linux/rpm/app/warp.spec.template:10](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/app/warp.spec.template#L10) — packaging_or_infrastructure
+  - [resources/linux/rpm/cli/warp.spec.template:10](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/rpm/cli/warp.spec.template#L10) — packaging_or_infrastructure
+- `https://warp.dev/`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [resources/linux/debian/app/control.template:9](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/debian/app/control.template#L9) — packaging_or_infrastructure
+  - [resources/linux/debian/cli/control.template:8](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/resources/linux/debian/cli/control.template#L8) — packaging_or_infrastructure
+- `https://warp.dev/#https://github.com/rkw6086/galaxy#g`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [script/linux/bundle_deb:57](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/script/linux/bundle_deb#L57) — packaging_or_infrastructure
+- `https://warp.dev/about`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/terminal/model/blocks/selection_tests.rs:706](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L706) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:707](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L707) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:731](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L731) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:749](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L749) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:767](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L767) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:801](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L801) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:802](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L802) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:838](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L838) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:858](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L858) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:931](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L931) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:932](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L932) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:935](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L935) — test_or_test_documentation
+  - [app/src/terminal/model/blocks/selection_tests.rs:955](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/terminal/model/blocks/selection_tests.rs#L955) — test_or_test_documentation
+- `https://warp.dev/download`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/workspace/view.rs:24137](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view.rs#L24137) — runtime_ui_or_message_candidate
+- `https://www.warp.dev`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/wasm_nux_dialog.rs:284](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/wasm_nux_dialog.rs#L284) — retained_hosted_or_gated_ui
+  - [flake.nix:238](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/flake.nix#L238) — packaging_or_infrastructure
+- `https://www.warp.dev/oz`
+  - Suggested treatment: Retain if required by upstream compatibility/integration; contextual review
+  - [app/src/workspace/view/free_tier_limit_hit_modal.rs:279](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view/free_tier_limit_hit_modal.rs#L279) — retained_hosted_or_gated_ui
+
+## Indirect central link consumers
+
+- `PRIVACY_POLICY_URL` → `https://www.warp.dev/privacy`: [app/src/app_menus.rs:198](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/app_menus.rs#L198)
+- `USER_DOCS_URL` → `https://docs.warp.dev/`: [app/src/app_menus.rs:934](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/app_menus.rs#L934)
+- `GITHUB_ISSUES_URL` → `https://github.com/warpdotdev/Warp/issues`: [app/src/app_menus.rs:935](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/app_menus.rs#L935)
+- `SLACK_URL` → `http://go.warp.dev/join-preview`: [app/src/app_menus.rs:936](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/app_menus.rs#L936)
+- `USER_DOCS_URL` → `https://docs.warp.dev/`: [app/src/resource_center/view.rs:256](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/resource_center/view.rs#L256)
+- `SLACK_URL` → `http://go.warp.dev/join-preview`: [app/src/resource_center/view.rs:257](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/resource_center/view.rs#L257)
+- `PRIVACY_POLICY_URL` → `https://www.warp.dev/privacy`: [app/src/settings_view/privacy_page.rs:53](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/settings_view/privacy_page.rs#L53)
+- `SLACK_URL` → `http://go.warp.dev/join-preview`: [app/src/workspace/view.rs:6771](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view.rs#L6771)
+- `USER_DOCS_URL` → `https://docs.warp.dev/`: [app/src/workspace/view.rs:6775](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view.rs#L6775)
+- `PRIVACY_POLICY_URL` → `https://www.warp.dev/privacy`: [app/src/workspace/view.rs:6794](https://github.com/rkw6086/galaxy/blob/600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca/app/src/workspace/view.rs#L6794)

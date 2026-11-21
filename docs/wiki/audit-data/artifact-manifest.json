@@ -1,0 +1,17 @@
+{
+  "source_commit": "600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca",
+  "raw_source_records_verified": true,
+  "derived_mapping_refinement": "Private security/support/CoC channels require maintainer approval; numbered upstream issue references retain provenance.",
+  "files": {
+    "README.md": "9bf631c059a562badcf91eb5506b11be994ddbd19fb7692d35f29ef68babc012",
+    "collect.py": "3e5f1f05b84cba94da4506971a86a143268eed7be14d8678057f7fbb7160353d",
+    "domain-mentions.json": "866420f35822defca2a305b3800b5129db636d7d22302fe55a2d410ab208e0d2",
+    "indirect-central-links.json": "4f07d7aa3a21504b9fdafd17a2032bd6263aeffeb2cb334a3702970959685f96",
+    "inventory.csv": "35732703aee98c47b64cc4eda77f6be13425d9f655c388df6e8e88b6536177d6",
+    "inventory.json": "4dcb694ced17c19374018f2c4c75f2055b10b5f363ddb18b14e2fd45eff7418e",
+    "reference-appendix.md": "e7d9e2895626661062d484cccefdb5fa24f2ff91b81924792db786e9b0ad768c",
+    "runtime-and-public-docs-appendix.md": "0819344f285ae34f0a7ce3b0dd351ce48f2ee300b39b16dac239ba88653531cd",
+    "runtime-and-public-docs.json": "8ae1c00a27279a4494cc8fbb0b5948451ec5e9dc0245e715e884f47120561c95",
+    "summary.json": "45fe3c4ca7cb85cff980940420c1ed51f2092f50e850572d16aa142fc4a1d68e"
+  }
+}

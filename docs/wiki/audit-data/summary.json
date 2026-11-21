@@ -1,0 +1,49 @@
+{
+  "source_commit": "600d7970c55e6f388ea61ab6d9f95fc8e33cd2ca",
+  "excluded_generated_paths": [
+    "docs/wiki/**",
+    "docs/generated/warp-reference-audit/**",
+    "warp-reference-audit/**"
+  ],
+  "scope": "All tracked text at the resolved Git commit (generated wiki/audit paths excluded), Warp-owned website URLs and support/security/feedback contacts, plus upstream Warp issue/security URLs. Domain mentions and indirect central constants recorded separately. No external links fetched; static visibility classifications are not a runtime reachability claim.",
+  "literal_occurrences": 531,
+  "unique_literal_references": 361,
+  "files_with_literal_references": 142,
+  "domain_mention_lines": 731,
+  "indirect_central_constant_uses": 10,
+  "by_category": {
+    "maintainer_skill_or_instruction": 80,
+    "repository_or_developer_documentation": 1,
+    "repository_documentation_or_contact": 13,
+    "historical_or_upstream_record": 151,
+    "source_comment_or_developer_reference": 15,
+    "user_visible_configuration_template": 2,
+    "retained_hosted_or_gated_ui": 50,
+    "runtime_ui_or_message_candidate": 91,
+    "test_or_test_documentation": 98,
+    "endpoint_or_compatibility_identifier": 8,
+    "other_tracked_reference": 1,
+    "packaging_or_infrastructure": 21
+  },
+  "by_topic": {
+    "Upstream website or source reference": 279,
+    "Upstream issue/security reporting": 57,
+    "Upstream blog": 3,
+    "Service/update endpoint or compatibility identifier": 44,
+    "Agents, providers and editor": 32,
+    "Troubleshooting, shells and updates": 11,
+    "Privacy and security": 2,
+    "Upstream support/contact": 14,
+    "General documentation": 2,
+    "Upstream community": 3,
+    "Legal and privacy": 9,
+    "Launch and tab configuration": 4,
+    "Hosted agents and hosted CLI": 34,
+    "Terminal and appearance": 25,
+    "Local Drive and workflows": 4,
+    "Changelog": 2,
+    "Hosted billing": 6
+  },
+  "docs_warp_dev_occurrences": 115,
+  "docs_warp_dev_unique_urls": 83
+}
