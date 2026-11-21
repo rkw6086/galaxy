@@ -1,9 +1,7 @@
 # Galaxy native releases
 
-Primary source remains <https://git.ryserve.net/public/galaxy>. The Gitea **Sync
-GitHub** job copies branches and immutable version tags to
-<https://github.com/rkw6086/galaxy>. GitHub Actions builds and publishes current
-installers through [Build Galaxy](../.github/workflows/build.yml).
+GitHub Actions builds and publishes official installers through
+[Build Galaxy](../.github/workflows/build.yml).
 
 ## Supported downloads
 
@@ -33,30 +31,21 @@ the workflow run number and preparation attempt, so separate builds never reuse
 the same filenames. The timestamp comes from the trusted workflow creation time
 and stays unchanged when failed jobs are retried. The complete source commit,
 run ID and preparation attempt remain the internal build identity.
-Preparation binds the exact snapshot to both repository masters. Ordinary master
-advances during compilation do not discard that snapshot: a new publication
-requires it to remain an ancestor of both freshly fetched masters. Rewritten or
-missing history that no longer contains the snapshot stops that candidate;
-stable releases still require their exact tags.
+Each Nightly builds a specific source snapshot. Publication validates that
+snapshot's provenance; stable releases also require their exact immutable tags.
 
-A pushed bare Semantic Version tag, such as `3.1.5`, starts a stable build after
-Gitea synchronizes the tag to GitHub. Create a version newer than every retained
-numeric tag and point it to source already in `master`:
+A new bare Semantic Version tag on GitHub starts a stable build. Authorized
+maintainers should choose a version newer than every retained numeric tag and
+point it to source already in `master`. Version tags must not be moved or reused.
 
-```bash
-node script/release.mjs tag 3.1.5 --push
-```
-
-The command checks and pushes the immutable tag to `origin`. Gitea's sync jobs
-distribute it to GitHub and Samsung.
 The GitHub workflow stages the selected version in each build checkout without
 moving the tag or creating a source version commit. Release About displays that
 version. Original source manifests remain internally consistent; `prepare` is
 available when a committed source version bump is wanted.
 
 Pull requests targeting `master` build all three platforms without signing or
-publication. Fork builds receive no Apple credentials. The source, tag, and
-Gitea primary ref are validated before trusted Nightly or stable signing.
+publication. Fork builds receive no Apple credentials. The source and tag
+identities are validated before trusted Nightly or stable signing.
 
 The manual **Check Windows build** workflow validates Windows packaging
 independently while other native builds run. It uses the same unsigned build
@@ -107,8 +96,6 @@ Keep one rolling **Nightly** and every **tagged release**, including its assets.
 The publisher never deletes release records or tagged release assets. Numeric
 Git tags are retained. Previously purged releases are not recreated. GitHub
 immutable-release enforcement must remain off for the rolling Nightly policy.
-Old Gitea downloads remain separate historical fallbacks;
-retired Gitea macOS workflows live under `.gitea/retired-workflows/` and do not run.
 
 Transfer artifacts expire after one day and are deleted after successful
 publication. The workflow uses standard hosted runners, not billed larger

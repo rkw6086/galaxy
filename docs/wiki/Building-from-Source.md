@@ -18,7 +18,7 @@ git lfs install --local
 git lfs pull
 ```
 
-Gitea is the primary development source and synchronizes branches with GitHub and Samsung. Public contributors can work through the GitHub repository. Maintainers should follow the current repository instructions for remote and release operations.
+Public contributors can work through the GitHub repository. Follow the current contribution and release instructions for the task you are performing.
 
 ## Review platform setup first
 
@@ -132,15 +132,13 @@ The native release scripts are the authority for release features, resources, an
 
 These helpers expect validated CI inputs and job-specific directories. They are not generic copy-and-paste commands for an arbitrary shell.
 
-On a configured Mac development machine, `make install` uses the local build-and-install workflow for `/Applications`; `make deploy` uses the Hermes upload workflow. Both preserve incremental Cargo artifacts. `make clean` explicitly removes them. These maintainer workflows are separate from the signed GitHub release pipeline.
-
 A plain `cargo build --release` creates compiler output, not a `.deb`, DMG, or Windows installer. Use the platform bundling workflow and its documented prerequisites when you need a distributable application.
 
 ## Releases and CI
 
 GitHub Actions builds Windows x64, Linux x64, and Mac ARM concurrently. Pull requests build without official signing or publication. Trusted Nightly and tagged publication require validated source identity and all platform builds to succeed.
 
-Maintainers publish stable builds by creating an immutable **bare Semantic Version tag**, such as `4.0.1`, from appropriate source in `master`. Consult [the current release procedure](https://github.com/rkw6086/galaxy/blob/master/docs/release-macos.md) before tagging; do not move or reuse an existing version tag. Gitea distributes the tag to GitHub and Samsung. A manually triggered `Build Galaxy` run on `master` creates a rolling Nightly without creating a stable version tag.
+Maintainers publish stable builds by creating an immutable **bare Semantic Version tag**, such as `4.0.1`, from appropriate source in `master`. Consult [the current release procedure](https://github.com/rkw6086/galaxy/blob/master/docs/release-macos.md) before tagging; do not move or reuse an existing version tag. A manually triggered `Build Galaxy` run on `master` creates a rolling Nightly without creating a stable version tag.
 
 Native CI caches compiler results, public Cargo downloads, and version-checked packaging tools. Cache misses remain valid cold builds; signing, notarization, resources, and installer verification still run for the current source. Actual cache statistics are in each native job's logs.
 
@@ -152,4 +150,3 @@ Native CI caches compiler results, public Cargo downloads, and version-checked p
 - [App manifest and binary target](https://github.com/rkw6086/galaxy/blob/master/app/Cargo.toml)
 - [Bootstrap dispatcher](https://github.com/rkw6086/galaxy/blob/master/script/bootstrap)
 - [Native release policy](https://github.com/rkw6086/galaxy/blob/master/docs/release-macos.md)
-- [GitHub/Gitea synchronization](https://github.com/rkw6086/galaxy/blob/master/docs/github-sync.md)

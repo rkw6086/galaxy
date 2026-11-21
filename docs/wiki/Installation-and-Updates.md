@@ -1,6 +1,6 @@
 # Installation and updates
 
-Use the installers attached to [Galaxy GitHub Releases](https://github.com/rkw6086/galaxy/releases). Gitea is the primary development repository; GitHub builds and publishes the current public installers.
+Use the official installers attached to [Galaxy GitHub Releases](https://github.com/rkw6086/galaxy/releases).
 
 ## Choose a release
 
@@ -30,7 +30,7 @@ The current release matrix builds Linux packages on Ubuntu 24.04, Mac packages o
 2. Open the DMG and drag **Galaxy.app** to **Applications**.
 3. Eject the disk image and open Galaxy from Applications.
 
-Use the signed GitHub DMG for a normal installation. Older internal ZIP and ad-hoc installer workflows are separate from the current release pipeline.
+Use the signed GitHub DMG for a normal installation.
 
 ## Install on Ubuntu or Debian
 

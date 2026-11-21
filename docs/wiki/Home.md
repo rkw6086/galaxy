@@ -36,7 +36,6 @@ Local Docker Sandbox is an unfinished prototype. Its presence in a menu does not
 - [GitHub source and public contributions](https://github.com/rkw6086/galaxy)
 - [Official downloads](https://github.com/rkw6086/galaxy/releases)
 - [Report an ordinary bug](https://github.com/rkw6086/galaxy/issues)
-- [Primary development repository on Gitea](https://git.ryserve.net/public/galaxy)
 
 For a bug report, include the exact version or Nightly commit from About, your operating system and architecture, reproduction steps, expected and actual behavior, and sanitized diagnostics. The [support and security note](https://github.com/rkw6086/galaxy/wiki/Troubleshooting#reporting-a-problem) explains the current private-reporting gap; do not send Galaxy security reports to inherited Warp contacts.
 

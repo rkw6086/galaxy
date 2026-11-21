@@ -4,11 +4,9 @@ Galaxy is a local-first developer terminal with an agent that works alongside yo
 designed to keep your conversations, settings, and personal workspace data on your machine while
 letting you explicitly connect the model providers and local agents you choose.
 
-Primary development is hosted on [Gitea](https://git.ryserve.net/public/galaxy).
-The [GitHub repository](https://github.com/rkw6086/galaxy) accepts public
-contributions, synchronizes branches through Gitea with Samsung, and builds Windows, Linux, and
-Apple Silicon macOS installers. See [repository synchronization](docs/github-sync.md),
-[release builds](docs/release-macos.md), and
+The [GitHub repository](https://github.com/rkw6086/galaxy) hosts the source and accepts public
+contributions. Official installers are available for Windows, Linux, and Apple Silicon macOS.
+See [release builds](docs/release-macos.md) and
 [GitHub releases](https://github.com/rkw6086/galaxy/releases) for downloads.
 
 ## What Galaxy provides

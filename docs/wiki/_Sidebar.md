@@ -20,4 +20,3 @@
 - [Downloads](https://github.com/rkw6086/galaxy/releases)
 - [Report an ordinary bug](https://github.com/rkw6086/galaxy/issues)
 - [GitHub source](https://github.com/rkw6086/galaxy)
-- [Primary Gitea repository](https://git.ryserve.net/public/galaxy)
