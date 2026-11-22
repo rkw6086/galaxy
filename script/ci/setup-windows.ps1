@@ -79,6 +79,15 @@ $tools = Join-Path $env:RUNNER_TEMP "galaxy-tools-$env:GALAXY_JOB_ID"
 if (Test-Path $tools) { throw 'Use a fresh job tools directory.' }
 New-Item -ItemType Directory $tools | Out-Null
 New-Item -ItemType Directory (Join-Path $tools 'bin') | Out-Null
+# A native wrapper avoids PowerShell/cmd command-line limits and preserves
+# Cargo's @argfile when sccache would otherwise expand it past Windows' limit.
+# Build this std-only tool from the checked-out source, never from the cache.
+$rustcWrapper = Join-Path $tools 'bin\galaxy-rustc-wrapper.exe'
+& rustc --edition=2021 --crate-name galaxy_windows_rustc_wrapper --crate-type bin -C opt-level=1 -C strip=symbols `
+    (Join-Path $PSScriptRoot 'windows-rustc-wrapper.rs') -o $rustcWrapper
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $rustcWrapper -PathType Leaf)) {
+    throw 'Could not build the Windows response-file compiler wrapper.'
+}
 # The existing interactive bootstrap is intentionally not used for hosted CI.
 # protoc 25.1 supplies proto3 optional fields and its well-known schema SDK.
 $protoc = Join-Path $tools 'protoc'
@@ -174,6 +183,7 @@ foreach ($directory in @($rustupBin, (Join-Path $tools 'bin'), (Join-Path $proto
     "PROTOC=$env:PROTOC"
     "PROTOC_INCLUDE=$env:PROTOC_INCLUDE"
     "GALAXY_TOOLS_DIR=$tools"
+    "GALAXY_WINDOWS_RUSTC_WRAPPER=$rustcWrapper"
     "CARGO_TARGET_DIR=$buildTarget"
     "GALAXY_RELEASE_DIR=$(Join-Path $env:RUNNER_TEMP "galaxy-artifacts-$env:GALAXY_JOB_ID")"
 ) | Add-Content $env:GITHUB_ENV -Encoding utf8

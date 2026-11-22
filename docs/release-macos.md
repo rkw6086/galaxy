@@ -118,8 +118,11 @@ by successful trusted master Nightlies, before Apple credentials are available;
 pull requests and tagged builds may restore compatible master caches. Cargo
 credentials, signing material, and release payloads are excluded. Cache-service
 or compiler-cache setup failures fall back to ordinary compilation. The first
-run fills caches; later run statistics show actual reuse. If a wrapped Windows
-build fails, it retries the same locked build once with the normal compiler,
+run fills caches; later run statistics show actual reuse. Windows forwards Cargo
+response-file invocations directly to the native compiler, preserving the argument
+file instead of expanding it past Windows' command-line limit; ordinary dependency
+compilations still use sccache. If a wrapped Windows build fails for another reason,
+it retries the same locked build once with the normal compiler,
 retaining completed dependencies and requiring a successful final exit status.
 
 Local validation remains `cargo build` only. The development machine does not

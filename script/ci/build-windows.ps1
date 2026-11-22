@@ -62,21 +62,33 @@ $features = 'autoupdate,release_bundle,gui,galaxy_control_cli'
 # app/build.rs stages native resource-compiler inputs here independently of
 # CARGO_TARGET_DIR. This remains inside the disposable checkout's ignored target.
 New-Item -ItemType Directory (Join-Path $root 'target\release') -Force | Out-Null
-& cargo build --locked --release --target $target --bin galaxy-oss --bin generate_settings_schema --features $features
-$buildExitCode = $LASTEXITCODE
-if ($buildExitCode -ne 0 -and $env:RUSTC_WRAPPER) {
-    # A wrapper may exceed Windows command-line limits while scanning rustc
-    # inputs. Retry any wrapped failure once, without parsing compiler output.
-    # Cargo reuses completed dependencies from the same target directory.
-    $compilerWrapper = $env:RUSTC_WRAPPER
-    Write-Host "Wrapped Windows compilation failed (exit $buildExitCode); retrying once with RUSTC_WRAPPER disabled."
-    try {
+$compilerWrapper = $env:RUSTC_WRAPPER
+$cacheExecutable = $env:GALAXY_SCCACHE_EXECUTABLE
+try {
+    if ($compilerWrapper -ceq 'sccache') {
+        if (-not $env:GALAXY_WINDOWS_RUSTC_WRAPPER -or
+            -not [IO.Path]::IsPathRooted($env:GALAXY_WINDOWS_RUSTC_WRAPPER) -or
+            -not (Test-Path -LiteralPath $env:GALAXY_WINDOWS_RUSTC_WRAPPER -PathType Leaf)) {
+            throw 'Prepare the native response-file compiler wrapper before the cached build.'
+        }
+        $env:GALAXY_SCCACHE_EXECUTABLE = (Get-Command sccache -CommandType Application).Source
+        $env:RUSTC_WRAPPER = $env:GALAXY_WINDOWS_RUSTC_WRAPPER
+        Write-Host 'Compiler cache enabled; Cargo response-file invocations go directly to rustc.'
+    }
+    & cargo build --locked --release --target $target --bin galaxy-oss --bin generate_settings_schema --features $features
+    $buildExitCode = $LASTEXITCODE
+    if ($buildExitCode -ne 0 -and $compilerWrapper) {
+        # Retain one unwrapped recovery attempt for other wrapper failures.
+        # Cargo reuses completed dependencies from the same target directory.
+        Write-Host "Wrapped Windows compilation failed (exit $buildExitCode); retrying once with RUSTC_WRAPPER disabled."
         $env:RUSTC_WRAPPER = ''
         & cargo build --locked --release --target $target --bin galaxy-oss --bin generate_settings_schema --features $features
         $buildExitCode = $LASTEXITCODE
-    } finally {
-        $env:RUSTC_WRAPPER = $compilerWrapper
     }
+} finally {
+    # Cache statistics/flush and later tooling retain the original wrapper.
+    $env:RUSTC_WRAPPER = $compilerWrapper
+    $env:GALAXY_SCCACHE_EXECUTABLE = $cacheExecutable
 }
 if ($buildExitCode -ne 0) { throw 'Windows release compilation failed.' }
 $binaryDirectory = Join-Path $env:CARGO_TARGET_DIR "$target\release"
