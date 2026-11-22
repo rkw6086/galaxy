@@ -1,5 +1,5 @@
 use galaxy_core::report_if_error;
-use galaxy_core::ui::Icon;
+use galaxy_core::ui::icons::galaxy_brand_image;
 use galaxyui::elements::{
     ChildAnchor, Container, CrossAxisAlignment, Flex, MainAxisSize, OffsetPositioning,
     ParentAnchor, ParentElement, ParentOffsetBounds, Shrinkable, Stack, Text,
@@ -148,14 +148,10 @@ impl View for TerminalViewZeroStateBlock {
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_child(
                 Container::new(
-                    ConstrainedBox::new(
-                        Icon::Warp
-                            .to_galaxyui_icon(theme.main_text_color(theme.background()))
-                            .finish(),
-                    )
-                    .with_height(title_font_size)
-                    .with_width(title_font_size)
-                    .finish(),
+                    ConstrainedBox::new(galaxy_brand_image().finish())
+                        .with_height(title_font_size)
+                        .with_width(title_font_size)
+                        .finish(),
                 )
                 .with_margin_right(8.)
                 .finish(),

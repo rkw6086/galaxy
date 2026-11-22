@@ -1,5 +1,6 @@
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::icons::galaxy_brand_image;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::ui::Icon;
@@ -75,8 +76,7 @@ impl IntentionSlide {
     fn render_header(&self, appearance: &Appearance) -> Box<dyn Element> {
         let theme = appearance.theme();
 
-        let logo_fill = internal_colors::fg_overlay_4(theme);
-        let logo = ConstrainedBox::new(Icon::WarpLogoLight.to_galaxyui_icon(logo_fill).finish())
+        let logo = ConstrainedBox::new(galaxy_brand_image().finish())
             .with_width(64.)
             .with_height(64.)
             .finish();

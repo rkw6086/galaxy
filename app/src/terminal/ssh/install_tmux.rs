@@ -9,11 +9,9 @@ use crate::terminal::model::escape_sequences;
 use crate::terminal::wormhole::render;
 use crate::terminal::wormhole::settings::WormholeSettings;
 use crate::ui_components::blended_colors;
-use crate::ui_components::icons::Icon as UiIcon;
+use galaxy_core::ui::icons::galaxy_brand_image;
 use galaxy_core::ui::theme::GalaxyTheme;
-use galaxyui::elements::{
-    Hoverable, Icon, MainAxisAlignment, MainAxisSize, MouseStateHandle, Text,
-};
+use galaxyui::elements::{Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, Text};
 use galaxyui::keymap::FixedBinding;
 use galaxyui::ui_components::toggle_menu::ToggleMenuStateHandle;
 use galaxyui::{
@@ -311,14 +309,10 @@ impl SshInstallTmuxBlock {
         theme: &GalaxyTheme,
         appearance: &Appearance,
     ) -> Box<dyn Element> {
-        let header_contents = render::build_header_row(
-            "Install tmux?",
-            Icon::new(UiIcon::GalaxyLogo.into(), theme.active_ui_detail()),
-            theme,
-            appearance,
-        )
-        .with_margin_right(8.)
-        .finish();
+        let header_contents =
+            render::build_header_row("Install tmux?", galaxy_brand_image(), theme, appearance)
+                .with_margin_right(8.)
+                .finish();
 
         let is_awaiting_action = self.script_status == RequestedScriptStatus::WaitingForUser;
 
@@ -531,7 +525,6 @@ pub fn install_root_tmux_script(
     app: &AppContext,
     can_run_sudo: bool,
 ) -> Option<String> {
-
     let asset_source = match (
         system.operating_system.as_str(),
         system.package_manager.as_str(),

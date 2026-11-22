@@ -1,9 +1,21 @@
-use galaxyui_core::elements::Icon as WarpUiIcon;
+use galaxyui_core::assets::asset_cache::AssetSource;
+use galaxyui_core::elements::{CacheOption, Icon as WarpUiIcon, Image};
 
 use crate::ui::theme::Fill;
 
 /// Default icon dimensions that apply to all icons used within the ui system.
 pub const ICON_DIMENSIONS: f32 = 24.;
+
+/// Full-color Galaxy branding shared with the default macOS app icon.
+/// Button glyphs continue to use the theme-colored [`Icon::GalaxyLogo`].
+pub fn galaxy_brand_image() -> Image {
+    Image::new(
+        AssetSource::Bundled {
+            path: "bundled/png/galaxy.png",
+        },
+        CacheOption::BySize,
+    )
+}
 
 /// Icon enum to be used within the app in place of the galaxyui_core::elements::Icon directly. It
 /// abstracts things like svg paths out and provides a utility method to convert into the actual Icon.

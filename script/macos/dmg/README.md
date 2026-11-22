@@ -1,15 +1,19 @@
 # Galaxy disk-image artwork
 
-`background.svg` is the editable source. Its Galaxy mark comes from
-`app/assets/bundled/svg/galaxy-mark.svg`. The committed PNG exports are 700 × 500
+`background.svg` is the editable source. Its header uses the exact macOS app
+artwork at `app/assets/bundled/png/galaxy.png` through a relative image reference,
+without storing a second copy of that source image. The committed PNG exports
+are 700 × 500
 and 1400 × 1000 pixels; `dmgbuild` combines them into a Retina TIFF inside the
 image. They are installer resources, not app resources.
 
-To reproduce the exports using CairoSVG 2.9.1 and DejaVu Sans:
+To reproduce the exports using CairoSVG 2.9.1 and DejaVu Sans, run from the
+repository root. The `--unsafe` flag lets this trusted, tracked SVG load its local
+PNG reference; keep the SVG and canonical artwork in their repository locations.
 
 ```sh
-cairosvg background.svg -o background.png -s 1
-cairosvg background.svg -o background@2x.png -s 2
+cairosvg --unsafe script/macos/dmg/background.svg -o script/macos/dmg/background.png -s 1
+cairosvg --unsafe script/macos/dmg/background.svg -o script/macos/dmg/background@2x.png -s 2
 ```
 
 The real Finder app and Applications icons sit at (170, 250) and (530, 250),

@@ -14,7 +14,7 @@ use string_offset::CharOffset;
 use crate::color::ColorU;
 pub use crate::elements::shimmering_text::config::ShimmerConfig;
 use crate::elements::shimmering_text::glyph_index::GlyphIndex;
-use crate::elements::{Axis, Icon, Point, DEFAULT_UI_LINE_HEIGHT_RATIO};
+use crate::elements::{Axis, Icon, Image, Point, DEFAULT_UI_LINE_HEIGHT_RATIO};
 use crate::fonts::{FamilyId, Properties};
 use crate::geometry::rect::RectF;
 use crate::geometry::vector::{vec2f, Vector2F};
@@ -70,6 +70,20 @@ impl ShimmeringTextStateHandle {
     }
 }
 
+enum LeadingVisual {
+    Icon(Icon),
+    Image(Image),
+}
+
+impl LeadingVisual {
+    fn element_mut(&mut self) -> &mut dyn Element {
+        match self {
+            Self::Icon(icon) => icon,
+            Self::Image(image) => image,
+        }
+    }
+}
+
 /// An element that displays the given text using given `base_color` with a shimmer that animates
 /// from left to right with the given `shimmer_color`.
 ///
@@ -90,7 +104,7 @@ pub struct ShimmeringTextElement {
     origin: Option<Point>,
 
     handle: ShimmeringTextStateHandle,
-    leading_icon: Option<(Icon, f32, f32)>,
+    leading_visual: Option<(LeadingVisual, f32, f32)>,
 }
 
 impl ShimmeringTextElement {
@@ -113,13 +127,23 @@ impl ShimmeringTextElement {
             size: None,
             origin: None,
             handle: state_handle,
-            leading_icon: None,
+            leading_visual: None,
         }
     }
 
     /// Includes a leading icon in the same shimmer track as the text.
     pub fn with_leading_icon(mut self, path: &'static str, size: f32, gap: f32) -> Self {
-        self.leading_icon = Some((Icon::new(path, self.base_color), size, gap));
+        self.leading_visual = Some((
+            LeadingVisual::Icon(Icon::new(path, self.base_color)),
+            size,
+            gap,
+        ));
+        self
+    }
+
+    /// Includes a full-color image without applying the text's monochrome shimmer.
+    pub fn with_leading_image(mut self, image: Image, size: f32, gap: f32) -> Self {
+        self.leading_visual = Some((LeadingVisual::Image(image), size, gap));
         self
     }
 
@@ -173,7 +197,7 @@ impl ShimmeringTextElement {
             return PaintStyleOverride::default();
         }
 
-        let icon_offset = usize::from(self.leading_icon.is_some());
+        let icon_offset = usize::from(self.leading_visual.is_some());
         let center = self.shimmer_center(n + icon_offset, &state);
 
         let mut overrides = RangeMap::new();
@@ -199,11 +223,11 @@ impl Element for ShimmeringTextElement {
         app: &AppContext,
     ) -> Vector2F {
         let icon_width = self
-            .leading_icon
+            .leading_visual
             .as_ref()
             .map_or(0., |(_, size, gap)| size + gap);
-        if let Some((icon, size, _)) = &mut self.leading_icon {
-            icon.layout(
+        if let Some((visual, size, _)) = &mut self.leading_visual {
+            visual.element_mut().layout(
                 SizeConstraint {
                     min: vec2f(*size, *size),
                     max: vec2f(*size, *size),
@@ -273,8 +297,11 @@ impl Element for ShimmeringTextElement {
             (line.width + icon_width)
                 .max(constraint.min.x())
                 .min(constraint.max.x()),
-            line.height()
-                .max(self.leading_icon.as_ref().map_or(0., |(_, size, _)| *size)),
+            line.height().max(
+                self.leading_visual
+                    .as_ref()
+                    .map_or(0., |(_, size, _)| *size),
+            ),
         );
 
         self.size = Some(size);
@@ -282,8 +309,8 @@ impl Element for ShimmeringTextElement {
     }
 
     fn after_layout(&mut self, ctx: &mut crate::AfterLayoutContext, app: &AppContext) {
-        if let Some((icon, _, _)) = &mut self.leading_icon {
-            icon.after_layout(ctx, app);
+        if let Some((visual, _, _)) = &mut self.leading_visual {
+            visual.element_mut().after_layout(ctx, app);
         }
     }
 
@@ -315,9 +342,13 @@ impl Element for ShimmeringTextElement {
                 )
                 .to_u8()
         };
-        if let Some((icon, icon_size, gap)) = &mut self.leading_icon {
-            *icon = icon.with_color(icon_color);
-            icon.paint(origin + vec2f(0., (size.y() - *icon_size) / 2.), ctx, app);
+        if let Some((visual, icon_size, gap)) = &mut self.leading_visual {
+            if let LeadingVisual::Icon(icon) = visual {
+                *icon = icon.with_color(icon_color);
+            }
+            visual
+                .element_mut()
+                .paint(origin + vec2f(0., (size.y() - *icon_size) / 2.), ctx, app);
             text_origin += vec2f(*icon_size + *gap, 0.);
         }
         text_origin += vec2f(0., (size.y() - line.height()) / 2.);

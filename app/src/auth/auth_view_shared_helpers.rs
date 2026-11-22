@@ -5,12 +5,11 @@ use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::builder::UiBuilder;
 use galaxy_core::ui::color::{darken, lighten};
-use galaxy_core::ui::theme::ColorScheme;
+use galaxy_core::ui::icons::galaxy_brand_image;
 use pathfinder_color::ColorU;
-use warpui::assets::asset_cache::AssetSource;
 use warpui::elements::{
-    Border, CacheOption, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Fill, Flex,
-    Image, MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Shrinkable,
+    Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Fill, Flex,
+    MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Shrinkable,
 };
 use warpui::fonts::Weight;
 use warpui::ui_components::button::ButtonVariant;
@@ -120,24 +119,12 @@ where
 }
 
 pub fn render_square_logo(appearance: &Appearance) -> Box<dyn Element> {
-    let image_path = if appearance.theme().inferred_color_scheme() == ColorScheme::LightOnDark {
-        "bundled/svg/warp-logo-light.svg"
-    } else {
-        "bundled/svg/warp-logo-dark.svg"
-    };
-
     ConstrainedBox::new(
-        Container::new(
-            Image::new(
-                AssetSource::Bundled { path: image_path },
-                CacheOption::BySize,
-            )
+        Container::new(galaxy_brand_image().finish())
+            .with_background(appearance.theme().surface_2())
+            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(10.)))
+            .with_horizontal_padding(11.)
             .finish(),
-        )
-        .with_background(appearance.theme().surface_2())
-        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(10.)))
-        .with_horizontal_padding(11.)
-        .finish(),
     )
     .with_width(64.)
     .with_height(64.)

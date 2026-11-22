@@ -1,4 +1,5 @@
 use asset_macro::bundled_asset;
+use galaxy_core::ui::icons::galaxy_brand_image;
 use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::assets::asset_cache::{AssetCache, AssetState};
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
@@ -7,8 +8,7 @@ use crate::ai::blocklist::inline_action::requested_action::RenderableAction;
 use crate::appearance::Appearance;
 use crate::terminal::shell::ShellType;
 use crate::terminal::wormhole;
-use crate::ui_components::icons::Icon as UiIcon;
-use galaxyui::elements::{HighlightedHyperlink, Hoverable, Icon, MouseStateHandle};
+use galaxyui::elements::{HighlightedHyperlink, Hoverable, MouseStateHandle};
 use galaxyui::keymap::FixedBinding;
 use galaxyui::AppContext;
 use galaxyui::{
@@ -65,7 +65,7 @@ impl Entity for SshWormholeBlock {
 
 impl SshWormholeBlock {
     fn render_title_ui(&self, theme: &GalaxyTheme, appearance: &Appearance) -> Box<dyn Element> {
-        let icon = Icon::new(UiIcon::GalaxyLogo.into(), theme.active_ui_detail());
+        let icon = galaxy_brand_image();
         wormhole::render::header_row("Wormholing SSH Session...", icon, theme, appearance)
     }
 }

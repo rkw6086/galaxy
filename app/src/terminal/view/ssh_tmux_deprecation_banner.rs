@@ -6,6 +6,7 @@
 //! `ssh_tmux_deprecation_notice_pending` setting, which is set by a one-time migration and
 //! cleared by the parent [`crate::terminal::TerminalView`] once the banner is shown.
 
+use galaxy_core::ui::icons::galaxy_brand_image;
 use galaxy_core::ui::theme::color::internal_colors;
 use warpui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Flex, Hoverable, MainAxisAlignment,
@@ -71,7 +72,7 @@ impl View for SshTmuxDeprecationBanner {
 
         // Galaxy icon to match the other wormholing blocks.
         let icon = Container::new(
-            ConstrainedBox::new(Icon::GalaxyLogo.to_warpui_icon(fg_color.into()).finish())
+            ConstrainedBox::new(galaxy_brand_image().finish())
                 .with_width(16.)
                 .with_height(16.)
                 .finish(),

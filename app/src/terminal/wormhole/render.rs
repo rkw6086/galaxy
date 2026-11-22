@@ -37,7 +37,7 @@ pub const LEFT_STRIPE_WIDTH: f32 = 5.;
 
 pub fn build_header_row(
     text: &'static str,
-    icon: Icon,
+    icon: impl Element + 'static,
     theme: &GalaxyTheme,
     appearance: &Appearance,
 ) -> Container {
@@ -76,7 +76,7 @@ pub fn apply_spacing_styles(header_row: Container) -> Container {
 /// UI helper to render the header of an SSH rich content block.
 pub fn header_row(
     text: &'static str,
-    icon: Icon,
+    icon: impl Element + 'static,
     theme: &GalaxyTheme,
     appearance: &Appearance,
 ) -> Box<dyn Element> {

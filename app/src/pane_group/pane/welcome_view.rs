@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::icons::galaxy_brand_image;
 use galaxyui::elements::{
-    Align, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Flex, Icon, ParentElement,
+    Align, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Flex, ParentElement,
 };
 use galaxyui::keymap::EditableBinding;
 use galaxyui::platform::FilePickerConfiguration;
@@ -234,23 +234,16 @@ impl View for WelcomeView {
         "WelcomeView"
     }
 
-    fn render(&self, app: &AppContext) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
+    fn render(&self, _: &AppContext) -> Box<dyn Element> {
         Align::new(
             Flex::column()
                 .with_cross_axis_alignment(CrossAxisAlignment::Center)
                 .with_children([
                     Container::new(
-                        ConstrainedBox::new(
-                            Icon::new(
-                                "bundled/svg/warp-logo-neutral.svg",
-                                appearance.theme().foreground(),
-                            )
+                        ConstrainedBox::new(galaxy_brand_image().finish())
+                            .with_height(50.)
+                            .with_width(50.)
                             .finish(),
-                        )
-                        .with_height(50.)
-                        .with_width(50.)
-                        .finish(),
                     )
                     .with_margin_bottom(40.)
                     .finish(),

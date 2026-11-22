@@ -1,8 +1,9 @@
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::color::blend::Blend as _;
+use galaxy_core::ui::icons::galaxy_brand_image;
 use galaxy_core::ui::{self};
 use galaxyui::elements::{
-    Align, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Icon,
+    Align, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
     MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement as _, Radius,
 };
 use galaxyui::keymap::EditableBinding;
@@ -212,12 +213,10 @@ impl GetStartedView {
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_children([
                 Container::new(
-                    ConstrainedBox::new(
-                        Icon::new("bundled/svg/warp-logo-neutral.svg", theme.foreground()).finish(),
-                    )
-                    .with_height(40.)
-                    .with_width(40.)
-                    .finish(),
+                    ConstrainedBox::new(galaxy_brand_image().finish())
+                        .with_height(40.)
+                        .with_width(40.)
+                        .finish(),
                 )
                 .with_margin_bottom(12.)
                 .finish(),

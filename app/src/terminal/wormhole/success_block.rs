@@ -3,11 +3,12 @@ use std::sync::Arc;
 
 use channel_versions::overrides::TargetOS;
 use galaxy_core::semantic_selection::SemanticSelection;
+use galaxy_core::ui::icons::galaxy_brand_image;
 use galaxy_core::ui::theme::GalaxyTheme;
 use parking_lot::RwLock;
 use warpui::elements::{
-    Border, Container, CrossAxisAlignment, Flex, Icon, MainAxisAlignment, MainAxisSize,
-    ParentElement, SelectableArea, SelectionHandle, Text,
+    Border, Container, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize, ParentElement,
+    SelectableArea, SelectionHandle, Text,
 };
 use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
@@ -20,7 +21,6 @@ use crate::appearance::Appearance;
 use crate::terminal::model::terminal_model::SubshellInitializationInfo;
 use crate::terminal::shell::{Shell, ShellType};
 use crate::ui_components::blended_colors;
-use crate::ui_components::icons::Icon as UiIcon;
 use crate::workspace::WorkspaceAction;
 
 const VERTICAL_TEXT_MARGIN: f32 = 16.;
@@ -147,14 +147,10 @@ impl WormholeSuccessBlock {
         theme: &GalaxyTheme,
         appearance: &Appearance,
     ) -> Box<dyn Element> {
-        let header_contents = render::build_header_row(
-            "Session Wormholed",
-            Icon::new(UiIcon::GalaxyLogo.into(), theme.active_ui_detail()),
-            theme,
-            appearance,
-        )
-        .with_margin_right(8.)
-        .finish();
+        let header_contents =
+            render::build_header_row("Session Wormholed", galaxy_brand_image(), theme, appearance)
+                .with_margin_right(8.)
+                .finish();
 
         Container::new(
             Flex::row()
