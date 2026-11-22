@@ -18,6 +18,11 @@ Debian package declares its runtime dependencies. Packages include the retained
 Wormhole helper archives. Linux installation does not add an upstream Warp
 package repository or signing key.
 
+macOS installers include a Galaxy background and an app-to-Applications layout.
+The headless packaging tools create the Finder layout without opening Finder.
+Release executables are stripped before signing; see the
+[build size report](build-size.md) for measurements and remaining opportunities.
+
 ## Nightly and tagged releases
 
 Nightly runs every day at **4:00 a.m. America/Chicago**, including daylight saving

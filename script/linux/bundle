@@ -182,8 +182,8 @@ if [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "galaxyctrl" ]]; then
     FEATURES="$FEATURES,galaxy_control_cli"
   fi
 elif [[ "$ARTIFACT" == "app" ]]; then
-  # All channels ship the v3 classifier and v2 heuristic.
-  FEATURES="$FEATURES,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli"
+  # Input detection uses local shell completions and history.
+  FEATURES="$FEATURES,gui,galaxy_control_cli"
 fi
 if [[ -n "$EXTRA_FEATURES" ]]; then
   FEATURES="$FEATURES,$EXTRA_FEATURES"

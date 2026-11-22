@@ -58,7 +58,7 @@ $env:CARGO_FULL_PROFILE = 'release'
 $env:CARGO_BUILD_JOBS = '2'
 $env:CARGO_INCREMENTAL = '0'
 $target = 'x86_64-pc-windows-msvc'
-$features = 'autoupdate,release_bundle,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli'
+$features = 'autoupdate,release_bundle,gui,galaxy_control_cli'
 # app/build.rs stages native resource-compiler inputs here independently of
 # CARGO_TARGET_DIR. This remains inside the disposable checkout's ignored target.
 New-Item -ItemType Directory (Join-Path $root 'target\release') -Force | Out-Null

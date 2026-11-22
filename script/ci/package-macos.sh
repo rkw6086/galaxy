@@ -47,6 +47,7 @@ done
 [[ $APPLE_API_ISSUER =~ ^[a-fA-F0-9-]{36}$ ]] || fail 'Invalid notarization Issuer ID.'
 [[ $CARGO_TARGET_DIR == /* && $GALAXY_RELEASE_DIR == /* ]] || fail 'Use absolute job-owned build and artifact directories.'
 [[ -e "$GALAXY_RELEASE_DIR" || -L "$GALAXY_RELEASE_DIR" ]] && fail 'Artifact path already exists; use a fresh job-owned path.'
+[[ ${GALAXY_DMG_PYTHON:-} == /* && -x $GALAXY_DMG_PYTHON ]] || fail 'Prepare the pinned headless DMG tools before signing.'
 
 app="$CARGO_TARGET_DIR/aarch64-apple-darwin/release/bundle/osx/Galaxy.app"
 [[ -x "$app/Contents/MacOS/galaxy-oss" && -x "$app/Contents/PlugIns/GalaxyDockTilePlugin.docktileplugin/Contents/MacOS/GalaxyDockTilePlugin" ]] || fail 'Build the complete app first.'
@@ -208,12 +209,8 @@ xcrun stapler staple "$app"
 xcrun stapler validate "$app"
 /usr/sbin/spctl --assess --type execute --verbose=2 "$app"
 
-stage="$work/dmg-root"
-mkdir "$stage"
-ditto "$app" "$stage/Galaxy.app"
-ln -s /Applications "$stage/Applications"
 dmg="$GALAXY_RELEASE_DIR/Galaxy_${artifact_version}_aarch64.dmg"
-hdiutil create -volname "$volume_name" -srcfolder "$stage" -format UDZO -ov "$dmg" >/dev/null
+"$GALAXY_DMG_PYTHON" script/macos/create_dmg.py --app "$app" --output "$dmg" --volume-name "$volume_name" --verify-signature
 /usr/bin/codesign --force --timestamp --keychain "$keychain" --sign "$APPLE_SIGNING_IDENTITY" --identifier com.galaxy.GalaxyOss.dmg "$dmg"
 /usr/bin/codesign --verify --strict --verbose=2 "$dmg"
 notarize "$dmg" dmg

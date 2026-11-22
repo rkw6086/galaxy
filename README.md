@@ -25,6 +25,8 @@ See [release builds](docs/release-macos.md) and
 profiles, tools, local data, troubleshooting, and the runtime architecture. The
 [Warp documentation reference audit](docs/wiki/Warp-Documentation-Reference-Audit.md)
 tracks inherited help and support links and their proposed Galaxy replacements.
+The [desktop build size report](docs/build-size.md) records measured bundle costs
+and the packaging changes used to reduce them.
 
 ## Building from source
 

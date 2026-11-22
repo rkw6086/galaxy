@@ -1,0 +1,22 @@
+#!/bin/bash
+# Remove local/debug symbol tables from a staged executable before signing.
+# Keep exported symbols and Cargo's separate dSYM for offline symbolication.
+set -euo pipefail
+
+fail() { echo "Galaxy distribution binary: $*" >&2; exit 1; }
+[[ $(uname -s) == Darwin ]] || fail 'This step requires macOS.'
+[[ $# == 1 && -f $1 && ! -L $1 ]] || fail 'Pass one staged executable, not a symlink.'
+binary=$1
+[[ $(/usr/bin/file -b "$binary") == *Mach-O*executable* ]] || fail 'Expected a Mach-O executable.'
+
+# Stripping is a distribution step, never a mutation of Cargo's build output.
+# It must precede codesign, notarization, and stapling of the enclosing app.
+before=$(wc -c < "$binary" | tr -d ' ')
+uuid_before=$(xcrun dwarfdump --uuid "$binary")
+[[ -n $uuid_before ]] || fail 'The executable has no UUID for symbolication.'
+/usr/bin/strip -S -x "$binary"
+uuid_after=$(xcrun dwarfdump --uuid "$binary")
+[[ $uuid_before == "$uuid_after" ]] || fail 'Stripping changed executable UUIDs.'
+after=$(wc -c < "$binary" | tr -d ' ')
+(( after <= before )) || fail 'Stripping unexpectedly increased executable size.'
+echo "Distribution executable: $before -> $after bytes (saved $((before - after)) bytes)."

@@ -76,7 +76,7 @@ if ! xcrun -sdk macosx metal --version >/dev/null 2>&1; then
 fi
 xcrun -sdk macosx metal --version
 xcrun -sdk macosx --find metallib
-for package in cmake pkgconf; do
+for package in cmake pkgconf python; do
   brew list --versions "$package" >/dev/null 2>&1 || brew install "$package"
 done
 [[ "$RUNNER_TEMP" == /* && "$GALAXY_JOB_ID" =~ ^[0-9]+-[0-9]*$ ]]
@@ -108,6 +108,10 @@ if [[ -n $cached_tools ]]; then
     cp "$tools/bin/$binary" "$cached_tools/bin/$binary"
   done
 fi
+# Disk-image layout is authored headlessly; install only the pinned public tools
+# here, before the later signing step receives Apple credentials.
+bash script/macos/prepare_dmg_tools "$tools/dmg"
+echo "GALAXY_DMG_PYTHON=$tools/dmg/bin/python3" >> "$GITHUB_ENV"
 # Cargo install intermediates are not runtime tools. Hosted macOS runners have
 # a small ephemeral disk; reclaim only this job's exact installation directory.
 [[ "$tools" == "$RUNNER_TEMP/galaxy-tools-$GALAXY_JOB_ID" && ! -L "$tools/build" ]]

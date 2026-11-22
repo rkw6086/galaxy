@@ -61,7 +61,8 @@ brew update
 brew install jq
 brew install getsentry/tools/sentry-cli
 brew install clang-format
-brew install create-dmg
+# Headless DMG layout tools use a private environment created by the bundle script.
+brew install python
 brew install multitime
 brew install powershell
 brew install pkgconf

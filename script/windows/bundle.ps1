@@ -80,9 +80,6 @@ $BINARY_NAME = 'galaxy-oss.exe'
 $APP_NAME = 'GalaxyOss'
 $FEATURES = 'release_bundle,gui'
 
-# The OSS bundle ships the v3 classifier and v2 heuristic.
-$FEATURES = "$FEATURES,nld_classifier_v3,nld_heuristic_v2"
-
 $BINARY_PATH = "$CARGO_TARGET_OUTPUT_DIR\$BINARY_NAME"
 $BUNDLE_ID = 'com.galaxy.GalaxyOss'
 $INSTALLER_OUTPUT_DIR = "$WINDOWS_INSTALLER_DIR\Output"

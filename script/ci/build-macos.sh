@@ -66,7 +66,9 @@ xcode_resource=$("$CLANG_PATH" -print-resource-dir)
 export PATH="$xcode_bin:$PATH"
 
 target=aarch64-apple-darwin
-features=autoupdate,release_bundle,extern_plist,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli
+# Input detection is deterministic; the old ONNX classifier feature pulled in
+# Candle and tokenizers despite no desktop call sites using that classifier.
+features=autoupdate,release_bundle,extern_plist,gui,galaxy_control_cli
 app="$CARGO_TARGET_DIR/$target/release/bundle/osx/Galaxy.app"
 [[ ! -e "$app" && ! -L "$app" ]] || fail 'Unsigned bundle already exists; use a fresh job target directory.'
 # The pinned cargo-bundle supports CARGO_BUNDLE_SKIP_BUILD but not --locked.
@@ -86,6 +88,11 @@ paths = re.findall(r'cmd LC_RPATH\s+cmdsize \d+\s+path (.*?) \(offset', commands
 if rpath not in paths:
     subprocess.run(['/usr/bin/install_name_tool', '-add_rpath', rpath, binary], check=True)
 PY
+
+# Cargo's debuginfo stripping leaves local Rust symbol names in __LINKEDIT.
+# Trim only the staged main executable before any app signatures are sealed;
+# keep exported symbols, executable UUIDs, and out-of-bundle debug artifacts.
+bash script/macos/prepare_distribution_binary "$app/Contents/MacOS/galaxy-oss"
 
 # app/build.rs currently stages this plug-in under the repository target directory,
 # independently of CARGO_TARGET_DIR. Copy its freshly built universal bundle.
@@ -185,6 +192,7 @@ for binary in app.rglob('*'):
         if not any(candidate.exists() and (candidate.resolve() == app or app in candidate.resolve().parents) for candidate in candidates):
             raise SystemExit(f'Unbundled macOS dependency in {binary.relative_to(app)}: {value}')
 PY
+python3 script/ci/report-bundle-size.py "$app" "$CARGO_TARGET_DIR/macos-bundle-size.json"
 verify_source
 # Resource/schema/license generation and all dependency checks are complete.
 # Release packaging needs the app bundle and executable outputs, not compiler

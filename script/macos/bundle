@@ -85,7 +85,7 @@ cleanup_codesign_keychain() {
 }
 
 # Set up cleanup trap
-trap 'cleanup_dmg_files "$DMG_DIR"; cleanup_codesign_keychain' EXIT
+trap 'cleanup_dmg_files "$DMG_DIR"; cleanup_codesign_keychain; if [[ -n ${DMG_TOOLS_DIR:-} ]]; then rm -rf -- "$DMG_TOOLS_DIR"; fi' EXIT
 
 # Define a helper function that uses Python to compute a relative path.
 function relpath() {
@@ -311,8 +311,7 @@ elif [[ "$ARTIFACT" == galaxyctrl ]]; then
   OPEN_AFTER_BUNDLE=false
   FEATURES="$FEATURES,standalone,galaxy_control_cli"
 elif [[ "$ARTIFACT" == app ]]; then
-  # All channels ship the v3 classifier and v2 heuristic.
-  FEATURES="$FEATURES,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli"
+  FEATURES="$FEATURES,gui,galaxy_control_cli"
 fi
 
 # If we're building a universal bundle for the app artifact, make sure the additional target is available.
@@ -349,6 +348,10 @@ rm -R "$OUT_DIR/$FINAL_DMG_NAME" || echo "No old dmg to remove"
 ###########################
 
 if [[ "$ARTIFACT" == "app" ]]; then
+  # Provision public layout tools before loading any code-signing credentials.
+  DMG_TOOLS_DIR=$(mktemp -d "${TMPDIR:-/tmp}/galaxy-dmg-tools.XXXXXX")
+  bash "$WORKSPACE_ROOT_DIR/script/macos/prepare_dmg_tools" "$DMG_TOOLS_DIR/python"
+  GALAXY_DMG_PYTHON="$DMG_TOOLS_DIR/python/bin/python3"
   if [[ $BUILD_BINARY != true ]]; then
     echo "Skipping binary build due to --skip-build flag"
     export CARGO_BUNDLE_SKIP_BUILD=1
@@ -584,6 +587,12 @@ else
   exit 1
 fi
 
+if [[ "$ARTIFACT" == app && "$DEBUG" != true ]]; then
+  # Strip the app's final (possibly universal) executable before any signing.
+  bash "$WORKSPACE_ROOT_DIR/script/macos/prepare_distribution_binary" \
+    "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/MacOS/$WARP_BIN"
+fi
+
 ##########################################
 ## Step 2: Create code-signing keychain ##
 ##########################################
@@ -682,36 +691,11 @@ fi
 if [[ "$ARTIFACT" = app ]]; then
   function create_galaxy_dmg() {
     echo "Creating $DMG_DIR/$DMG_NAME..."
-    rm "$DMG_DIR/$DMG_NAME" || true
+    rm -f "$DMG_DIR/$DMG_NAME"
     local source_folder="$1"
-
-    local args=(
-      --volname Galaxy
-      # For --no-internet-enable, see https://github.com/create-dmg/create-dmg/issues/179
-      --no-internet-enable
-      --background app/assets/resources/mac/galaxy_install_image.png
-      --icon-size 128
-      --window-size 700 500
-      --format UDZO
-      --app-drop-link 550 250
-      --icon "$WARP_APP_NAME.app" 150 250
-      # macOS 26.4 Beta has issues with mounting HFS+ DMGs, so we're using APFS instead.
-      # APFS has been supported as a DMG filesystem since macOS 10.13, and we target 10.14
-      # as our minimum version.
-      #
-      # See: https://developer.apple.com/documentation/macos-release-notes/macos-26_4-release-notes#External-Media
-      --filesystem APFS
-    )
-
-    # Skip running an AppleScript to format the DMG contents if running in Namespace - this consistently times out.
-    # See https://github.com/create-dmg/create-dmg/issues/72
-    if [[ "${RUNNER_NAME:-}" == nsc-* ]]; then
-      args+=(--skip-jenkins)
-    fi
-
-    args+=("$DMG_DIR/$DMG_NAME" "$source_folder")
-
-    create-dmg "${args[@]}"
+    local args=(--app "$source_folder/$WARP_APP_NAME.app" --output "$DMG_DIR/$DMG_NAME" --volume-name Galaxy)
+    if [[ $CODESIGN == true || $SELFSIGN == true ]]; then args+=(--verify-signature); fi
+    "$GALAXY_DMG_PYTHON" "$WORKSPACE_ROOT_DIR/script/macos/create_dmg.py" "${args[@]}"
   }
 
   # If we're codesigning, stage the signed app and use that to create the DMG.

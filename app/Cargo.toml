@@ -45,7 +45,6 @@ base64.workspace = true
 bimap = "0.6.2"
 bincode.workspace = true
 bitflags.workspace = true
-bitflags-serde-legacy.workspace = true
 blocking.workspace = true
 bounded-vec-deque.workspace = true
 bytecount = "0.6.9"
@@ -87,7 +86,6 @@ futures-lite.workspace = true
 futures-util.workspace = true
 futures.workspace = true
 fuzzy_match.workspace = true
-getset.workspace = true
 handlebars.workspace = true
 hex.workspace = true
 http.workspace = true
@@ -117,7 +115,6 @@ lazy_static.workspace = true
 libc.workspace = true
 line-ending.workspace = true
 log.workspace = true
-log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 lsp.workspace = true
 galaxy_logging.workspace = true
 lz4_flex = "0.11"
@@ -137,7 +134,6 @@ parking_lot = { version = "0.12.1", features = ["serde"] }
 pathfinder_color = "0.5.0"
 pathfinder_geometry.workspace = true
 persistence.workspace = true
-pin-project.workspace = true
 plist = "1"
 pprof = { workspace = true, optional = true, features = ["protobuf-codec"] }
 prost.workspace = true
@@ -166,7 +162,6 @@ settings_value = { workspace = true, features = ["derive"] }
 sha2.workspace = true
 shellexpand.workspace = true
 shell-words = "1.1.0"
-shlex = "1.3.0"
 siphasher = "0.3.11"
 similar.workspace = true
 simple_logger.workspace = true
@@ -185,7 +180,6 @@ tikv-jemallocator = { version = "0.6", optional = true, features = [
 toml = "0.8.13"
 toml_edit.workspace = true
 tracing.workspace = true
-tracing-futures = { workspace = true, features = ["futures-03"] }
 ui_components.workspace = true
 unicase = "2.7.0"
 unicode-general-category.workspace = true
@@ -224,13 +218,11 @@ languages.workspace = true
 galaxy_terminal.workspace = true
 websocket.workspace = true
 wgpu = { workspace = true, optional = true }
-natural_language_detection.workspace = true
 onboarding.workspace = true
 aho-corasick = "1.1.3"
 strum.workspace = true
 strum_macros.workspace = true
 reqwest-eventsource = { workspace = true }
-lasso.workspace = true
 counter = "0.6.0"
 typed-path.workspace = true
 urlencoding = "2.1.3"
@@ -247,8 +239,6 @@ local_control.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block.workspace = true
-cocoa.workspace = true
-core-foundation.workspace = true
 mach2 = "0.5"
 objc.workspace = true
 objc2.workspace = true
@@ -269,7 +259,6 @@ objc2-foundation = { workspace = true, features = [
 ] }
 permissions = "0.4.1"
 pprof = { workspace = true, optional = true, features = ["frame-pointer"] }
-security-framework-sys = "2.0.0"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 winit = { workspace = true }
@@ -286,7 +275,6 @@ comfy-table = "7.1.4"
 inquire = "0.9.1"
 diesel = { workspace = true, features = ["sqlite", "chrono"] }
 diesel_migrations = { version = "2.2.0", features = ["sqlite"] }
-env_logger.workspace = true
 git2 = { version = "0.20.4", default-features = false, features = [
     "vendored-libgit2",
 ] }
@@ -296,7 +284,6 @@ libsqlite3-sys = { version = "0.33.0", features = ["bundled"] }
 mio = { version = "1.1.1", features = ["os-poll", "os-ext"] }
 tokio.workspace = true
 tokio-util.workspace = true
-tracing-subscriber.workspace = true
 
 # AWS SDK (loading credentials for BYO LLM)
 aws-config = { version = "1.8.16", features = ["credentials-login"] }
@@ -305,11 +292,9 @@ aws-sdk-bedrock.workspace = true
 aws-sdk-bedrockruntime.workspace = true
 aws-sdk-sts = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-smithy-types = "1"
-aws-types = "1"
 
 notify-debouncer-full.workspace = true
 rquickjs = { workspace = true, optional = true }
-rustls.workspace = true
 syntect = "5.0"
 sysinfo.workspace = true
 warp-command-signatures = { workspace = true, features = ["embed-signatures"] }
@@ -424,9 +409,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", 
 anyhow = "1.0"
 cc = "1.0"
 cfg_aliases.workspace = true
-prost-build.workspace = true
 sha2.workspace = true
-tempfile.workspace = true
 walkdir = "2.3.2"
 galaxy_util.workspace = true
 
