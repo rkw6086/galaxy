@@ -159,3 +159,37 @@ fn clarification_availability_follows_permission_mode_after_projection_and_resto
         assert_eq!(restored.ask_user_question, expected, "{mode:?}");
     }
 }
+
+#[test]
+fn model_start_timeout_secs_defaults_to_none() {
+    let profile = AIExecutionProfile::default();
+    assert!(profile.model_start_timeout_secs.is_none());
+}
+
+#[test]
+fn model_start_timeout_secs_survives_round_trip() {
+    for timeout in [None, Some(60u32), Some(300), Some(900)] {
+        let profile = AIExecutionProfile {
+            model_start_timeout_secs: timeout,
+            ..Default::default()
+        };
+        let saved = serde_json::to_value(&profile).unwrap();
+        let restored: AIExecutionProfile = serde_json::from_value(saved).unwrap();
+        assert_eq!(
+            restored.model_start_timeout_secs, timeout,
+            "timeout={timeout:?}"
+        );
+    }
+}
+
+#[test]
+fn model_start_timeout_secs_absent_in_legacy_json_restores_to_none() {
+    // A profile serialized before this field was added must restore without error
+    // and the field must be `None` (use the built-in default).
+    let profile: AIExecutionProfile = serde_json::from_value(serde_json::json!({
+        "permission_mode": "AskFirst",
+        "base_model": "test-model",
+    }))
+    .unwrap();
+    assert!(profile.model_start_timeout_secs.is_none());
+}

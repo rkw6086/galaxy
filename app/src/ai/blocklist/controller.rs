@@ -7144,6 +7144,7 @@ impl BlocklistAIController {
             persistence_offset,
             response_config,
             action_context,
+            model_start_timeout_secs,
         } = prepared;
         let mut coordinator = match ProviderRunCoordinator::from_request(
             provider_run_id,
@@ -7158,6 +7159,7 @@ impl BlocklistAIController {
             }
         };
         coordinator.set_max_context_tokens(response_config.max_context_tokens);
+        coordinator.set_model_start_timeout(model_start_timeout_secs);
         if let Some(profile) = cli_monitor_profile {
             if let Err(error) = coordinator.insert_profile(CLI_MONITOR_PROVIDER_PROFILE, profile) {
                 self.fail_provider_startup(conversation_id, stream_id, error.to_string(), ctx);

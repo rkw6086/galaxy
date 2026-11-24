@@ -897,6 +897,25 @@ impl AIExecutionProfilesModel {
         }
     }
 
+    pub fn set_model_start_timeout_secs(
+        &mut self,
+        profile_id: ClientProfileId,
+        timeout_secs: Option<u32>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.edit_profile_internal(
+            profile_id,
+            |profile| {
+                if profile.model_start_timeout_secs != timeout_secs {
+                    profile.model_start_timeout_secs = timeout_secs;
+                    return true;
+                }
+                false
+            },
+            ctx,
+        );
+    }
+
     pub fn set_web_search_enabled(
         &mut self,
         profile_id: ClientProfileId,

@@ -129,6 +129,9 @@ pub struct RequestParams {
     pub is_memory_enabled: bool,
     pub warp_drive_context_enabled: bool,
     pub context_window_limit: Option<u32>,
+    /// Seconds to wait for the AI provider to begin responding. `None` resolves to
+    /// the built-in default of 120 seconds inside `ProviderRunCoordinator`.
+    pub model_start_timeout_secs: Option<u32>,
     pub mcp_context: Option<MCPContext>,
     pub planning_enabled: bool,
     should_redact_secrets: bool,
@@ -233,6 +236,7 @@ impl RequestParams {
             is_memory_enabled: false,
             warp_drive_context_enabled: false,
             context_window_limit: None,
+            model_start_timeout_secs: None,
             mcp_context: None,
             planning_enabled: false,
             should_redact_secrets: false,
@@ -436,6 +440,10 @@ impl RequestParams {
             tasks: conversation.tasks,
             existing_suggestions: conversation.existing_suggestions,
             context_window_limit,
+            model_start_timeout_secs: AIExecutionProfilesModel::as_ref(app)
+                .active_profile(terminal_view_id, app)
+                .data()
+                .model_start_timeout_secs,
             metadata,
             session_context,
             model: request_input.model_id.clone(),

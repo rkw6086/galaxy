@@ -404,6 +404,22 @@ impl ProviderRunCoordinator {
         self.model_event_idle_timeout = event_idle;
     }
 
+    #[cfg(test)]
+    fn model_start_timeout(&self) -> Duration {
+        self.model_start_timeout
+    }
+
+    /// Override the model startup timeout for this run. `None` keeps the
+    /// compile-time default (`PROVIDER_MODEL_START_TIMEOUT`). The event-idle
+    /// timeout is never changed by this call.
+    pub(crate) fn set_model_start_timeout(&mut self, timeout_secs: Option<u32>) {
+        if let Some(secs) = timeout_secs {
+            if secs > 0 {
+                self.model_start_timeout = Duration::from_secs(u64::from(secs));
+            }
+        }
+    }
+
     /// Local inspection identity only; never changes provider requests or checkpoints.
     #[cfg(not(target_family = "wasm"))]
     pub(crate) fn set_activity_session_id(&mut self, conversation_id: AIConversationId) {

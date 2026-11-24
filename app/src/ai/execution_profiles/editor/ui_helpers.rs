@@ -514,6 +514,16 @@ pub fn render_permissions_section(
     }
 
     column.add_child(
+        Container::new(render_model_start_timeout_row(
+            appearance,
+            view,
+            profile_data,
+        ))
+        .with_margin_top(16.)
+        .finish(),
+    );
+
+    column.add_child(
         Container::new(render_plan_auto_sync_toggle(appearance, view, profile_data))
             .with_margin_top(16.)
             .finish(),
@@ -1013,4 +1023,67 @@ pub fn wrap_disabled_with_workspace_override_tooltip(
         stack.finish()
     })
     .finish()
+}
+
+pub fn render_model_start_timeout_row(
+    appearance: &Appearance,
+    view: &ExecutionProfileEditorView,
+    profile_data: &AIExecutionProfile,
+) -> Box<dyn Element> {
+    let label_elem = Text::new(
+        "Model startup timeout (seconds)".to_string(),
+        appearance.ui_font_family(),
+        13.,
+    )
+    .with_color(appearance.theme().active_ui_text_color().into())
+    .finish();
+
+    let desc_elem = Text::new(
+        "Seconds to wait for the AI provider to begin responding. Leave blank to use the default (120 s)."
+            .to_string(),
+        appearance.ui_font_family(),
+        11.,
+    )
+    .with_color(
+        appearance
+            .theme()
+            .sub_text_color(appearance.theme().surface_1())
+            .into(),
+    )
+    .finish();
+
+    let _ = profile_data; // consumed via editor buffer; kept for API symmetry
+    let input_box = Dismiss::new(
+        appearance
+            .ui_builder()
+            .text_input(view.model_start_timeout_editor.clone())
+            .with_style(UiComponentStyles {
+                width: Some(CONTEXT_WINDOW_INPUT_BOX_WIDTH),
+                padding: Some(Coords {
+                    top: 6.,
+                    bottom: 6.,
+                    left: 10.,
+                    right: 10.,
+                }),
+                background: Some(appearance.theme().surface_2().into()),
+                ..Default::default()
+            })
+            .build()
+            .finish(),
+    )
+    .finish();
+
+    let left_content = Flex::column()
+        .with_child(label_elem)
+        .with_child(desc_elem)
+        .finish();
+
+    Flex::row()
+        .with_main_axis_size(MainAxisSize::Max)
+        .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+        .with_spacing(8.)
+        .with_child(Shrinkable::new(1., left_content).finish())
+        .with_child(input_box)
+        .finish()
 }

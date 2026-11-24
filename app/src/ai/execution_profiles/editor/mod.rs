@@ -199,6 +199,11 @@ pub enum ExecutionProfileEditorViewAction {
     SetWebSearchEnabled {
         enabled: bool,
     },
+    /// User committed a new startup timeout value.
+    /// `None` resets to the built-in default (120 s); a positive integer sets it explicitly.
+    SetModelStartTimeout {
+        value: Option<u32>,
+    },
 }
 
 pub struct ExecutionProfileEditorView {
@@ -236,6 +241,8 @@ pub struct ExecutionProfileEditorView {
     plan_auto_sync_switch: SwitchStateHandle,
     web_search_switch: SwitchStateHandle,
     upgrade_footer_mouse_state: MouseStateHandle,
+    model_start_timeout_editor: ViewHandle<EditorView>,
+    last_synced_model_start_timeout_editor_value: Option<Option<u32>>,
 }
 
 impl ExecutionProfileEditorView {
@@ -374,6 +381,26 @@ impl ExecutionProfileEditorView {
                 })
         });
 
+        let initial_timeout_text = profile_data
+            .model_start_timeout_secs
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let model_start_timeout_editor = ctx.add_typed_action_view(|ctx| {
+            let options = SingleLineEditorOptions {
+                text: TextOptions {
+                    font_size_override: Some(Appearance::as_ref(ctx).ui_font_size()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut editor = EditorView::single_line(options, ctx);
+            editor.set_placeholder_text("default (120)", ctx);
+            editor.set_buffer_text(&initial_timeout_text, ctx);
+            editor
+        });
+        let last_synced_model_start_timeout_editor_value =
+            Some(profile_data.model_start_timeout_secs);
+
         let mut view = Self {
             profile_id,
             pane_configuration,
@@ -412,6 +439,8 @@ impl ExecutionProfileEditorView {
             plan_auto_sync_switch: Default::default(),
             web_search_switch: Default::default(),
             upgrade_footer_mouse_state: Default::default(),
+            model_start_timeout_editor,
+            last_synced_model_start_timeout_editor_value,
         };
 
         ctx.subscribe_to_view(&view.profile_name_editor, |view, _, event, ctx| {
@@ -453,6 +482,16 @@ impl ExecutionProfileEditorView {
                 ctx.notify();
             }
         });
+
+        ctx.subscribe_to_view(
+            &view.model_start_timeout_editor,
+            |view, _, event, ctx| match event {
+                EditorEvent::Enter | EditorEvent::Blurred | EditorEvent::Escape => {
+                    view.commit_model_start_timeout_editor(ctx);
+                }
+                _ => {}
+            },
+        );
 
         ctx.subscribe_to_model(&LLMPreferences::handle(ctx), |me, _, event, ctx| {
             let permissions = BlocklistAIPermissions::as_ref(ctx);
@@ -1088,6 +1127,91 @@ impl ExecutionProfileEditorView {
             ctx.notify();
         }
     }
+
+    /// Parse the editor buffer and dispatch a `SetModelStartTimeout` action.
+    /// An empty buffer resets to `None` (default).
+    /// Zero, overflow, and non-numeric input are invalid: the buffer is
+    /// unconditionally restored to the last persisted value.
+    fn commit_model_start_timeout_editor(&mut self, ctx: &mut ViewContext<Self>) {
+        let buffer_text = self.model_start_timeout_editor.as_ref(ctx).buffer_text(ctx);
+        // Delegate to the pure classifier; Err means invalid input.
+        let new_value = match parse_timeout_input(&buffer_text) {
+            Ok(value) => value,
+            Err(()) => {
+                // Zero, overflow, or non-numeric: restore the persisted value.
+                self.force_sync_model_start_timeout_editor(ctx);
+                return;
+            }
+        };
+        let permissions = BlocklistAIPermissions::as_ref(ctx);
+        let current = permissions
+            .permissions_profile_for_id(ctx, self.profile_id)
+            .model_start_timeout_secs;
+        if new_value != current {
+            ctx.dispatch_typed_action(&ExecutionProfileEditorViewAction::SetModelStartTimeout {
+                value: new_value,
+            });
+        }
+        // Always sync after a valid commit so the buffer reflects the
+        // canonical persisted value (e.g. stripped whitespace/commas).
+        self.force_sync_model_start_timeout_editor(ctx);
+    }
+
+    /// Sync the editor buffer from the persisted profile value,
+    /// skipping the update when the buffer already reflects the current value.
+    fn sync_model_start_timeout_editor(&mut self, ctx: &mut ViewContext<Self>) {
+        let permissions = BlocklistAIPermissions::as_ref(ctx);
+        let current = permissions
+            .permissions_profile_for_id(ctx, self.profile_id)
+            .model_start_timeout_secs;
+        // Only skip when both the last-synced value AND the buffer text already
+        // match; avoids a redundant redraw but never leaves invalid text in place.
+        if self.last_synced_model_start_timeout_editor_value == Some(current) {
+            let formatted = current.map(|s| s.to_string()).unwrap_or_default();
+            if self.model_start_timeout_editor.as_ref(ctx).buffer_text(ctx) == formatted {
+                return;
+            }
+        }
+        self.force_sync_model_start_timeout_editor(ctx);
+    }
+
+    /// Unconditionally reset the editor buffer to the current persisted value.
+    /// Use this whenever invalid input must be discarded.
+    fn force_sync_model_start_timeout_editor(&mut self, ctx: &mut ViewContext<Self>) {
+        let permissions = BlocklistAIPermissions::as_ref(ctx);
+        let current = permissions
+            .permissions_profile_for_id(ctx, self.profile_id)
+            .model_start_timeout_secs;
+        let formatted = current.map(|s| s.to_string()).unwrap_or_default();
+        self.model_start_timeout_editor.update(ctx, |editor, ctx| {
+            if editor.buffer_text(ctx) != formatted {
+                editor.system_reset_buffer_text(&formatted, ctx);
+            }
+        });
+        self.last_synced_model_start_timeout_editor_value = Some(current);
+        ctx.notify();
+    }
+}
+
+/// Classify raw text from the model startup timeout editor.
+///
+/// Returns `Ok(None)` for a blank/whitespace input (reset to default),
+/// `Ok(Some(secs))` for a valid positive integer,
+/// and `Err(())` for zero, non-numeric, or overflow input.
+/// This is a pure function extracted for testability.
+pub(crate) fn parse_timeout_input(raw: &str) -> Result<Option<u32>, ()> {
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != ',')
+        .collect();
+    if cleaned.is_empty() {
+        return Ok(None);
+    }
+    match cleaned.parse::<u32>() {
+        Ok(0) => Err(()),
+        Ok(secs) => Ok(Some(secs)),
+        Err(_) => Err(()),
+    }
 }
 
 fn initial_context_window_display_value(
@@ -1310,6 +1434,13 @@ impl TypedActionView for ExecutionProfileEditorView {
                 AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
                     profiles_model.set_web_search_enabled(self.profile_id, *enabled, ctx);
                 });
+                ctx.notify();
+            }
+            ExecutionProfileEditorViewAction::SetModelStartTimeout { value } => {
+                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
+                    profiles_model.set_model_start_timeout_secs(self.profile_id, *value, ctx);
+                });
+                self.sync_model_start_timeout_editor(ctx);
                 ctx.notify();
             }
         }

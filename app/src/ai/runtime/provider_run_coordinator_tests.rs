@@ -949,10 +949,11 @@ async fn inline_tool_batches_commit_before_the_next_model_boundary() {
 
 #[tokio::test]
 async fn task_progress_reaches_the_next_model_after_compaction_and_restore() {
+    use galaxy_agent_core::{TaskListItem, TaskListSnapshot, TaskListStatus};
+
     use crate::ai::runtime::task_progress::{
         add_task_list_context, initial_task_list, task_list_tool,
     };
-    use galaxy_agent_core::{TaskListItem, TaskListSnapshot, TaskListStatus};
 
     let initial = TaskListSnapshot {
         tasks: vec![TaskListItem {
@@ -2188,4 +2189,32 @@ fn discovery_reminder_is_advisory_periodic_and_excludes_other_modes() {
     let expected = fifth.clone();
     add_exploration_reminder(&mut fifth);
     assert_eq!(fifth, expected);
+}
+
+#[test]
+fn set_model_start_timeout_none_keeps_default() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let mut coordinator = coordinator(runtime);
+    // The default is PROVIDER_MODEL_START_TIMEOUT (120 s).
+    let default_timeout = coordinator.model_start_timeout();
+    coordinator.set_model_start_timeout(None);
+    assert_eq!(coordinator.model_start_timeout(), default_timeout);
+}
+
+#[test]
+fn set_model_start_timeout_positive_overrides_default() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let mut coordinator = coordinator(runtime);
+    coordinator.set_model_start_timeout(Some(300));
+    assert_eq!(coordinator.model_start_timeout(), Duration::from_secs(300));
+}
+
+#[test]
+fn set_model_start_timeout_zero_is_ignored() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let mut coordinator = coordinator(runtime);
+    let default_timeout = coordinator.model_start_timeout();
+    coordinator.set_model_start_timeout(Some(0));
+    // Zero is not a valid timeout; the default must be preserved.
+    assert_eq!(coordinator.model_start_timeout(), default_timeout);
 }

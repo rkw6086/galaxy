@@ -756,7 +756,19 @@ fn persist_input_images_on_latest_user_message(
 /// Call this on the combined (history + new input) messages before
 /// sending to `build_converse_request`.
 pub fn sanitize_messages_for_bedrock(messages: &mut Vec<ConversationMessage>) {
+    // Merge consecutive same-role messages into single logical turns first so
+    // all subsequent passes work on a strictly alternating role sequence.
+    merge_consecutive_same_role_messages(messages);
     remove_orphaned_tool_results(messages);
+    // Re-merge after orphan removal: a deleted orphan-only user message between
+    // two assistant messages creates adjacent assistants whose combined tool_use
+    // IDs must both be visible to the misplaced-results filter.
+    merge_consecutive_same_role_messages(messages);
+    remove_misplaced_tool_results_for_bedrock(messages);
+    // Re-merge after misplaced removal: a deleted misplaced-only user message
+    // between two assistant messages creates adjacent assistants that must be
+    // collapsed before pairing and synthesis.
+    merge_consecutive_same_role_messages(messages);
     ensure_starts_with_user_message(messages);
     ensure_tool_results_paired(messages);
     ensure_ends_with_user_message(messages);
@@ -777,6 +789,195 @@ fn ensure_ends_with_user_message(messages: &mut Vec<ConversationMessage>) {
             role: MessageRole::User,
             content: MessageContent::Text("Continue.".to_string()),
         });
+    }
+}
+
+/// Merges consecutive messages that share the same role into a single message.
+///
+/// Bedrock/Anthropic's Converse API requires strictly alternating User/Assistant
+/// roles. When consecutive same-role messages appear in the vector (e.g. two
+/// consecutive User messages carrying separate tool_result batches, or two
+/// consecutive Assistant messages each carrying a tool_use), all passes that
+/// look at `messages[i ± 1]` would see the wrong role and either drop valid
+/// content or fail to synthesize required results.
+///
+/// Each group of consecutive same-role messages is flattened into a single
+/// MultiPart message so that the logical turn matches the vector index.
+fn merge_consecutive_same_role_messages(messages: &mut Vec<ConversationMessage>) {
+    if messages.len() < 2 {
+        return;
+    }
+    let mut i = 0;
+    while i < messages.len().saturating_sub(1) {
+        if messages[i].role != messages[i + 1].role {
+            i += 1;
+            continue;
+        }
+        // Merge messages[i+1] into messages[i].
+        let next = messages.remove(i + 1);
+        merge_message_content(&mut messages[i].content, next.content);
+        // Do not advance i: the merged message may need to absorb another
+        // consecutive same-role message at i+1.
+    }
+}
+
+/// Appends `additional` content into `base`, converting both to MultiPart as needed.
+fn merge_message_content(base: &mut MessageContent, additional: MessageContent) {
+    fn to_parts(content: MessageContent) -> Vec<ContentPart> {
+        match content {
+            MessageContent::MultiPart(parts) => parts,
+            MessageContent::Text(t) => vec![ContentPart::Text(t)],
+            MessageContent::ToolUse {
+                tool_use_id,
+                name,
+                input,
+            } => vec![ContentPart::ToolUse {
+                tool_use_id,
+                name,
+                input,
+            }],
+            MessageContent::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => vec![ContentPart::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            }],
+        }
+    }
+    let base_parts = to_parts(std::mem::replace(base, MessageContent::Text(String::new())));
+    let mut all_parts = base_parts;
+    all_parts.extend(to_parts(additional));
+    *base = MessageContent::MultiPart(all_parts);
+}
+
+/// Removes tool_result blocks from a user turn that do not answer the
+/// immediately preceding assistant turn's tool_use blocks.
+///
+/// Bedrock/Anthropic's Converse API enforces that every `toolResult` in a user
+/// turn is a 1-to-1 response to a `toolUse` in the directly preceding assistant
+/// turn. Results that are globally valid (the ID exists somewhere in history)
+/// but placed in the wrong turn — e.g. late-arriving results from a cancelled
+/// prior batch — still cause:
+///   "toolResult blocks at messages.N.content exceeds toolUse blocks of previous turn"
+///
+/// This pass runs after `remove_orphaned_tool_results` (global validity check)
+/// and before `ensure_tool_results_paired` (which synthesizes any missing ones).
+fn remove_misplaced_tool_results_for_bedrock(messages: &mut Vec<ConversationMessage>) {
+    let mut i = 0;
+    while i < messages.len() {
+        if messages[i].role != MessageRole::User {
+            i += 1;
+            continue;
+        }
+
+        // Build the set of tool_use IDs from the immediately preceding assistant turn.
+        // If there is no preceding assistant turn, no tool_results are allowed here.
+        let mut allowed_ids: HashSet<String> =
+            if i > 0 && messages[i - 1].role == MessageRole::Assistant {
+                collect_tool_use_ids(&messages[i - 1].content)
+                    .into_iter()
+                    .collect()
+            } else {
+                HashSet::new()
+            };
+
+        if retain_allowed_tool_results_for_bedrock(&mut messages[i].content, &mut allowed_ids) {
+            i += 1;
+        } else {
+            // The entire user message was composed solely of misplaced tool_results
+            // and nothing else; drop the now-empty message.
+            log::info!("[bedrock] Removed misplaced-only user message at index {i}");
+            messages.remove(i);
+            // Deleting this user message may have made messages[i-1] and the new
+            // messages[i] both Assistant. Merge them immediately so the next user
+            // turn at index i is evaluated against the full combined allowed set.
+            if i > 0
+                && i < messages.len()
+                && messages[i - 1].role == MessageRole::Assistant
+                && messages[i].role == MessageRole::Assistant
+            {
+                let next_assistant = messages.remove(i);
+                merge_message_content(&mut messages[i - 1].content, next_assistant.content);
+                // i-1 is now the merged assistant; i points to the next message
+                // (the user turn whose results must be re-evaluated). Do not
+                // advance i — the next loop iteration processes it correctly.
+            }
+        }
+    }
+}
+
+/// Retains only the tool_result parts whose IDs appear in `allowed_ids`
+/// (consuming each ID at most once to prevent duplicate-result surplus).
+/// Non-tool-result content (text, images, reasoning) is always preserved.
+/// Returns `false` when the message becomes empty after filtering.
+fn retain_allowed_tool_results_for_bedrock(
+    content: &mut MessageContent,
+    allowed_ids: &mut HashSet<String>,
+) -> bool {
+    match content {
+        // Non-tool-result content is never misplaced.
+        MessageContent::Text(_) | MessageContent::ToolUse { .. } => true,
+        MessageContent::ToolResult { tool_use_id, .. } => {
+            if allowed_ids.remove(tool_use_id) {
+                true
+            } else {
+                log::info!("[bedrock] Dropping misplaced tool_result for ID {tool_use_id:?}");
+                false
+            }
+        }
+        MessageContent::MultiPart(parts) => {
+            parts.retain(|part| match part {
+                ContentPart::ToolResult { tool_use_id, .. } => {
+                    if allowed_ids.remove(tool_use_id) {
+                        true
+                    } else {
+                        log::info!(
+                            "[bedrock] Dropping misplaced tool_result part for ID {tool_use_id:?}"
+                        );
+                        false
+                    }
+                }
+                ContentPart::Text(_)
+                | ContentPart::Reasoning { .. }
+                | ContentPart::Image { .. }
+                | ContentPart::ToolUse { .. } => true,
+            });
+            if parts.len() == 1
+                && !matches!(
+                    parts.first(),
+                    Some(ContentPart::Image { .. } | ContentPart::Reasoning { .. })
+                )
+            {
+                // Collapse single-element MultiPart back to a scalar type.
+                let part = parts.remove(0);
+                *content = match part {
+                    ContentPart::Text(t) => MessageContent::Text(t),
+                    ContentPart::ToolResult {
+                        tool_use_id,
+                        content: c,
+                        is_error,
+                    } => MessageContent::ToolResult {
+                        tool_use_id,
+                        content: c,
+                        is_error,
+                    },
+                    ContentPart::ToolUse {
+                        tool_use_id,
+                        name,
+                        input,
+                    } => MessageContent::ToolUse {
+                        tool_use_id,
+                        name,
+                        input,
+                    },
+                    ContentPart::Image { .. } | ContentPart::Reasoning { .. } => unreachable!(),
+                };
+            }
+            !matches!(content, MessageContent::MultiPart(p) if p.is_empty())
+        }
     }
 }
 
