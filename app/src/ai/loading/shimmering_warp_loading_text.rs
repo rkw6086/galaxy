@@ -1,7 +1,6 @@
-//! Renders the Galaxy logo with shimmering text for loading states.
+//! Renders the outline Galaxy mark with shimmering text for loading states.
 
 use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::icons::galaxy_brand_image;
 use galaxyui::elements::shimmering_text::{
     ShimmerConfig, ShimmeringTextElement, ShimmeringTextStateHandle,
 };
@@ -14,7 +13,7 @@ pub fn loading_logo_size(font_size: f32) -> f32 {
     (font_size * 1.5).max(24.)
 }
 
-/// Creates a shimmering text element beside the Galaxy logo.
+/// Creates a shimmering text element beside the outline Galaxy mark.
 pub fn shimmering_warp_loading_text(
     text: impl Into<String>,
     font_size: f32,
@@ -40,8 +39,8 @@ pub fn shimmering_warp_loading_text(
         config,
         shimmer_handle,
     )
-    .with_leading_image(
-        galaxy_brand_image(),
+    .with_leading_icon(
+        "bundled/svg/galaxy-mark.svg",
         loading_logo_size(font_size),
         LOADING_LOGO_GAP,
     )
