@@ -490,6 +490,7 @@ fn test_terminal_window_snapshot(vertical_tabs_panel_open: bool) -> WindowSnapsh
         right_panel_width: None,
         agent_management_filters: None,
         tab_groups: vec![],
+        split_groups: vec![],
     }
 }
 
@@ -576,6 +577,7 @@ fn test_sqlite_round_trips_custom_vertical_tabs_title() {
             right_panel_width: None,
             agent_management_filters: None,
             tab_groups: vec![],
+            split_groups: vec![],
         }],
         active_window_index: Some(0),
         block_lists: Default::default(),
@@ -653,6 +655,7 @@ fn test_sqlite_round_trips_code_pane_with_multiple_tabs() {
             right_panel_width: None,
             agent_management_filters: None,
             tab_groups: vec![],
+            split_groups: vec![],
         }],
         active_window_index: Some(0),
         block_lists: Default::default(),
@@ -776,6 +779,7 @@ fn test_sqlite_round_trips_tab_groups() {
                 collapsed: true,
                 pinned: false,
             }],
+            split_groups: vec![],
         }],
         active_window_index: Some(0),
         block_lists: Default::default(),
@@ -935,6 +939,7 @@ fn test_sqlite_round_trips_pinned_state() {
                     pinned: false,
                 },
             ],
+            split_groups: vec![],
         }],
         active_window_index: Some(0),
         block_lists: Default::default(),
@@ -1315,4 +1320,510 @@ fn provider_context_round_trips_through_sqlite_without_terminal_blocks() {
     .unwrap();
     assert_eq!(restored.provider_context(), context);
     assert_eq!(restored.progressive_summary(), Some("Earlier conversation"));
+}
+
+// ===========================================================================
+// Split group persistence tests
+// ===========================================================================
+
+/// A `WindowSplitGroupSnapshot` round-trips through save/restore.
+#[test]
+fn test_sqlite_round_trips_split_groups() {
+    use crate::app_state::WindowSplitGroupSnapshot;
+
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let database_path = tempdir.path().join("warp.sqlite");
+    let mut conn = setup_database(&database_path).expect("database should initialize");
+
+    let app_state = AppState {
+        windows: vec![WindowSnapshot {
+            tabs: vec![
+                TabSnapshot {
+                    custom_title: Some("Tab A".to_string()),
+                    root: PaneNodeSnapshot::Leaf(LeafSnapshot {
+                        is_focused: true,
+                        custom_vertical_tabs_title: None,
+                        contents: LeafContents::Terminal(TerminalPaneSnapshot {
+                            uuid: vec![1],
+                            cwd: Some("/tmp".to_string()),
+                            shell_launch_data: Some(ShellLaunchData::Executable {
+                                executable_path: PathBuf::from("/bin/zsh"),
+                                shell_type: crate::terminal::shell::ShellType::Zsh,
+                            }),
+                            is_active: true,
+                            is_read_only: false,
+                            input_config: None,
+                            llm_model_override: None,
+                            active_profile_id: None,
+                            conversation_ids_to_restore: vec![],
+                            active_conversation_id: None,
+                        }),
+                    }),
+                    default_directory_color: None,
+                    selected_color: SelectedTabColor::default(),
+                    left_panel: None,
+                    right_panel: None,
+                    group_id: None,
+                    pinned: false,
+                },
+                TabSnapshot {
+                    custom_title: Some("Tab B".to_string()),
+                    root: PaneNodeSnapshot::Leaf(LeafSnapshot {
+                        is_focused: false,
+                        custom_vertical_tabs_title: None,
+                        contents: LeafContents::Terminal(TerminalPaneSnapshot {
+                            uuid: vec![2],
+                            cwd: Some("/tmp".to_string()),
+                            shell_launch_data: Some(ShellLaunchData::Executable {
+                                executable_path: PathBuf::from("/bin/zsh"),
+                                shell_type: crate::terminal::shell::ShellType::Zsh,
+                            }),
+                            is_active: false,
+                            is_read_only: false,
+                            input_config: None,
+                            llm_model_override: None,
+                            active_profile_id: None,
+                            conversation_ids_to_restore: vec![],
+                            active_conversation_id: None,
+                        }),
+                    }),
+                    default_directory_color: None,
+                    selected_color: SelectedTabColor::default(),
+                    left_panel: None,
+                    right_panel: None,
+                    group_id: None,
+                    pinned: false,
+                },
+            ],
+            active_tab_index: 0,
+            bounds: None,
+            fullscreen_state: Default::default(),
+            quake_mode: false,
+            universal_search_width: None,
+            warp_ai_width: None,
+            voltron_width: None,
+            warp_drive_index_width: None,
+            left_panel_open: false,
+            vertical_tabs_panel_open: false,
+            left_panel_width: None,
+            right_panel_width: None,
+            agent_management_filters: None,
+            tab_groups: vec![],
+            split_groups: vec![WindowSplitGroupSnapshot {
+                tab_indices: vec![0, 1],
+                slot_weights: vec![2.0, 1.0],
+                focused_slot_index: Some(0),
+            }],
+        }],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Default::default(),
+    };
+
+    save_app_state(&mut conn, &app_state).expect("app state should save");
+
+    let restored = read_sqlite_data(&mut conn, None)
+        .expect("app state should load")
+        .app_state;
+
+    assert_eq!(restored.windows.len(), 1);
+    let win = &restored.windows[0];
+    assert_eq!(win.split_groups.len(), 1, "split group must round-trip");
+    let sg = &win.split_groups[0];
+    assert_eq!(sg.tab_indices, vec![0, 1]);
+    assert_eq!(sg.slot_weights, vec![2.0, 1.0]);
+    assert_eq!(sg.focused_slot_index, Some(0));
+}
+
+/// An empty `split_groups` column (legacy DB) produces an empty vec on restore.
+#[test]
+fn test_sqlite_legacy_no_split_groups_column_gives_empty() {
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let database_path = tempdir.path().join("warp.sqlite");
+    let mut conn = setup_database(&database_path).expect("database should initialize");
+
+    // Save without split_groups (empty vec = no column written).
+    let app_state = AppState {
+        windows: vec![test_terminal_window_snapshot(false)],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Default::default(),
+    };
+    save_app_state(&mut conn, &app_state).expect("app state should save");
+
+    // Explicitly NULL the split_groups column to simulate a pre-migration DB.
+    conn.batch_execute("UPDATE windows SET split_groups = NULL;")
+        .expect("should null split_groups column");
+
+    let restored = read_sqlite_data(&mut conn, None)
+        .expect("app state should load")
+        .app_state;
+
+    assert!(
+        restored.windows[0].split_groups.is_empty(),
+        "NULL split_groups must restore as empty vec (legacy DB fallback)"
+    );
+}
+
+/// Malformed JSON in `split_groups` is silently dropped rather than crashing.
+#[test]
+fn test_sqlite_corrupt_split_groups_json_gives_empty() {
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let database_path = tempdir.path().join("warp.sqlite");
+    let mut conn = setup_database(&database_path).expect("database should initialize");
+
+    let app_state = AppState {
+        windows: vec![test_terminal_window_snapshot(false)],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Default::default(),
+    };
+    save_app_state(&mut conn, &app_state).expect("app state should save");
+
+    // Inject invalid JSON.
+    conn.batch_execute("UPDATE windows SET split_groups = 'this is not json';")
+        .expect("should corrupt split_groups");
+
+    let restored = read_sqlite_data(&mut conn, None)
+        .expect("app state should load")
+        .app_state;
+
+    assert!(
+        restored.windows[0].split_groups.is_empty(),
+        "malformed JSON must be silently ignored, returning empty split_groups"
+    );
+}
+
+/// Out-of-range tab indices are dropped; groups with fewer than 2 valid
+/// survivors are pruned entirely.
+#[test]
+fn test_sqlite_split_groups_out_of_range_indices_pruned() {
+    use crate::app_state::WindowSplitGroupSnapshot;
+
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let database_path = tempdir.path().join("warp.sqlite");
+    let mut conn = setup_database(&database_path).expect("database should initialize");
+
+    // A window with one tab; a split group that references indices 0 and 99.
+    let app_state = AppState {
+        windows: vec![WindowSnapshot {
+            tabs: vec![TabSnapshot {
+                custom_title: None,
+                root: PaneNodeSnapshot::Leaf(LeafSnapshot {
+                    is_focused: true,
+                    custom_vertical_tabs_title: None,
+                    contents: LeafContents::Terminal(TerminalPaneSnapshot {
+                        uuid: vec![10],
+                        cwd: None,
+                        shell_launch_data: None,
+                        is_active: true,
+                        is_read_only: false,
+                        input_config: None,
+                        llm_model_override: None,
+                        active_profile_id: None,
+                        conversation_ids_to_restore: vec![],
+                        active_conversation_id: None,
+                    }),
+                }),
+                default_directory_color: None,
+                selected_color: SelectedTabColor::default(),
+                left_panel: None,
+                right_panel: None,
+                group_id: None,
+                pinned: false,
+            }],
+            active_tab_index: 0,
+            bounds: None,
+            fullscreen_state: Default::default(),
+            quake_mode: false,
+            universal_search_width: None,
+            warp_ai_width: None,
+            voltron_width: None,
+            warp_drive_index_width: None,
+            left_panel_open: false,
+            vertical_tabs_panel_open: false,
+            left_panel_width: None,
+            right_panel_width: None,
+            agent_management_filters: None,
+            tab_groups: vec![],
+            split_groups: vec![WindowSplitGroupSnapshot {
+                tab_indices: vec![0, 99], // 99 is out of range
+                slot_weights: vec![1.0, 1.0],
+                focused_slot_index: None,
+            }],
+        }],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Default::default(),
+    };
+
+    save_app_state(&mut conn, &app_state).expect("app state should save");
+
+    let restored = read_sqlite_data(&mut conn, None)
+        .expect("app state should load")
+        .app_state;
+
+    assert!(
+        restored.windows[0].split_groups.is_empty(),
+        "split group with only 1 valid index must be pruned on restore"
+    );
+}
+
+/// Duplicate tab indices in a persisted split group are dropped.
+#[test]
+fn test_sqlite_split_groups_duplicate_indices_pruned() {
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let database_path = tempdir.path().join("warp.sqlite");
+    let mut conn = setup_database(&database_path).expect("database should initialize");
+
+    let app_state = AppState {
+        windows: vec![test_terminal_window_snapshot(false)],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Default::default(),
+    };
+    save_app_state(&mut conn, &app_state).expect("app state should save");
+
+    // Inject a split group with duplicate indices via raw JSON.
+    conn.batch_execute(
+        "UPDATE windows SET split_groups = '[{\"tab_indices\":[0,0],\"slot_weights\":[1.0,1.0],\"focused_slot_index\":null}]';"
+    ).expect("should inject duplicate indices");
+
+    let restored = read_sqlite_data(&mut conn, None)
+        .expect("app state should load")
+        .app_state;
+
+    assert!(
+        restored.windows[0].split_groups.is_empty(),
+        "split group with duplicate tab indices must be pruned"
+    );
+}
+
+/// Blocker 4 regression: when the middle of three tabs fails to restore, the
+/// group membership and weights must be remapped to the surviving slot indices.
+/// Group [0,1,2] where tab 1 (B) fails becomes [0,1] (A and C at their new
+/// restored positions, with their respective weights preserved).
+#[test]
+fn test_sqlite_split_groups_remaps_after_dropped_middle_tab() {
+    use crate::app_state::WindowSplitGroupSnapshot;
+
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let database_path = tempdir.path().join("warp.sqlite");
+    let mut conn = setup_database(&database_path).expect("database should initialize");
+
+    // Build a 3-tab window with a split [A(0), B(1), C(2)] with weights [2.0, 1.0, 1.5].
+    fn make_terminal_tab_snapshot(uuid: u8) -> TabSnapshot {
+        use crate::app_state::{
+            LeafContents, LeafSnapshot, PaneNodeSnapshot, TerminalPaneSnapshot,
+        };
+        TabSnapshot {
+            custom_title: None,
+            root: PaneNodeSnapshot::Leaf(LeafSnapshot {
+                is_focused: uuid == 1,
+                custom_vertical_tabs_title: None,
+                contents: LeafContents::Terminal(TerminalPaneSnapshot {
+                    uuid: vec![uuid],
+                    cwd: Some("/tmp".to_string()),
+                    shell_launch_data: Some(ShellLaunchData::Executable {
+                        executable_path: PathBuf::from("/bin/zsh"),
+                        shell_type: crate::terminal::shell::ShellType::Zsh,
+                    }),
+                    is_active: uuid == 1,
+                    is_read_only: false,
+                    input_config: None,
+                    llm_model_override: None,
+                    active_profile_id: None,
+                    conversation_ids_to_restore: vec![],
+                    active_conversation_id: None,
+                }),
+            }),
+            default_directory_color: None,
+            selected_color: SelectedTabColor::default(),
+            left_panel: None,
+            right_panel: None,
+            group_id: None,
+            pinned: false,
+        }
+    }
+
+    let app_state = AppState {
+        windows: vec![WindowSnapshot {
+            tabs: vec![
+                make_terminal_tab_snapshot(10), // A at DB pos 0
+                make_terminal_tab_snapshot(11), // B at DB pos 1
+                make_terminal_tab_snapshot(12), // C at DB pos 2
+            ],
+            active_tab_index: 0,
+            bounds: None,
+            fullscreen_state: Default::default(),
+            quake_mode: false,
+            universal_search_width: None,
+            warp_ai_width: None,
+            voltron_width: None,
+            warp_drive_index_width: None,
+            left_panel_open: false,
+            vertical_tabs_panel_open: false,
+            left_panel_width: None,
+            right_panel_width: None,
+            agent_management_filters: None,
+            tab_groups: vec![],
+            split_groups: vec![WindowSplitGroupSnapshot {
+                tab_indices: vec![0, 1, 2], // A, B, C
+                slot_weights: vec![2.0, 1.0, 1.5],
+                focused_slot_index: Some(2), // C is focused
+            }],
+        }],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Default::default(),
+    };
+
+    save_app_state(&mut conn, &app_state).expect("app state should save");
+
+    // Corrupt B's pane_node row so read_root_node fails for it.
+    // This simulates a tab that fails to restore (dropped from saved_tabs).
+    conn.batch_execute(
+        "DELETE FROM pane_nodes WHERE tab_id = (
+            SELECT id FROM tabs ORDER BY id ASC LIMIT 1 OFFSET 1
+        );",
+    )
+    .expect("should corrupt middle tab");
+
+    let restored = read_sqlite_data(&mut conn, None)
+        .expect("app state should load")
+        .app_state;
+
+    // B failed to restore, so saved_tabs = [A(slot 0), C(slot 1)].
+    // The split group was [0,1,2] in DB order; B (DB pos 1) is gone.
+    // Remapped: A stays at restored slot 0, C moves to restored slot 1.
+    // The group must survive with 2 members.
+    assert_eq!(
+        restored.windows[0].tabs.len(),
+        2,
+        "B must have been dropped"
+    );
+    let sg = &restored.windows[0].split_groups;
+    assert_eq!(sg.len(), 1, "split group must survive after B is dropped");
+    let sg0 = &sg[0];
+    assert_eq!(sg0.tab_indices, vec![0, 1], "A at 0, C at 1 after remap");
+    // Weights: A had 2.0 (DB pos 0), C had 1.5 (DB pos 2).
+    assert_eq!(
+        sg0.slot_weights,
+        vec![2.0, 1.5],
+        "weights must follow the surviving tabs"
+    );
+    // focused_slot_index: C was originally at pos 2 in [A,B,C].
+    // After dropping B, the surviving sequence is [A,C]; C is at pos 1.
+    assert_eq!(
+        sg0.focused_slot_index,
+        Some(1),
+        "focus must remap to C's new position"
+    );
+}
+
+/// Blocker 5 regression: a split group with 5 members (> MAX_VISIBLE=4) is
+/// capped to exactly MAX_VISIBLE=4 when restored.  Uses a window with 5 real
+/// tabs so all DB-index → restored-slot mappings are valid; the 5th entry is
+/// dropped by the .take(MAX_VISIBLE) cap.  Weights and focus travel with their
+/// original positions (not zipped sequentially with the filtered list).
+#[test]
+fn test_sqlite_split_groups_oversized_capped_at_max_visible() {
+    use crate::app_state::WindowSplitGroupSnapshot;
+
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let database_path = tempdir.path().join("warp.sqlite");
+    let mut conn = setup_database(&database_path).expect("database should initialize");
+
+    // Build 5 distinct terminal tabs.
+    fn tab(uuid: u8) -> TabSnapshot {
+        TabSnapshot {
+            custom_title: None,
+            root: PaneNodeSnapshot::Leaf(LeafSnapshot {
+                is_focused: uuid == 10,
+                custom_vertical_tabs_title: None,
+                contents: LeafContents::Terminal(TerminalPaneSnapshot {
+                    uuid: vec![uuid],
+                    cwd: Some("/tmp".to_string()),
+                    shell_launch_data: Some(ShellLaunchData::Executable {
+                        executable_path: PathBuf::from("/bin/zsh"),
+                        shell_type: crate::terminal::shell::ShellType::Zsh,
+                    }),
+                    is_active: uuid == 10,
+                    is_read_only: false,
+                    input_config: None,
+                    llm_model_override: None,
+                    active_profile_id: None,
+                    conversation_ids_to_restore: vec![],
+                    active_conversation_id: None,
+                }),
+            }),
+            default_directory_color: None,
+            selected_color: SelectedTabColor::default(),
+            left_panel: None,
+            right_panel: None,
+            group_id: None,
+            pinned: false,
+        }
+    }
+
+    let app_state = AppState {
+        windows: vec![WindowSnapshot {
+            tabs: vec![tab(10), tab(11), tab(12), tab(13), tab(14)],
+            active_tab_index: 0,
+            bounds: None,
+            fullscreen_state: Default::default(),
+            quake_mode: false,
+            universal_search_width: None,
+            warp_ai_width: None,
+            voltron_width: None,
+            warp_drive_index_width: None,
+            left_panel_open: false,
+            vertical_tabs_panel_open: false,
+            left_panel_width: None,
+            right_panel_width: None,
+            agent_management_filters: None,
+            tab_groups: vec![],
+            // 5-member group, weights 1.0..5.0, focus=4 (last).
+            split_groups: vec![WindowSplitGroupSnapshot {
+                tab_indices: vec![0, 1, 2, 3, 4],
+                slot_weights: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+                focused_slot_index: Some(4),
+            }],
+        }],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Default::default(),
+    };
+
+    save_app_state(&mut conn, &app_state).expect("app state should save");
+
+    let restored = read_sqlite_data(&mut conn, None)
+        .expect("app state should load")
+        .app_state;
+
+    assert_eq!(restored.windows[0].tabs.len(), 5, "all 5 tabs must restore");
+    let sg = &restored.windows[0].split_groups;
+    assert_eq!(sg.len(), 1, "exactly 1 group must be restored");
+    let sg0 = &sg[0];
+    // MAX_VISIBLE = 4, so the 5th member (tab index 4, weight 5.0) is dropped.
+    assert_eq!(
+        sg0.tab_indices.len(),
+        4,
+        "capped group must have exactly MAX_VISIBLE=4 members"
+    );
+    // The first 4 tabs have restored-slot indices 0..3.
+    assert_eq!(sg0.tab_indices, vec![0, 1, 2, 3], "first 4 tabs survive");
+    // Weights must travel with original positions: tab[0]→1.0 … tab[3]→4.0.
+    assert_eq!(
+        sg0.slot_weights,
+        vec![1.0, 2.0, 3.0, 4.0],
+        "weights must follow original positions through the cap"
+    );
+    // focused_slot_index was 4 (dropped) → no matching surviving orig_pos →
+    // falls back to None (the workspace restore then uses first()).
+    // At the SQLite layer focused_slot_index is None when the focus was dropped.
+    assert_eq!(
+        sg0.focused_slot_index, None,
+        "focused_slot_index must be None when the focused member was capped out"
+    );
 }

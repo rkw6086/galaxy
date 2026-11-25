@@ -44,7 +44,6 @@ pub struct BedrockClientConfig {
     pub cross_region_inference: bool,
 }
 
-
 #[derive(Debug, thiserror::Error)]
 pub enum BedrockError {
     #[error("Bedrock credentials not configured")]
@@ -136,10 +135,11 @@ impl BedrockClient {
                     );
                 }
                 Err(e) => {
-                    let message = crate::ai::aws_credentials::user_facing_aws_credentials_error_message(
-                        &e,
-                        &config.profile,
-                    );
+                    let message =
+                        crate::ai::aws_credentials::user_facing_aws_credentials_error_message(
+                            &e,
+                            &config.profile,
+                        );
                     return Err(BedrockError::CredentialsLoadFailed(message));
                 }
             }
@@ -197,7 +197,8 @@ impl BedrockClient {
         };
 
         let external_config = ExternalBedrockConfig::load();
-        let caching_config = CachingConfig::from_external_config(&external_config).for_model(model_id);
+        let caching_config =
+            CachingConfig::from_external_config(&external_config).for_model(model_id);
 
         if !caching_config.enabled {
             log::info!("[bedrock] Prompt caching disabled (DISABLE_PROMPT_CACHING=1)");

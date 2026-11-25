@@ -96,7 +96,11 @@ async fn selected_computer_use_model_gets_its_own_profile() {
 
 #[tokio::test]
 async fn automatic_and_same_model_computer_use_keep_a_dedicated_profile() {
-    for selected in ["computer-use-agent-auto", "base-selection", "unroutable-model"] {
+    for selected in [
+        "computer-use-agent-auto",
+        "base-selection",
+        "unroutable-model",
+    ] {
         let mut params = RequestParams::new_for_test();
         params.model = LLMId::from("base-selection");
         params.computer_use_model = LLMId::from(selected);

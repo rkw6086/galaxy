@@ -523,7 +523,6 @@ fn direct_provider_known_tools_exclude_hosted_only_tools() {
     assert!(is_known_tool("interrupt_shell_command"));
 }
 
-
 #[test]
 fn compatibility_grep_literal_mode_uses_the_same_escaped_patterns() {
     let tool = tool_from_event(build_tool_call_message(

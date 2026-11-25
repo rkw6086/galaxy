@@ -436,7 +436,8 @@ pub fn populate_model_picker_for_harness<A: OrchestrationControlAction, V: View>
     is_local: bool,
     ctx: &mut ViewContext<V>,
 ) {
-    populate_model_picker_for_harness_with_action(terminal_view_id,
+    populate_model_picker_for_harness_with_action(
+        terminal_view_id,
         dropdown,
         initial_model_id,
         harness_type,
@@ -1368,21 +1369,44 @@ pub fn apply_harness_change<A: OrchestrationControlAction, V: View>(
     let new_key = harness_save_key(&state.harness_type);
     let restored = memory
         .get(new_key)
-        .filter(|id| is_model_in_filtered_choices(handles.terminal_view_id, id, &state.harness_type, is_local, ctx))
+        .filter(|id| {
+            is_model_in_filtered_choices(
+                handles.terminal_view_id,
+                id,
+                &state.harness_type,
+                is_local,
+                ctx,
+            )
+        })
         .cloned();
     if let Some(saved_id) = restored {
         state.model_id = saved_id;
-    } else if !is_model_in_filtered_choices(handles.terminal_view_id, &state.model_id, &state.harness_type, is_local, ctx) {
+    } else if !is_model_in_filtered_choices(
+        handles.terminal_view_id,
+        &state.model_id,
+        &state.harness_type,
+        is_local,
+        ctx,
+    ) {
         // No saved model — fall back to conversation base model
         // for Oz, or default for non-Oz.
         let reset_id = fallback_base_model_id(ctx)
-            .filter(|id| is_model_in_filtered_choices(handles.terminal_view_id, id, &state.harness_type, is_local, ctx))
+            .filter(|id| {
+                is_model_in_filtered_choices(
+                    handles.terminal_view_id,
+                    id,
+                    &state.harness_type,
+                    is_local,
+                    ctx,
+                )
+            })
             .or_else(|| first_filtered_model_id(handles.terminal_view_id, &state.harness_type, ctx))
             .unwrap_or_default();
         state.model_id = reset_id;
     }
     if let Some(handle) = &handles.model_picker {
-        populate_model_picker_for_harness(handles.terminal_view_id,
+        populate_model_picker_for_harness(
+            handles.terminal_view_id,
             handle,
             &state.model_id,
             &state.harness_type,
@@ -1429,15 +1453,30 @@ pub fn apply_execution_mode_change<A: OrchestrationControlAction, V: View>(
             }
         }
     }
-    if !is_model_in_filtered_choices(handles.terminal_view_id, &state.model_id, &state.harness_type, is_local, ctx) {
+    if !is_model_in_filtered_choices(
+        handles.terminal_view_id,
+        &state.model_id,
+        &state.harness_type,
+        is_local,
+        ctx,
+    ) {
         let reset_id = fallback_base_model_id(ctx)
-            .filter(|id| is_model_in_filtered_choices(handles.terminal_view_id, id, &state.harness_type, is_local, ctx))
+            .filter(|id| {
+                is_model_in_filtered_choices(
+                    handles.terminal_view_id,
+                    id,
+                    &state.harness_type,
+                    is_local,
+                    ctx,
+                )
+            })
             .or_else(|| first_filtered_model_id(handles.terminal_view_id, &state.harness_type, ctx))
             .unwrap_or_default();
         state.model_id = reset_id;
     }
     if let Some(handle) = &handles.model_picker {
-        populate_model_picker_for_harness(handles.terminal_view_id,
+        populate_model_picker_for_harness(
+            handles.terminal_view_id,
             handle,
             &state.model_id,
             &state.harness_type,
@@ -1474,13 +1513,22 @@ pub fn repopulate_all_pickers<A: OrchestrationControlAction, V: View>(
         populate_harness_picker(handle, &state.harness_type, is_local, ctx);
     }
     // Reset model if it disappeared from the harness's catalog.
-    if !is_model_in_filtered_choices(handles.terminal_view_id, &state.model_id, &state.harness_type, is_local, ctx) {
-        if let Some(first_id) = first_filtered_model_id(handles.terminal_view_id, &state.harness_type, ctx) {
+    if !is_model_in_filtered_choices(
+        handles.terminal_view_id,
+        &state.model_id,
+        &state.harness_type,
+        is_local,
+        ctx,
+    ) {
+        if let Some(first_id) =
+            first_filtered_model_id(handles.terminal_view_id, &state.harness_type, ctx)
+        {
             state.model_id = first_id;
         }
     }
     if let Some(handle) = &handles.model_picker {
-        populate_model_picker_for_harness(handles.terminal_view_id,
+        populate_model_picker_for_harness(
+            handles.terminal_view_id,
             handle,
             &state.model_id,
             &state.harness_type,

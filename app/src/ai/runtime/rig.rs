@@ -130,6 +130,9 @@ pub(crate) struct PreparedProviderRun {
     pub(crate) persistence_offset: usize,
     pub(crate) response_config: RuntimeResponseConfig,
     pub(crate) action_context: ProviderActionContext,
+    /// Per-profile startup timeout carried from the execution-profile setting.
+    /// `None` means use the coordinator's compile-time default (120 s).
+    pub(crate) model_start_timeout_secs: Option<u32>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -260,6 +263,7 @@ pub(crate) async fn prepare_provider_run(
         crate::ai::agent::api::prepare_direct_provider_params(&mut params);
     let skill_path_origin = params.session_context.skill_path_origin();
     let skill_creation = SkillCreationContext::from_session(&params.session_context);
+    let model_start_timeout_secs = params.model_start_timeout_secs;
     let mut cli_params = params.clone();
     let computer_use_model = params.computer_use_model.as_str();
     let computer_use_profile = if supported_tools.contains(&ToolType::RequestComputerUse) {
@@ -386,6 +390,7 @@ pub(crate) async fn prepare_provider_run(
             mcp_tool_aliases,
             skill_creation,
         },
+        model_start_timeout_secs,
     })
 }
 

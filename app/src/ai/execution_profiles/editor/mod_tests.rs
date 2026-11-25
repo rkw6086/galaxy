@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use galaxy_core::features::FeatureFlag;
 use warpui::App;
 
+use super::parse_timeout_input;
 use super::ui_helpers::context_window_snap_values;
-use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::execution_profiles::model_menu_items::{
     collapse_model_reasoning_choices, has_reasoning_variants, reasoning_choices_for_model,
 };
+use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::execution_profiles::{
     has_configurable_context_window, should_show_long_context_pricing_warning, AIExecutionProfile,
     AIExecutionProfileAppExt as _,
@@ -348,7 +349,10 @@ fn reasoning_choices_without_discovery_remain_unchanged() {
     let choices = vec![&base];
     assert!(!has_reasoning_variants(&base, &choices));
     assert!(reasoning_choices_for_model(&base.id, &choices).is_empty());
-    assert_eq!(collapse_model_reasoning_choices(choices, Some(&base.id))[0].id, base.id);
+    assert_eq!(
+        collapse_model_reasoning_choices(choices, Some(&base.id))[0].id,
+        base.id
+    );
 }
 
 #[test]
@@ -369,4 +373,42 @@ fn reasoning_dropdown_does_not_invent_provider_default() {
     let levels = reasoning_choices_for_model(&high.id, &[&high]);
     assert_eq!(levels.len(), 1);
     assert_eq!(levels[0].id, high.id);
+}
+
+// ── parse_timeout_input regression tests ─────────────────────────────────────
+
+#[test]
+fn parse_timeout_blank_resets_to_default() {
+    assert_eq!(parse_timeout_input(""), Ok(None));
+    assert_eq!(parse_timeout_input("   "), Ok(None));
+    assert_eq!(parse_timeout_input(",, ,"), Ok(None));
+}
+
+#[test]
+fn parse_timeout_valid_positive_integer() {
+    assert_eq!(parse_timeout_input("120"), Ok(Some(120)));
+    assert_eq!(parse_timeout_input("300"), Ok(Some(300)));
+    assert_eq!(parse_timeout_input(" 60 "), Ok(Some(60)));
+    assert_eq!(parse_timeout_input("1,800"), Ok(Some(1800)));
+}
+
+#[test]
+fn parse_timeout_zero_is_invalid() {
+    assert_eq!(parse_timeout_input("0"), Err(()));
+    assert_eq!(parse_timeout_input(" 0 "), Err(()));
+}
+
+#[test]
+fn parse_timeout_non_numeric_is_invalid() {
+    assert_eq!(parse_timeout_input("abc"), Err(()));
+    assert_eq!(parse_timeout_input("-1"), Err(()));
+    assert_eq!(parse_timeout_input("1.5"), Err(()));
+    assert_eq!(parse_timeout_input("1e3"), Err(()));
+}
+
+#[test]
+fn parse_timeout_overflow_is_invalid() {
+    // u32::MAX is 4_294_967_295; one more overflows.
+    assert_eq!(parse_timeout_input("4294967296"), Err(()));
+    assert_eq!(parse_timeout_input("99999999999"), Err(()));
 }

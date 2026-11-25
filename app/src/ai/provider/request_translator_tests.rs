@@ -3,7 +3,8 @@ use warp_multi_agent_api as api;
 
 use super::{
     convert_proto_message_for_test, extract_new_input_messages, extract_system_prompt,
-    extract_tools, inject_input_messages_into_task, sanitize_messages_for_bedrock,
+    extract_tools, inject_input_messages_into_task, merge_consecutive_same_role_messages,
+    remove_misplaced_tool_results_for_bedrock, sanitize_messages_for_bedrock,
 };
 use crate::ai::agent::api::is_internal_command_completion_assessment;
 use crate::ai::provider::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
@@ -724,16 +725,786 @@ fn status_and_log_followups_are_not_parked_behind_event_waits() {
             "missing instruction: {instruction}"
         );
     }
-    assert!(!super::PROGRESS_COMMUNICATION_GUIDANCE
-        .contains("command or subagent, use its wait tool"));
+    assert!(
+        !super::PROGRESS_COMMUNICATION_GUIDANCE.contains("command or subagent, use its wait tool")
+    );
 
     let tools = extract_tools(&request);
     let wait = tools
         .iter()
         .find(|tool| tool.name == "wait_for_events")
         .expect("child wait tool");
-    assert!(wait.description.contains("expected update from an already-started child agent or orchestration event source"));
-    assert!(wait.description.contains("never park that request in a wait"));
+    assert!(wait.description.contains(
+        "expected update from an already-started child agent or orchestration event source"
+    ));
+    assert!(wait
+        .description
+        .contains("never park that request in a wait"));
     assert!(!wait.description.contains("other asynchronous work"));
     assert!(tools.iter().any(|tool| tool.name == "read_files"));
+}
+
+// remove_misplaced_tool_results_for_bedrock regression tests
+//
+// Cover surplus/late/orphan/duplicate tool_result shapes that cause Bedrock
+// to reject with "toolResult blocks exceeds toolUse blocks of previous turn".
+
+/// Helpers to build common message shapes.
+fn user_text(text: &str) -> ConversationMessage {
+    ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text(text.to_string()),
+    }
+}
+
+fn assistant_tool_use(id: &str) -> ConversationMessage {
+    ConversationMessage {
+        role: MessageRole::Assistant,
+        content: MessageContent::ToolUse {
+            tool_use_id: id.to_string(),
+            name: "run_shell_command".to_string(),
+            input: json!({ "command": "ls" }),
+        },
+    }
+}
+
+fn tool_result_part(id: &str) -> ContentPart {
+    ContentPart::ToolResult {
+        tool_use_id: id.to_string(),
+        content: "ok".to_string(),
+        is_error: false,
+    }
+}
+
+fn user_result(id: &str) -> ConversationMessage {
+    ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::ToolResult {
+            tool_use_id: id.to_string(),
+            content: "ok".to_string(),
+            is_error: false,
+        },
+    }
+}
+
+/// A user turn that contains a result answering an earlier (non-adjacent) assistant
+/// tool_use, not the immediately preceding one. The misplaced result must be removed;
+/// the correctly-placed result for the adjacent turn must remain.
+#[test]
+fn bedrock_late_result_from_prior_turn_is_removed() {
+    // Turn 0: user asks
+    // Turn 1: assistant calls tool_a
+    // Turn 2: user answers tool_a correctly
+    // Turn 3: assistant calls tool_b
+    // Turn 4: user sends tool_b result AND also carries the old tool_a result
+    //         Bedrock rejects: 2 results but only 1 tool_use in turn 3
+    let mut messages = vec![
+        user_text("go"),
+        assistant_tool_use("tool_a"),
+        user_result("tool_a"),
+        assistant_tool_use("tool_b"),
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![
+                tool_result_part("tool_b"),
+                tool_result_part("tool_a"), // duplicate / late
+            ]),
+        },
+    ];
+
+    remove_misplaced_tool_results_for_bedrock(&mut messages);
+
+    // Turn 4 must only contain the result for tool_b.
+    let MessageContent::ToolResult { tool_use_id, .. } = &messages[4].content else {
+        panic!("expected single ToolResult, got {:?}", messages[4].content);
+    };
+    assert_eq!(tool_use_id, "tool_b");
+    assert_eq!(messages.len(), 5);
+}
+
+/// A user turn that consists entirely of misplaced results (no matching
+/// preceding tool_use and no other content) must be removed entirely.
+#[test]
+fn bedrock_user_turn_with_only_orphan_results_is_dropped() {
+    // Turn 0: user asks
+    // Turn 1: assistant plain text (no tool_use)
+    // Turn 2: user sends a tool_result with no adjacent tool_use — entire message dropped
+    let mut messages = vec![
+        user_text("help"),
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("Sure".to_string()),
+        },
+        user_result("stale_id"),
+    ];
+
+    remove_misplaced_tool_results_for_bedrock(&mut messages);
+
+    assert_eq!(
+        messages.len(),
+        2,
+        "orphan-only user message must be dropped"
+    );
+}
+
+/// A MultiPart user message that mixes valid text content with misplaced
+/// tool_result parts must retain the text and drop only the results.
+#[test]
+fn bedrock_mixed_user_message_retains_text_drops_misplaced_results() {
+    let mut messages = vec![
+        user_text("start"),
+        assistant_tool_use("tool_x"),
+        // Correct result for tool_x PLUS stale result from an earlier id
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![
+                tool_result_part("tool_x"),
+                tool_result_part("old_tool"),
+                ContentPart::Text("continuing conversation".to_string()),
+            ]),
+        },
+    ];
+
+    remove_misplaced_tool_results_for_bedrock(&mut messages);
+
+    let parts = match &messages[2].content {
+        MessageContent::MultiPart(p) => p,
+        other => panic!("expected MultiPart, got {:?}", other),
+    };
+    // old_tool result removed; tool_x result and text retained
+    assert_eq!(parts.len(), 2);
+    assert!(matches!(
+        &parts[0],
+        ContentPart::ToolResult { tool_use_id, .. } if tool_use_id == "tool_x"
+    ));
+    assert!(matches!(&parts[1], ContentPart::Text(t) if t == "continuing conversation"));
+}
+
+/// A correctly structured history with 1-to-1 adjacent results must pass through unchanged.
+#[test]
+fn bedrock_correct_adjacent_results_are_unchanged() {
+    let mut messages = vec![
+        user_text("go"),
+        assistant_tool_use("t1"),
+        user_result("t1"),
+        assistant_tool_use("t2"),
+        user_result("t2"),
+    ];
+    let original = messages.clone();
+
+    remove_misplaced_tool_results_for_bedrock(&mut messages);
+
+    assert_eq!(
+        messages, original,
+        "correctly structured history must be unchanged"
+    );
+}
+
+/// A multi-call assistant turn where one result is duplicated must deduplicate
+/// via the `remove` (consume-once) semantics: the first occurrence is kept,
+/// the second is treated as surplus and dropped.
+#[test]
+fn bedrock_duplicate_result_for_same_id_deduplicates() {
+    let mut messages = vec![
+        user_text("go"),
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::MultiPart(vec![
+                ContentPart::ToolUse {
+                    tool_use_id: "a".to_string(),
+                    name: "read_files".to_string(),
+                    input: json!({}),
+                },
+                ContentPart::ToolUse {
+                    tool_use_id: "b".to_string(),
+                    name: "grep".to_string(),
+                    input: json!({}),
+                },
+            ]),
+        },
+        // Three results but only 2 tool_uses: second "a" is surplus
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![
+                tool_result_part("a"),
+                tool_result_part("b"),
+                tool_result_part("a"), // duplicate
+            ]),
+        },
+    ];
+
+    remove_misplaced_tool_results_for_bedrock(&mut messages);
+
+    let parts = match &messages[2].content {
+        MessageContent::MultiPart(p) => p,
+        other => panic!("expected MultiPart, got {:?}", other),
+    };
+    assert_eq!(parts.len(), 2, "duplicate result must be removed");
+    assert!(matches!(&parts[0], ContentPart::ToolResult { tool_use_id, .. } if tool_use_id == "a"));
+    assert!(matches!(&parts[1], ContentPart::ToolResult { tool_use_id, .. } if tool_use_id == "b"));
+}
+
+/// Full-pipeline idempotence: running sanitize_messages_for_bedrock twice on a
+/// surplus-result shape produces the same result as running it once.
+#[test]
+fn bedrock_sanitize_pipeline_is_idempotent_on_observed_error_shape() {
+    // Plausible surplus shape: a user turn at index 10 carries a correct result for
+    // the adjacent tool_use PLUS a stale result for an already-answered earlier call.
+    let mut messages = vec![
+        user_text("q0"),
+        assistant_tool_use("id0"),
+        user_result("id0"),
+        assistant_tool_use("id1"),
+        user_result("id1"),
+        assistant_tool_use("id2"),
+        user_result("id2"),
+        assistant_tool_use("id3"),
+        user_result("id3"),
+        assistant_tool_use("id4"),
+        // messages[10]: correct result for id4 PLUS stale result for id3
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![
+                tool_result_part("id4"),
+                tool_result_part("id3"), // surplus: id3 was already answered earlier
+            ]),
+        },
+        user_text("next turn"),
+    ];
+
+    sanitize_messages_for_bedrock(&mut messages);
+    let after_first = messages.clone();
+    sanitize_messages_for_bedrock(&mut messages);
+
+    assert_eq!(messages, after_first, "sanitization must be idempotent");
+
+    // The two trailing user messages (result for id4 and "next turn" text) are
+    // merged into a single MultiPart turn at index 10. The surplus id3 result
+    // must be absent; the actual id4 result and the text must both be present.
+    let parts = match &messages[10].content {
+        MessageContent::MultiPart(p) => p,
+        other => panic!("expected MultiPart at index 10, got {:?}", other),
+    };
+    let has_id4_result = parts
+        .iter()
+        .any(|p| matches!(p, ContentPart::ToolResult { tool_use_id, .. } if tool_use_id == "id4"));
+    let has_id3_result = parts
+        .iter()
+        .any(|p| matches!(p, ContentPart::ToolResult { tool_use_id, .. } if tool_use_id == "id3"));
+    let has_text = parts
+        .iter()
+        .any(|p| matches!(p, ContentPart::Text(t) if t == "next turn"));
+    assert!(has_id4_result, "actual result for id4 must be present");
+    assert!(
+        !has_id3_result,
+        "surplus result for id3 must have been stripped"
+    );
+    assert!(has_text, "\"next turn\" text must be retained");
+}
+
+// Full sanitize_messages_for_bedrock pipeline regression tests
+//
+// These cover shapes that require consecutive same-role message merging
+// (the merge step runs first, so split results/calls are normalized before
+// filtering and pairing).
+
+/// Two consecutive user messages each carrying one result for the same
+/// assistant tool_use batch (a, b) must be merged and both results kept.
+#[test]
+fn bedrock_pipeline_split_actual_results_across_consecutive_user_messages() {
+    let mut messages = vec![
+        user_text("go"),
+        // Single assistant turn that calls both a and b.
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::MultiPart(vec![
+                ContentPart::ToolUse {
+                    tool_use_id: "a".to_string(),
+                    name: "read_files".to_string(),
+                    input: json!({}),
+                },
+                ContentPart::ToolUse {
+                    tool_use_id: "b".to_string(),
+                    name: "grep".to_string(),
+                    input: json!({}),
+                },
+            ]),
+        },
+        // Two separate user messages, one per result.
+        user_result("a"),
+        user_result("b"),
+    ];
+
+    sanitize_messages_for_bedrock(&mut messages);
+
+    // After merging and sanitisation there must be exactly 3 messages:
+    // user(text), assistant(tool_use a+b), user(result a + result b).
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[2].role, MessageRole::User);
+    let parts = match &messages[2].content {
+        MessageContent::MultiPart(p) => p,
+        other => panic!("expected MultiPart at index 2, got {:?}", other),
+    };
+    let result_ids: Vec<_> = parts
+        .iter()
+        .filter_map(|p| match p {
+            ContentPart::ToolResult { tool_use_id, .. } => Some(tool_use_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(result_ids.contains(&"a"), "result for a must be kept");
+    assert!(result_ids.contains(&"b"), "result for b must be kept");
+}
+
+/// Two consecutive assistant messages each with one tool_use (a, b). The
+/// following user message carries results for both. Both must be kept.
+#[test]
+fn bedrock_pipeline_calls_across_consecutive_assistant_messages() {
+    let mut messages = vec![
+        user_text("go"),
+        // Two consecutive assistant messages — same logical turn.
+        assistant_tool_use("a"),
+        assistant_tool_use("b"),
+        // Single user message answering both.
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![tool_result_part("a"), tool_result_part("b")]),
+        },
+    ];
+
+    sanitize_messages_for_bedrock(&mut messages);
+
+    // Merged to 3 messages; both results retained.
+    assert_eq!(messages.len(), 3);
+    let parts = match &messages[2].content {
+        MessageContent::MultiPart(p) => p,
+        other => panic!("expected MultiPart at index 2, got {:?}", other),
+    };
+    let result_ids: Vec<_> = parts
+        .iter()
+        .filter_map(|p| match p {
+            ContentPart::ToolResult { tool_use_id, .. } => Some(tool_use_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(result_ids.contains(&"a"));
+    assert!(result_ids.contains(&"b"));
+}
+
+/// Duplicate results for the same ID across two consecutive user messages.
+/// After merging, the duplicate is collapsed to one occurrence.
+#[test]
+fn bedrock_pipeline_duplicate_results_across_consecutive_user_messages() {
+    let mut messages = vec![
+        user_text("go"),
+        assistant_tool_use("x"),
+        user_result("x"),
+        user_result("x"), // duplicate in separate message
+    ];
+
+    sanitize_messages_for_bedrock(&mut messages);
+
+    // Three messages after merge + sanitisation.
+    assert_eq!(messages.len(), 3);
+    // The user turn at index 2 must have exactly one result for x.
+    let MessageContent::ToolResult { tool_use_id, .. } = &messages[2].content else {
+        // MultiPart is also acceptable if only one result.
+        let MessageContent::MultiPart(parts) = &messages[2].content else {
+            panic!("unexpected content at index 2: {:?}", messages[2].content);
+        };
+        let results: Vec<_> = parts
+            .iter()
+            .filter(|p| matches!(p, ContentPart::ToolResult { .. }))
+            .collect();
+        assert_eq!(results.len(), 1, "exactly one result expected after dedup");
+        return;
+    };
+    assert_eq!(tool_use_id, "x");
+}
+
+/// Partial results: assistant calls a and b; user provides only a. Result for b
+/// must be synthesized; result for a must be preserved exactly.
+#[test]
+fn bedrock_pipeline_partial_results_preserves_actual_and_synthesizes_missing() {
+    let mut messages = vec![
+        user_text("go"),
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::MultiPart(vec![
+                ContentPart::ToolUse {
+                    tool_use_id: "a".to_string(),
+                    name: "read_files".to_string(),
+                    input: json!({}),
+                },
+                ContentPart::ToolUse {
+                    tool_use_id: "b".to_string(),
+                    name: "grep".to_string(),
+                    input: json!({}),
+                },
+            ]),
+        },
+        user_result("a"), // only a is answered; b is missing
+    ];
+
+    sanitize_messages_for_bedrock(&mut messages);
+
+    assert_eq!(messages.len(), 3);
+    // The user turn must contain both a (actual) and b (synthesized).
+    let parts = match &messages[2].content {
+        MessageContent::MultiPart(p) => p,
+        other => panic!("expected MultiPart at index 2, got {:?}", other),
+    };
+    let (mut actual_a, mut synth_b) = (false, false);
+    for part in parts {
+        if let ContentPart::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } = part
+        {
+            if tool_use_id == "a" {
+                // actual result must be preserved, not replaced with the synthetic placeholder
+                assert_eq!(content, "ok", "actual result for a must be preserved");
+                assert!(!is_error, "actual result for a must not be an error");
+                actual_a = true;
+            } else if tool_use_id == "b" {
+                // synthesized result is marked as an interruption
+                assert!(
+                    content.contains("unavailable"),
+                    "synthetic result for b should indicate unavailability"
+                );
+                synth_b = true;
+            }
+        }
+    }
+    assert!(actual_a, "result for a must be present");
+    assert!(synth_b, "synthesized result for b must be present");
+}
+
+/// Synthetic candidate for the observed surplus-result error class: a user turn
+/// carries a correct result for the adjacent tool_use plus a stale result that
+/// answered a tool_use from an earlier turn. The stale result must be removed;
+/// the correct result must be preserved. This shape is a plausible reproducer;
+/// the original request payload was not recovered.
+#[test]
+fn bedrock_pipeline_candidate_reproducer_surplus_result_in_adjacent_user_turn() {
+    let mut messages = vec![
+        user_text("q"),
+        assistant_tool_use("old"),
+        user_result("old"),
+        assistant_tool_use("current"),
+        // User turn carries both: correct result for current + stale for old.
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![
+                tool_result_part("current"),
+                tool_result_part("old"), // stale
+            ]),
+        },
+    ];
+
+    sanitize_messages_for_bedrock(&mut messages);
+
+    assert_eq!(messages.len(), 5);
+    // Index 4 must contain only the result for current.
+    let MessageContent::ToolResult { tool_use_id, .. } = &messages[4].content else {
+        panic!(
+            "expected single ToolResult at index 4, got {:?}",
+            messages[4].content
+        );
+    };
+    assert_eq!(tool_use_id, "current");
+}
+
+/// Orphan-only removal can delete the sole user message between two assistant
+/// messages, creating adjacent assistants. The pipeline must merge them and
+/// produce a valid alternating sequence idempotently.
+#[test]
+fn bedrock_pipeline_orphan_removal_creates_adjacent_assistants_then_merges() {
+    // user(go) -> assistant(text) -> user(orphan unknown_id) -> assistant(text) -> user(continue)
+    // After orphan removal: user(go) -> assistant -> assistant -> user(continue)
+    // After second merge:   user(go) -> assistant(merged) -> user(continue)
+    let mut messages = vec![
+        user_text("go"),
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("First response.".to_string()),
+        },
+        // This user message carries a result for a tool_use that never existed.
+        // remove_orphaned_tool_results will drop it.
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "unknown_id".to_string(),
+                content: "orphan".to_string(),
+                is_error: false,
+            },
+        },
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("Second response.".to_string()),
+        },
+        user_text("continue"),
+    ];
+
+    sanitize_messages_for_bedrock(&mut messages);
+    let after_first = messages.clone();
+
+    // Must produce a valid alternating sequence with the orphan stripped.
+    assert_eq!(messages.len(), 3, "orphan user message must be removed");
+    assert_eq!(messages[0].role, MessageRole::User);
+    assert_eq!(messages[1].role, MessageRole::Assistant);
+    assert_eq!(messages[2].role, MessageRole::User);
+    // The two assistant messages must have been merged into one.
+    let parts = match &messages[1].content {
+        MessageContent::MultiPart(p) => p,
+        other => panic!("expected merged MultiPart assistant, got {:?}", other),
+    };
+    assert_eq!(parts.len(), 2, "both assistant texts must be present");
+
+    // Second call must produce identical output (idempotent).
+    sanitize_messages_for_bedrock(&mut messages);
+    assert_eq!(
+        messages, after_first,
+        "pipeline must be idempotent after orphan-removal adjacency"
+    );
+}
+
+/// Misplaced-only removal of the sole user message between two assistant
+/// messages produces the same adjacency. The pipeline must handle it
+/// identically and satisfy idempotence.
+#[test]
+fn bedrock_pipeline_misplaced_removal_creates_adjacent_assistants_then_merges() {
+    // Earlier turn: assistant(tool_use old) answered by user(result old).
+    // Later:  assistant(text, no tool_use) -> user(carries only stale result for old)
+    //         -> assistant(text) -> user(continue)
+    // remove_misplaced drops the stale-only user message, creating adjacent assistants.
+    let mut messages = vec![
+        user_text("go"),
+        assistant_tool_use("old"),
+        user_result("old"),
+        // Assistant with no tool_use.
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("Interim note.".to_string()),
+        },
+        // User message whose only content is a stale result for the already-answered 'old'.
+        // remove_misplaced_tool_results_for_bedrock will drop it because the
+        // adjacent assistant (interim note) has no tool_use.
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "old".to_string(),
+                content: "ok".to_string(),
+                is_error: false,
+            },
+        },
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("Final response.".to_string()),
+        },
+        user_text("continue"),
+    ];
+
+    sanitize_messages_for_bedrock(&mut messages);
+    let after_first = messages.clone();
+
+    // Stale-only user message removed; the two adjacent assistants merged.
+    // Expected: user(go) -> assistant(tool_use old) -> user(result old) ->
+    //           assistant(merged interim+final) -> user(continue)
+    assert_eq!(messages.len(), 5);
+    assert_eq!(messages[0].role, MessageRole::User);
+    assert_eq!(messages[1].role, MessageRole::Assistant);
+    assert_eq!(messages[2].role, MessageRole::User);
+    assert_eq!(messages[3].role, MessageRole::Assistant);
+    assert_eq!(messages[4].role, MessageRole::User);
+    // messages[3] must be the merged assistant.
+    let parts = match &messages[3].content {
+        MessageContent::MultiPart(p) => p,
+        other => panic!(
+            "expected merged MultiPart assistant at index 3, got {:?}",
+            other
+        ),
+    };
+    assert_eq!(
+        parts.len(),
+        2,
+        "both assistant texts must be present after merge"
+    );
+
+    // Second call must be idempotent.
+    sanitize_messages_for_bedrock(&mut messages);
+    assert_eq!(
+        messages, after_first,
+        "pipeline must be idempotent after misplaced-removal adjacency"
+    );
+}
+
+/// Orphan-only removal with tool-bearing adjacent assistants: the separator
+/// user message carries a globally-unknown result; removing it leaves two
+/// adjacent assistants each with a tool_use. The pipeline must merge them so
+/// the misplaced filter sees both IDs, and must preserve both actual results.
+#[test]
+fn bedrock_pipeline_orphan_separator_preserves_both_actual_results() {
+    // user(go)
+    // -> assistant(use_a)
+    // -> user(orphan unknown_id)   <- no tool_use in any assistant for unknown_id
+    // -> assistant(use_b)
+    // -> user(result_a, result_b)  <- both actual results
+    let mut messages = vec![
+        user_text("go"),
+        assistant_tool_use("a"),
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "unknown_id".to_string(),
+                content: "orphan".to_string(),
+                is_error: false,
+            },
+        },
+        assistant_tool_use("b"),
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![tool_result_part("a"), tool_result_part("b")]),
+        },
+    ];
+
+    sanitize_messages_for_bedrock(&mut messages);
+    let after_first = messages.clone();
+
+    // Expected: user(go) -> assistant(use_a + use_b merged) -> user(result_a + result_b)
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[0].role, MessageRole::User);
+    assert_eq!(messages[1].role, MessageRole::Assistant);
+    assert_eq!(messages[2].role, MessageRole::User);
+
+    // Both actual results must be retained — neither synthesized nor dropped.
+    let result_parts = match &messages[2].content {
+        MessageContent::MultiPart(p) => p.clone(),
+        MessageContent::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => vec![ContentPart::ToolResult {
+            tool_use_id: tool_use_id.clone(),
+            content: content.clone(),
+            is_error: *is_error,
+        }],
+        other => panic!("expected results at index 2, got {:?}", other),
+    };
+    let actual_a = result_parts
+        .iter()
+        .find(|p| matches!(p, ContentPart::ToolResult { tool_use_id, .. } if tool_use_id == "a"));
+    let actual_b = result_parts
+        .iter()
+        .find(|p| matches!(p, ContentPart::ToolResult { tool_use_id, .. } if tool_use_id == "b"));
+    // Both must be present and carry the original "ok" content, not the synthetic placeholder.
+    assert!(
+        matches!(actual_a, Some(ContentPart::ToolResult { content, .. }) if content == "ok"),
+        "actual result for a must be preserved with original payload"
+    );
+    assert!(
+        matches!(actual_b, Some(ContentPart::ToolResult { content, .. }) if content == "ok"),
+        "actual result for b must be preserved with original payload"
+    );
+
+    // Second call must be idempotent.
+    sanitize_messages_for_bedrock(&mut messages);
+    assert_eq!(
+        messages, after_first,
+        "pipeline must be idempotent after tool-bearing orphan-separator case"
+    );
+}
+
+/// Misplaced-only removal with tool-bearing adjacent assistants: the separator
+/// user message carries only a stale result for a globally-valid earlier tool_use
+/// (tool_c from the first turn). Removing it leaves two adjacent assistants each
+/// with a tool_use. The pipeline must merge them, preserve both actual results
+/// for a and b, and satisfy idempotence.
+#[test]
+fn bedrock_pipeline_misplaced_separator_preserves_both_actual_results() {
+    // user(go)
+    // -> assistant(use_c)
+    // -> user(result_c)            <- correctly answered
+    // -> assistant(use_a)
+    // -> user(stale result_c)      <- stale: c already answered; adjacent assistant has no use_c
+    //                              <- remove_misplaced drops this whole message
+    // -> assistant(use_b)
+    // -> user(result_a, result_b)  <- both actual results
+    let mut messages = vec![
+        user_text("go"),
+        assistant_tool_use("c"),
+        user_result("c"),
+        assistant_tool_use("a"),
+        // Stale-only user message: 'c' is globally valid but the adjacent assistant
+        // only has use_a — so 'c' is misplaced and this message is dropped entirely.
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "c".to_string(),
+                content: "stale_c".to_string(),
+                is_error: false,
+            },
+        },
+        assistant_tool_use("b"),
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![tool_result_part("a"), tool_result_part("b")]),
+        },
+    ];
+
+    sanitize_messages_for_bedrock(&mut messages);
+    let after_first = messages.clone();
+
+    // Expected after pipeline:
+    // user(go) -> assistant(use_c) -> user(result_c)
+    // -> assistant(use_a + use_b merged) -> user(result_a + result_b)
+    assert_eq!(messages.len(), 5);
+    assert_eq!(messages[0].role, MessageRole::User);
+    assert_eq!(messages[1].role, MessageRole::Assistant);
+    assert_eq!(messages[2].role, MessageRole::User);
+    assert_eq!(messages[3].role, MessageRole::Assistant);
+    assert_eq!(messages[4].role, MessageRole::User);
+
+    // messages[4] must contain both actual results with original payloads.
+    let result_parts = match &messages[4].content {
+        MessageContent::MultiPart(p) => p.clone(),
+        MessageContent::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => vec![ContentPart::ToolResult {
+            tool_use_id: tool_use_id.clone(),
+            content: content.clone(),
+            is_error: *is_error,
+        }],
+        other => panic!("expected results at index 4, got {:?}", other),
+    };
+    let actual_a = result_parts
+        .iter()
+        .find(|p| matches!(p, ContentPart::ToolResult { tool_use_id, .. } if tool_use_id == "a"));
+    let actual_b = result_parts
+        .iter()
+        .find(|p| matches!(p, ContentPart::ToolResult { tool_use_id, .. } if tool_use_id == "b"));
+    assert!(
+        matches!(actual_a, Some(ContentPart::ToolResult { content, .. }) if content == "ok"),
+        "actual result for a must be preserved with original payload"
+    );
+    assert!(
+        matches!(actual_b, Some(ContentPart::ToolResult { content, .. }) if content == "ok"),
+        "actual result for b must be preserved with original payload"
+    );
+    // The stale result for c must not appear in messages[4].
+    let stale_c = result_parts.iter().any(|p| {
+        matches!(p, ContentPart::ToolResult { tool_use_id, content, .. }
+            if tool_use_id == "c" && content == "stale_c")
+    });
+    assert!(!stale_c, "stale result for c must have been removed");
+
+    // Second call must be idempotent.
+    sanitize_messages_for_bedrock(&mut messages);
+    assert_eq!(
+        messages, after_first,
+        "pipeline must be idempotent after tool-bearing misplaced-separator case"
+    );
 }

@@ -276,6 +276,10 @@ pub enum WorkspaceAction {
     /// Unpins the active tab's group.
     UnpinActiveTabGroup,
     AddDefaultTab,
+    /// Create a new default-session tab (using the same logic as `AddDefaultTab` / Cmd-T)
+    /// and immediately open it alongside the currently active tab in split view.
+    /// Existing split members are preserved when there is capacity.
+    AddDefaultTabInSplitView,
     AddTerminalTab {
         hide_homepage: bool,
     },
@@ -893,6 +897,18 @@ pub enum WorkspaceAction {
     OpenNetworkLogPane,
     /// Opens the app-wide inspector for model, compaction, and tool activity.
     OpenAIActivity,
+    /// Begin a split-view divider drag.  Dispatched on `mouse_down` over a
+    /// divider between two adjacent slots.
+    StartSplitViewResize {
+        /// Stable identifier of the divider being dragged.
+        divider_id: EntityId,
+        /// Initial mouse X position in window coordinates.
+        start_x: f32,
+    },
+    /// Dispatched on every `mouse_dragged` event while a split-view divider is held.
+    SplitViewResizeMove(Vector2F),
+    /// Dispatched on `left_mouse_up` to finish a split-view divider drag.
+    EndSplitViewResize,
 }
 
 impl From<&WorkspaceAction> for LoginGatedFeature {
@@ -995,6 +1011,7 @@ impl WorkspaceAction {
             | ToggleTabColor { .. }
             | ToggleTabGroupColor { .. }
             | AddDefaultTab
+            | AddDefaultTabInSplitView
             | AddTerminalTab { .. }
             | AddTabWithShell { .. }
             | AddGetStartedTab
@@ -1217,7 +1234,10 @@ impl WorkspaceAction {
             | ShowCloudModeV2EnvironmentCreationModal
             | OpenCreateAuthSecretModal { .. }
             | OpenNetworkLogPane
-            | OpenAIActivity => false,
+            | OpenAIActivity
+            | StartSplitViewResize { .. }
+            | SplitViewResizeMove(_)
+            | EndSplitViewResize => false,
             #[cfg(debug_assertions)]
             ShowHoaOnboardingFlow => false,
             #[cfg(target_family = "wasm")]

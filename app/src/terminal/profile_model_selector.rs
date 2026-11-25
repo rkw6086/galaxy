@@ -1242,9 +1242,7 @@ impl ProfileModelSelector {
                 if is_auto(llm) {
                     ProfileModelSelectorAction::SelectAutoModel
                 } else if has_reasoning_variants(llm, &all_refs) {
-                    ProfileModelSelectorAction::SelectReasoningModel(
-                        llm.reasoning_group_key(),
-                    )
+                    ProfileModelSelectorAction::SelectReasoningModel(llm.reasoning_group_key())
                 } else {
                     ProfileModelSelectorAction::SelectModel(llm.id.clone())
                 }
@@ -1293,9 +1291,7 @@ impl ProfileModelSelector {
                     if is_auto(llm) {
                         ProfileModelSelectorAction::SelectAutoModel
                     } else if has_reasoning_variants(llm, &all_refs) {
-                        ProfileModelSelectorAction::SelectReasoningModel(
-                            llm.reasoning_group_key(),
-                        )
+                        ProfileModelSelectorAction::SelectReasoningModel(llm.reasoning_group_key())
                     } else {
                         ProfileModelSelectorAction::SelectModel(llm.id.clone())
                     }
@@ -1541,7 +1537,8 @@ impl ProfileModelSelector {
                             // Preserve the current effort when hovering its model.
                             // For another model, prefer the provider-default entry.
                             let preferences = LLMPreferences::as_ref(ctx);
-                            let active = preferences.get_active_base_model(ctx, Some(self.terminal_view_id));
+                            let active =
+                                preferences.get_active_base_model(ctx, Some(self.terminal_view_id));
                             if active.reasoning_group_key() == *base_name {
                                 return Some(active.clone());
                             }

@@ -27,7 +27,8 @@ const CALLBACK_PORTS: [u16; 2] = [1455, 1457];
 const CALLBACK_PATH: &str = "/auth/callback";
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 const AUTH_STORAGE_KEY: &str = "galaxy.chatgpt.oauth";
-const SIGN_IN_REQUIRED: &str = "ChatGPT sign-in required. Connect or reconnect ChatGPT in Providers.";
+const SIGN_IN_REQUIRED: &str =
+    "ChatGPT sign-in required. Connect or reconnect ChatGPT in Providers.";
 type Reply = oneshot::Sender<Result<ChatGPTAuthCredentials, String>>;
 static RESOLVER: OnceLock<Mutex<Option<async_channel::Sender<Reply>>>> = OnceLock::new();
 
@@ -65,7 +66,10 @@ impl ChatGPTAuthModel {
         let (tx, rx) = async_channel::bounded(64);
         *RESOLVER.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(tx);
         ctx.spawn_stream_local(rx, |model, reply, ctx| model.resolve(reply, ctx), |_, _| {});
-        let record = ctx.secure_storage().read_value(AUTH_STORAGE_KEY).ok()
+        let record = ctx
+            .secure_storage()
+            .read_value(AUTH_STORAGE_KEY)
+            .ok()
             .and_then(|json| serde_json::from_str::<AuthRecord>(&json).ok())
             .filter(|record| record.credentials(now()).is_ok() || record.can_refresh());
         let state = if record.is_some() {
@@ -215,7 +219,10 @@ impl ChatGPTAuthModel {
         if reply.is_canceled() {
             return;
         }
-        if matches!(self.state, ChatGPTAuthState::AwaitingBrowser | ChatGPTAuthState::ExchangingToken) {
+        if matches!(
+            self.state,
+            ChatGPTAuthState::AwaitingBrowser | ChatGPTAuthState::ExchangingToken
+        ) {
             let _ = reply.send(Err("ChatGPT sign-in is in progress.".to_owned()));
             return;
         }
@@ -239,9 +246,9 @@ impl ChatGPTAuthModel {
         let _ = ctx.spawn(
             async move { refresh_tokens(&record).await },
             move |model, result, ctx| {
-                let completed = model.refresh.complete(generation, result, |record| {
-                    save_auth_record(record, ctx)
-                });
+                let completed = model
+                    .refresh
+                    .complete(generation, result, |record| save_auth_record(record, ctx));
                 match completed {
                     None => {}
                     Some(Ok(record)) => {
@@ -252,7 +259,9 @@ impl ChatGPTAuthModel {
                         if error.reauthenticate {
                             model.record = None;
                             if save_auth_record(&AuthRecord::default(), ctx).is_err() {
-                                log::warn!("[chatgpt/auth] Could not persist reconnect-required state");
+                                log::warn!(
+                                    "[chatgpt/auth] Could not persist reconnect-required state"
+                                );
                             }
                         }
                         model.fail(error.message, ctx);
@@ -449,7 +458,9 @@ fn parse_callback_request_line(request_line: &str) -> Result<OAuthCallback, Stri
     }
 
     if oauth_error {
-        return Err("ChatGPT browser authorization failed. Please try signing in again.".to_owned());
+        return Err(
+            "ChatGPT browser authorization failed. Please try signing in again.".to_owned(),
+        );
     }
     Ok(OAuthCallback {
         code: code.ok_or("ChatGPT OAuth callback did not include an authorization code.")?,
@@ -473,13 +484,20 @@ pub(crate) fn credential_resolver() -> ChatGPTCredentialResolver {
 
 pub(crate) async fn load_or_refresh_auth_credentials() -> Result<ChatGPTAuthCredentials, String> {
     let (tx, rx) = oneshot::channel();
-    RESOLVER.get_or_init(|| Mutex::new(None)).lock().unwrap()
-        .as_ref().ok_or("ChatGPT authorization service is unavailable.")?
-        .try_send(tx).map_err(|_| "ChatGPT authorization service is busy or unavailable.")?;
+    RESOLVER
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap()
+        .as_ref()
+        .ok_or("ChatGPT authorization service is unavailable.")?
+        .try_send(tx)
+        .map_err(|_| "ChatGPT authorization service is busy or unavailable.")?;
     match futures::future::select(
         Box::pin(rx),
         Box::pin(async_io::Timer::after(Duration::from_secs(35))),
-    ).await {
+    )
+    .await
+    {
         futures::future::Either::Left((result, _)) => {
             result.map_err(|_| "ChatGPT authorization service stopped.".to_owned())?
         }
@@ -516,7 +534,9 @@ impl RefreshCoordinator {
         self.generation += 1;
         if let Some((_, replies)) = self.active.take() {
             for reply in replies {
-                let _ = reply.send(Err("ChatGPT session was replaced. Please sign in again.".to_owned()));
+                let _ = reply.send(Err(
+                    "ChatGPT session was replaced. Please sign in again.".to_owned()
+                ));
             }
         }
     }
@@ -527,22 +547,31 @@ impl RefreshCoordinator {
         result: Result<AuthRecord, AuthFailure>,
         persist: impl FnOnce(&AuthRecord) -> Result<(), String>,
     ) -> Option<Result<AuthRecord, AuthFailure>> {
-        if self.active.as_ref().is_none_or(|(active, _)| *active != generation) {
+        if self
+            .active
+            .as_ref()
+            .is_none_or(|(active, _)| *active != generation)
+        {
             return None;
         }
         let (_, replies) = self.active.take()?;
         let result = result.and_then(|record| {
             let credentials = record.access_context().map_err(|message| AuthFailure {
-                message, reauthenticate: true,
+                message,
+                reauthenticate: true,
             })?;
             persist(&record).map_err(|_| AuthFailure {
-                message: "Could not securely save refreshed ChatGPT credentials. Please sign in again.".to_owned(),
+                message:
+                    "Could not securely save refreshed ChatGPT credentials. Please sign in again."
+                        .to_owned(),
                 reauthenticate: true,
             })?;
             Ok((record, credentials))
         });
         for reply in replies {
-            let response = result.as_ref().map(|(_, credentials)| credentials.clone())
+            let response = result
+                .as_ref()
+                .map(|(_, credentials)| credentials.clone())
                 .map_err(|error| error.message.clone());
             let _ = reply.send(response);
         }
@@ -551,8 +580,10 @@ impl RefreshCoordinator {
 }
 
 fn now() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64).unwrap_or_default()
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
 }
 
 async fn exchange_code_for_tokens(
@@ -572,7 +603,10 @@ async fn exchange_code_for_tokens(
 }
 
 async fn refresh_tokens(previous: &AuthRecord) -> Result<AuthRecord, AuthFailure> {
-    let refresh_token = previous.refresh_token.as_deref().filter(|token| !token.trim().is_empty())
+    let refresh_token = previous
+        .refresh_token
+        .as_deref()
+        .filter(|token| !token.trim().is_empty())
         .ok_or_else(|| AuthFailure {
             message: SIGN_IN_REQUIRED.to_owned(),
             reauthenticate: true,
@@ -590,7 +624,8 @@ async fn token_request(body: String) -> Result<TokenResponse, AuthFailure> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none())
-        .build().map_err(|_| AuthFailure {
+        .build()
+        .map_err(|_| AuthFailure {
             message: "Could not create the ChatGPT authorization client.".to_owned(),
             reauthenticate: false,
         })?;
@@ -635,18 +670,32 @@ fn parse_token_response(status: u16, bytes: &[u8]) -> Result<TokenResponse, Auth
     }
     let body = serde_json::from_slice::<serde_json::Value>(bytes).unwrap_or_default();
     let code = body.get("error").and_then(|error| {
-        error.as_str().or_else(|| error.get("code").and_then(|code| code.as_str()))
+        error
+            .as_str()
+            .or_else(|| error.get("code").and_then(|code| code.as_str()))
     });
     let reauthenticate = matches!(status, 401 | 403)
-        || (status == 400 && matches!(code,
-            Some("invalid_grant" | "refresh_token_reused" | "refresh_token_expired" | "refresh_token_invalid")
-        ));
+        || (status == 400
+            && matches!(
+                code,
+                Some(
+                    "invalid_grant"
+                        | "refresh_token_reused"
+                        | "refresh_token_expired"
+                        | "refresh_token_invalid"
+                )
+            ));
     let message = if reauthenticate {
-        format!("ChatGPT authorization expired or was rejected (HTTP {status}). Please sign in again.")
+        format!(
+            "ChatGPT authorization expired or was rejected (HTTP {status}). Please sign in again."
+        )
     } else {
         format!("ChatGPT authorization failed (HTTP {status}). Retry the connection.")
     };
-    Err(AuthFailure { message, reauthenticate })
+    Err(AuthFailure {
+        message,
+        reauthenticate,
+    })
 }
 
 fn record_from_tokens(
@@ -655,7 +704,9 @@ fn record_from_tokens(
     now: i64,
 ) -> Result<AuthRecord, AuthFailure> {
     let expires_at = extract_expiration_timestamp(&tokens.access_token).or_else(|| {
-        tokens.expires_in.and_then(|expires| i64::try_from(expires).ok())
+        tokens
+            .expires_in
+            .and_then(|expires| i64::try_from(expires).ok())
             .map(|expires| now.saturating_add(expires))
     });
     let account_id = extract_account_id(tokens.id_token.as_deref())
@@ -663,13 +714,18 @@ fn record_from_tokens(
         .or_else(|| previous.and_then(|record| record.account_id.clone()));
     let record = AuthRecord {
         access_token: Some(tokens.access_token),
-        refresh_token: tokens.refresh_token.or_else(|| previous.and_then(|record| record.refresh_token.clone())),
-        id_token: tokens.id_token.or_else(|| previous.and_then(|record| record.id_token.clone())),
+        refresh_token: tokens
+            .refresh_token
+            .or_else(|| previous.and_then(|record| record.refresh_token.clone())),
+        id_token: tokens
+            .id_token
+            .or_else(|| previous.and_then(|record| record.id_token.clone())),
         expires_at,
         account_id,
     };
     record.credentials(now).map_err(|_| AuthFailure {
-        message: "ChatGPT returned invalid or expired credentials. Please sign in again.".to_owned(),
+        message: "ChatGPT returned invalid or expired credentials. Please sign in again."
+            .to_owned(),
         reauthenticate: true,
     })?;
     Ok(record)
@@ -678,8 +734,11 @@ fn record_from_tokens(
 fn save_auth_record(record: &AuthRecord, ctx: &galaxyui::AppContext) -> Result<(), String> {
     let json = serde_json::to_string(record)
         .map_err(|_| "Could not encode ChatGPT credentials.".to_owned())?;
-    ctx.secure_storage().write_value_with_owner_only_fallback(AUTH_STORAGE_KEY, &json)
-        .map_err(|_| "Could not securely save ChatGPT credentials. Please sign in again.".to_owned())
+    ctx.secure_storage()
+        .write_value_with_owner_only_fallback(AUTH_STORAGE_KEY, &json)
+        .map_err(|_| {
+            "Could not securely save ChatGPT credentials. Please sign in again.".to_owned()
+        })
 }
 
 fn extract_expiration_timestamp(token: &str) -> Option<i64> {
@@ -747,21 +806,34 @@ impl std::fmt::Debug for AuthRecord {
 
 impl AuthRecord {
     fn can_refresh(&self) -> bool {
-        self.refresh_token.as_deref().is_some_and(|token| !token.trim().is_empty())
+        self.refresh_token
+            .as_deref()
+            .is_some_and(|token| !token.trim().is_empty())
     }
 
     fn access_context(&self) -> Result<ChatGPTAuthCredentials, String> {
-        let access_token = self.access_token.as_deref().filter(|token| !token.trim().is_empty())
+        let access_token = self
+            .access_token
+            .as_deref()
+            .filter(|token| !token.trim().is_empty())
             .ok_or_else(|| SIGN_IN_REQUIRED.to_owned())?;
-        let account_id = self.account_id.clone().filter(|id| !id.trim().is_empty())
+        let account_id = self
+            .account_id
+            .clone()
+            .filter(|id| !id.trim().is_empty())
             .or_else(|| extract_account_id(self.id_token.as_deref()))
             .or_else(|| extract_account_id(Some(access_token)));
-        Ok(ChatGPTAuthCredentials { access_token: access_token.to_owned(), account_id })
+        Ok(ChatGPTAuthCredentials {
+            access_token: access_token.to_owned(),
+            account_id,
+        })
     }
 
     fn credentials(&self, now: i64) -> Result<ChatGPTAuthCredentials, String> {
         let expiry = self.expires_at.or_else(|| {
-            self.access_token.as_deref().and_then(extract_expiration_timestamp)
+            self.access_token
+                .as_deref()
+                .and_then(extract_expiration_timestamp)
         });
         if expiry.is_none_or(|expiry| now >= expiry.saturating_sub(60)) {
             return Err(SIGN_IN_REQUIRED.to_owned());

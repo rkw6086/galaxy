@@ -75,7 +75,7 @@ use crate::app_state::{
     CodePaneTabSnapshot, CodeReviewPaneSnapshot, EnvVarCollectionPaneSnapshot, LeafContents,
     LeafSnapshot, LeftPanelSnapshot, NotebookPaneSnapshot, PaneFlex, PaneNodeSnapshot,
     RightPanelSnapshot, SettingsPaneSnapshot, SplitDirection, TabGroupSnapshot, TabSnapshot,
-    TerminalPaneSnapshot, WindowSnapshot, WorkflowPaneSnapshot,
+    TerminalPaneSnapshot, WindowSnapshot, WindowSplitGroupSnapshot, WorkflowPaneSnapshot,
 };
 use crate::auth::auth_manager::PersistedCurrentUserInformation;
 use crate::auth::auth_state::AuthStateProvider;
@@ -827,6 +827,15 @@ fn deduplicate_events(events: Vec<ModelEvent>) -> Vec<ModelEvent> {
     }
 }
 
+/// JSON-serializable representation of a single persisted split group.
+/// Stored in the `windows.split_groups` column as a JSON array.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedSplitGroup {
+    tab_indices: Vec<usize>,
+    slot_weights: Vec<f32>,
+    focused_slot_index: Option<usize>,
+}
+
 // Used in the save_app_state function to help make the code more readable.
 struct SaveAppStateNodeTraversal<'a> {
     node: &'a PaneNodeSnapshot,
@@ -906,6 +915,20 @@ fn save_app_state(conn: &mut SqliteConnection, app_state: &AppState) -> Result<(
                     .agent_management_filters
                     .as_ref()
                     .and_then(|f| serde_json::to_string(f).ok()),
+                split_groups: if window.split_groups.is_empty() {
+                    None
+                } else {
+                    let persisted: Vec<PersistedSplitGroup> = window
+                        .split_groups
+                        .iter()
+                        .map(|g| PersistedSplitGroup {
+                            tab_indices: g.tab_indices.clone(),
+                            slot_weights: g.slot_weights.clone(),
+                            focused_slot_index: g.focused_slot_index,
+                        })
+                        .collect();
+                    serde_json::to_string(&persisted).ok()
+                },
             };
             diesel::insert_into(schema::windows::dsl::windows)
                 .values(new_window)
@@ -2659,58 +2682,72 @@ fn read_session_layout(
                         pinned: group.pinned,
                     });
                 }
+                // Track which DB-ordered positions (before filter_map) produced
+                // which restored-slot index.  This mapping is used to remap
+                // split-group indices so that dropped tabs (read_root_node failed)
+                // do not corrupt group membership.
+                let mut db_pos_to_restored_slot: Vec<Option<usize>> = Vec::new();
+                let mut restored_slot: usize = 0;
                 let saved_tabs: Vec<_> = tabs_for_window
                     .into_iter()
-                    .filter_map(|tab| {
-                        let root = match read_root_node(conn, tab.id) {
-                            Ok(root) => root,
-                            Err(error) => {
-                                let message = format!(
-                                    "Failed to restore session layout tab {}: {error}",
-                                    tab.id
-                                );
-                                log::error!("{message}");
-                                errors.push(message);
-                                return None;
-                            }
-                        };
-                        let panel = db_panels.get(&tab.id);
-
-                        let left_panel = panel
-                            .and_then(|p| p.left_panel.as_ref())
-                            .and_then(|s| serde_json::from_str::<LeftPanelSnapshot>(s).ok());
-
-                        let right_panel = panel
-                            .and_then(|p| p.right_panel.as_ref())
-                            .and_then(|s| serde_json::from_str::<RightPanelSnapshot>(s).ok());
-
-                        let group_id = tab
-                            .tab_group_id
-                            .and_then(|row_id| tab_group_id_by_row_id.get(&row_id).copied());
-                        Some(TabSnapshot {
-                            root,
-                            custom_title: tab.custom_title,
-                            default_directory_color: None,
-                            selected_color: tab
-                                .color
-                                .as_deref()
-                                .and_then(|s| {
-                                    serde_yaml::from_str::<SelectedTabColor>(s)
-                                        .ok()
-                                        .or_else(|| {
-                                            // Fall back to the old format which stored a bare AnsiColorIdentifier
-                                            serde_yaml::from_str::<AnsiColorIdentifier>(s)
-                                                .ok()
-                                                .map(SelectedTabColor::Color)
-                                        })
-                                })
-                                .unwrap_or_default(),
-                            left_panel,
-                            right_panel,
-                            group_id,
-                            pinned: tab.pinned,
-                        })
+                    .map(|tab| {
+                        let result = (|| {
+                            let root = match read_root_node(conn, tab.id) {
+                                Ok(root) => root,
+                                Err(error) => {
+                                    let message = format!(
+                                        "Failed to restore session layout tab {}: {error}",
+                                        tab.id
+                                    );
+                                    log::error!("{message}");
+                                    errors.push(message);
+                                    return None;
+                                }
+                            };
+                            let panel = db_panels.get(&tab.id);
+                            let left_panel = panel
+                                .and_then(|p| p.left_panel.as_ref())
+                                .and_then(|s| serde_json::from_str::<LeftPanelSnapshot>(s).ok());
+                            let right_panel = panel
+                                .and_then(|p| p.right_panel.as_ref())
+                                .and_then(|s| serde_json::from_str::<RightPanelSnapshot>(s).ok());
+                            let group_id = tab
+                                .tab_group_id
+                                .and_then(|row_id| tab_group_id_by_row_id.get(&row_id).copied());
+                            Some(TabSnapshot {
+                                root,
+                                custom_title: tab.custom_title,
+                                default_directory_color: None,
+                                selected_color: tab
+                                    .color
+                                    .as_deref()
+                                    .and_then(|s| {
+                                        serde_yaml::from_str::<SelectedTabColor>(s).ok().or_else(
+                                            || {
+                                                // Fall back to the old format which stored a bare AnsiColorIdentifier
+                                                serde_yaml::from_str::<AnsiColorIdentifier>(s)
+                                                    .ok()
+                                                    .map(SelectedTabColor::Color)
+                                            },
+                                        )
+                                    })
+                                    .unwrap_or_default(),
+                                left_panel,
+                                right_panel,
+                                group_id,
+                                pinned: tab.pinned,
+                            })
+                        })();
+                        // Record the mapping regardless of success/failure.
+                        if result.is_some() {
+                            db_pos_to_restored_slot.push(Some(restored_slot));
+                            restored_slot += 1;
+                        } else {
+                            db_pos_to_restored_slot.push(None);
+                        }
+                        result
                     })
+                    .flatten()
                     .collect();
 
                 if active_window_id
@@ -2801,6 +2838,82 @@ fn read_session_layout(
                         .agent_management_filters
                         .and_then(|s| serde_json::from_str(&s).ok()),
                     tab_groups: tab_groups_snapshots,
+                    // Split groups: persisted tab indices reference the original
+                    // DB-ordered tab positions.  Some tabs may have failed
+                    // restoration and been dropped (db_pos_to_restored_slot[i]
+                    // is None for those).  Remap every persisted index through
+                    // db_pos_to_restored_slot to get its restored-slice index,
+                    // carrying along the corresponding weight.  Groups where
+                    // fewer than 2 members survive the remap are dropped.
+                    // A NULL column (no active splits on last save) or a
+                    // malformed JSON value falls back to an empty vec.
+                    split_groups: window
+                        .split_groups
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<Vec<PersistedSplitGroup>>(s).ok())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|pg| {
+                            // Build parallel (restored_index, weight) pairs,
+                            // dropping members whose tab failed to restore.
+                            // Cap at MAX_VISIBLE to reject oversized persisted groups.
+                            let weights_in = if pg.slot_weights.len() == pg.tab_indices.len() {
+                                pg.slot_weights
+                            } else {
+                                vec![1.0; pg.tab_indices.len()]
+                            };
+                            const MAX_VISIBLE: usize = 4;
+                            let pairs: Vec<(usize, f32)> = pg
+                                .tab_indices
+                                .iter()
+                                .zip(weights_in.iter())
+                                .filter_map(|(&db_idx, &w)| {
+                                    // db_idx must be a valid position in the
+                                    // db_pos_to_restored_slot map.
+                                    db_pos_to_restored_slot
+                                        .get(db_idx)
+                                        .and_then(|slot| *slot)
+                                        .map(|slot| {
+                                            let w = if w.is_finite() && w > 0.0 { w } else { 1.0 };
+                                            (slot, w)
+                                        })
+                                })
+                                .take(MAX_VISIBLE)
+                                .collect();
+                            if pairs.len() < 2 {
+                                return None;
+                            }
+                            // Duplicate restored-slot indices must not appear.
+                            let mut seen = std::collections::HashSet::new();
+                            if pairs.iter().any(|(i, _)| !seen.insert(*i)) {
+                                return None;
+                            }
+                            let (indices, slot_weights): (Vec<usize>, Vec<f32>) =
+                                pairs.into_iter().unzip();
+                            // Remap focused_slot_index from persisted member
+                            // position to the new pairs position (some members
+                            // may have been dropped, shifting the index).
+                            let focused_slot_index = pg.focused_slot_index.and_then(|fi| {
+                                // fi is the slot position in the original
+                                // persisted tab_indices array.  We need to
+                                // find the same tab_index in the surviving
+                                // set and return its new position.
+                                pg.tab_indices.get(fi).and_then(|&db_idx| {
+                                    db_pos_to_restored_slot
+                                        .get(db_idx)
+                                        .and_then(|slot| *slot)
+                                        .and_then(|restored| {
+                                            indices.iter().position(|&i| i == restored)
+                                        })
+                                })
+                            });
+                            Some(WindowSplitGroupSnapshot {
+                                tab_indices: indices,
+                                slot_weights,
+                                focused_slot_index,
+                            })
+                        })
+                        .collect(),
                 }
             },
         )

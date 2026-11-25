@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use ai::api_keys::{ApiKeyManager, AwsCredentials, AwsCredentialsRefreshStrategy, AwsCredentialsState};
+use ai::api_keys::{
+    ApiKeyManager, AwsCredentials, AwsCredentialsRefreshStrategy, AwsCredentialsState,
+};
 use futures::channel::oneshot;
 use futures::future::{BoxFuture, Shared};
 use futures::FutureExt;
@@ -32,14 +34,17 @@ impl BedrockClientConfig {
         model_id: &str,
         models: &[crate::settings::BedrockModelConfig],
     ) -> Self {
-        self.invocation_model_id = models.iter().find(|model| {
-            model.model_id == model_id
-                || model.invocation_model_id == model_id
-                || super::models::foundation_model_id(&model.model_id)
-                    == super::models::foundation_model_id(model_id)
-        }).and_then(|model| {
-            (!model.invocation_model_id.is_empty()).then(|| model.invocation_model_id.clone())
-        });
+        self.invocation_model_id = models
+            .iter()
+            .find(|model| {
+                model.model_id == model_id
+                    || model.invocation_model_id == model_id
+                    || super::models::foundation_model_id(&model.model_id)
+                        == super::models::foundation_model_id(model_id)
+            })
+            .and_then(|model| {
+                (!model.invocation_model_id.is_empty()).then(|| model.invocation_model_id.clone())
+            });
         self
     }
 
@@ -61,9 +66,8 @@ impl BedrockClientConfig {
                     self.access_key_id = credentials.access_key().to_owned();
                     self.secret_access_key = credentials.secret_key().to_owned();
                     self.session_token = credentials.session_token().map(str::to_owned);
-                    self.credentials_expiry = Some(
-                        credentials.expires_at().unwrap_or(SystemTime::UNIX_EPOCH),
-                    );
+                    self.credentials_expiry =
+                        Some(credentials.expires_at().unwrap_or(SystemTime::UNIX_EPOCH));
                 }
                 self
             }
@@ -89,14 +93,12 @@ pub(crate) fn provider_startup_error(error: &anyhow::Error, model: &str) -> Rend
             | BedrockError::AccessDenied(_)
             | BedrockError::Throttling(_)
             | BedrockError::ValidationError(_),
-        ) | None => RenderableAIError::other(error.to_string(), false),
+        )
+        | None => RenderableAIError::other(error.to_string(), false),
     }
 }
 
-pub(crate) fn login_command(
-    configured: &str,
-    profile: &str,
-) -> String {
+pub(crate) fn login_command(configured: &str, profile: &str) -> String {
     if configured != "aws sso login" {
         return configured.to_owned();
     }
@@ -156,7 +158,13 @@ struct RecoveryAttempts {
 }
 
 impl RecoveryAttempts {
-    fn begin(&mut self, conversation: &str, exchange: &str, connection: &str, manual: bool) -> bool {
+    fn begin(
+        &mut self,
+        conversation: &str,
+        exchange: &str,
+        connection: &str,
+        manual: bool,
+    ) -> bool {
         let attempt = (exchange.to_owned(), connection.to_owned());
         if !manual && self.exchanges.get(conversation) == Some(&attempt) {
             return false;
@@ -211,7 +219,10 @@ impl BedrockAuthentication {
         if !connection.enabled || (!manual && !connection.auto_login) {
             return Box::pin(async { Err("Automatic AWS login is disabled".to_owned()) });
         }
-        if !self.attempts.begin(conversation, exchange, &connection.identity(), manual) {
+        if !self
+            .attempts
+            .begin(conversation, exchange, &connection.identity(), manual)
+        {
             return Box::pin(async {
                 Err("AWS authentication still failed after recovery. Use Refresh AWS Credentials to retry.".to_owned())
             });
@@ -228,7 +239,11 @@ impl BedrockAuthentication {
             });
         }
 
-        let (generation, future) = match self.active.iter().find(|(_, active, _)| active == &connection) {
+        let (generation, future) = match self
+            .active
+            .iter()
+            .find(|(_, active, _)| active == &connection)
+        {
             Some((generation, _, future)) => (*generation, future.clone()),
             None => {
                 self.generation += 1;
@@ -243,7 +258,8 @@ impl BedrockAuthentication {
                             crate::ai::aws_credentials::load_aws_credentials_from_sdk(&config)
                                 .await
                                 .map_err(|error| error.to_string())
-                        }.boxed()
+                        }
+                        .boxed()
                     },
                     move || {
                         let command = command.clone();
@@ -255,13 +271,19 @@ impl BedrockAuthentication {
                                 .await
                                 .map_err(|error| format!("Failed to start AWS login: {error}"))?;
                             if !status.success() {
-                                return Err(format!("AWS login command exited with status: {status}"));
+                                return Err(format!(
+                                    "AWS login command exited with status: {status}"
+                                ));
                             }
                             Ok(())
-                        }.boxed()
+                        }
+                        .boxed()
                     },
-                ).boxed().shared();
-                self.active.push((self.generation, connection.clone(), future.clone()));
+                )
+                .boxed()
+                .shared();
+                self.active
+                    .push((self.generation, connection.clone(), future.clone()));
                 (self.generation, future)
             }
         };
@@ -273,7 +295,9 @@ impl BedrockAuthentication {
                 || BedrockAuthConnection::current(ctx) != connection
                 || ApiKeyManager::as_ref(ctx).aws_credentials_refresh_strategy() != strategy
             {
-                let _ = tx.send(Err("AWS connection changed during authentication".to_owned()));
+                let _ = tx.send(Err(
+                    "AWS connection changed during authentication".to_owned()
+                ));
                 return;
             }
             let outcome = result.as_ref().map(|_| ()).map_err(Clone::clone);
@@ -290,8 +314,10 @@ impl BedrockAuthentication {
             let _ = tx.send(outcome);
         });
         async move {
-            rx.await.unwrap_or_else(|_| Err("AWS authentication was interrupted".to_owned()))
-        }.boxed()
+            rx.await
+                .unwrap_or_else(|_| Err("AWS authentication was interrupted".to_owned()))
+        }
+        .boxed()
     }
 }
 

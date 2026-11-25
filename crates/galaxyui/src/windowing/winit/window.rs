@@ -1262,7 +1262,7 @@ impl Window {
                 Cursor::ClosedHand => CursorIcon::Grabbing,
                 Cursor::NotAllowed => CursorIcon::NotAllowed,
                 Cursor::PointingHand => CursorIcon::Pointer,
-                Cursor::ResizeLeftRight => CursorIcon::ColResize,
+                Cursor::ResizeLeftRight | Cursor::ResizeColumnDivider => CursorIcon::ColResize,
                 Cursor::ResizeUpDown => CursorIcon::RowResize,
                 Cursor::DragCopy => CursorIcon::Copy,
             };

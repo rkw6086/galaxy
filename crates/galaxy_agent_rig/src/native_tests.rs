@@ -42,14 +42,18 @@ fn anthropic_discovery_reads_only_supported_effort_capabilities() {
     }))
     .unwrap();
     assert_eq!(model.reasoning_efforts, ["low", "high", "xhigh"]);
-    assert!(super::anthropic_reasoning_efforts(&serde_json::json!({
-        "capabilities": {"effort": {"supported": false, "low": {"supported": true}}}
-    }))
-    .is_empty());
-    assert!(super::anthropic_reasoning_efforts(&serde_json::json!({
-        "id": "claude-opus-4-6"
-    }))
-    .is_empty());
+    assert!(
+        super::anthropic_reasoning_efforts(&serde_json::json!({
+            "capabilities": {"effort": {"supported": false, "low": {"supported": true}}}
+        }))
+        .is_empty()
+    );
+    assert!(
+        super::anthropic_reasoning_efforts(&serde_json::json!({
+            "id": "claude-opus-4-6"
+        }))
+        .is_empty()
+    );
 }
 
 #[test]

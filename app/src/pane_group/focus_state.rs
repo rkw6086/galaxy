@@ -15,7 +15,8 @@ pub struct WorkspaceSplitViewMembership {
     pub pane_group_id: EntityId,
     /// True when this tab is the focused slot in the workspace split view.
     pub is_focused: bool,
-    pub color: AnsiColorIdentifier,
+    /// Header accent for this member, independent of the shared divider color.
+    pub header_color: Option<AnsiColorIdentifier>,
 }
 
 /// Shared payload for workspace split operations in generic pane-header menus.
@@ -161,9 +162,10 @@ impl PaneGroupFocusState {
     }
 
     pub fn split_view_color(&self) -> Option<AnsiColorIdentifier> {
-        self.workspace_split_view
-            .map(|membership| membership.color)
-            .or(self.pane_split_color)
+        match self.workspace_split_view {
+            Some(membership) => membership.header_color,
+            None => self.pane_split_color,
+        }
     }
 
     /// Returns the workspace-level split view membership for this pane group.

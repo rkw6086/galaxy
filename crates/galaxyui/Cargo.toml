@@ -67,6 +67,7 @@ galaxyui_core = { workspace = true, features = ["test-util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block.workspace = true
+block2 = "0.6.2"
 chrono.workspace = true
 cocoa.workspace = true
 core-foundation.workspace = true
@@ -80,8 +81,10 @@ objc2.workspace = true
 objc2-app-kit = { workspace = true, features = [
     "NSAlert",
     "NSApplication",
+    "NSBezierPath",
     "NSButton",
     "NSCell",
+    "NSColor",
     "NSControl",
     "NSCursor",
     "NSEvent",
@@ -94,6 +97,7 @@ objc2-app-kit = { workspace = true, features = [
     "NSScreen",
     "NSView",
     "NSWindow",
+    "block2",
     "objc2-quartz-core",
 ] }
 objc2-av-foundation = { workspace = true, features = ["AVCaptureDevice", "AVMediaFormat"] }

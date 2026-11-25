@@ -8,23 +8,21 @@ use parking_lot::FairMutex;
 use warpui::{App, EntityId};
 
 use super::{
-    command_for_execution, selected_block_owns_alt_screen, terminal_busy_execution_error,
-    ActionResult, BlockSelector, ShellCommandExecutor,
+    ActionResult, BlockSelector, ShellCommandExecutor, command_for_execution,
+    selected_block_owns_alt_screen, terminal_busy_execution_error,
 };
-use crate::ai::agent::{
-    AIAgentActionId, AIAgentActionResultType, RequestCommandOutputResult, ShellCommandDelay,
-};
+use crate::AIConversationId;
+use crate::ai::agent::{AIAgentActionId, AIAgentActionResultType, RequestCommandOutputResult};
 use crate::terminal::event::{
     BlockCompletedEvent, BlockMetadataReceivedEvent, BlockType, BlockWorkingDirectoryUpdatedEvent,
 };
 use crate::terminal::model::block::{BlockId, BlockMetadata};
-use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model::session::Sessions;
+use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model::terminal_model::{BlockIndex, TerminalModel};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::terminal::shell::ShellType;
 use crate::test_util::settings::initialize_settings_for_tests;
-use crate::AIConversationId;
 
 #[test]
 fn wait_commands_disable_implicit_posix_pagers_without_masking_exit_status() {
@@ -206,9 +204,11 @@ fn force_refresh_block_reports_and_resolves_matching_poll() {
                 .force_refresh_senders
                 .insert(unrelated_selector.clone(), vec![unrelated_tx]);
             assert!(executor.force_refresh_block(&block_id));
-            assert!(executor
-                .force_refresh_senders
-                .contains_key(&unrelated_selector));
+            assert!(
+                executor
+                    .force_refresh_senders
+                    .contains_key(&unrelated_selector)
+            );
             assert!(!executor.force_refresh_block(&block_id));
         });
 
@@ -253,11 +253,12 @@ fn requested_command_waiter_survives_early_metadata_and_resolves_after_associati
             )
         });
         let action_id = AIAgentActionId::from("requested-command".to_string());
-        let result_future = executor.update(&mut app, |executor, _| {
-            executor.action_result_future(
+        let (sender, result_future) = oneshot::channel();
+        executor.update(&mut app, |executor, _| {
+            executor.block_finished_senders.insert(
                 BlockSelector::RequestedCommandId(action_id.clone()),
-                Some(ShellCommandDelay::OnCompletion),
-            )
+                vec![sender],
+            );
         });
         pin_mut!(result_future);
 
@@ -293,13 +294,7 @@ fn requested_command_waiter_survives_early_metadata_and_resolves_after_associati
             )));
         });
 
-        assert!(matches!(
-            result_future.await,
-            ActionResult::CommandFinished {
-                block_id: result_block_id,
-                ..
-            } if result_block_id == block_id
-        ));
+        assert_eq!(result_future.await, Ok(()));
     });
 }
 
@@ -329,17 +324,13 @@ fn duplicate_completion_polls_for_same_block_both_resolve_on_block_completed() {
             )
         });
 
-        let first = executor.update(&mut app, |executor, _| {
-            executor.action_result_future(
+        let (first_sender, first) = oneshot::channel();
+        let (second_sender, second) = oneshot::channel();
+        executor.update(&mut app, |executor, _| {
+            executor.block_finished_senders.insert(
                 BlockSelector::Id(block_id.clone()),
-                Some(ShellCommandDelay::OnCompletion),
-            )
-        });
-        let second = executor.update(&mut app, |executor, _| {
-            executor.action_result_future(
-                BlockSelector::Id(block_id.clone()),
-                Some(ShellCommandDelay::OnCompletion),
-            )
+                vec![first_sender, second_sender],
+            );
         });
         pin_mut!(first);
         pin_mut!(second);
@@ -353,13 +344,8 @@ fn duplicate_completion_polls_for_same_block_both_resolve_on_block_completed() {
             )));
         });
 
-        let first_result = first.await;
-        let second_result = second.await;
-        assert!(matches!(first_result, ActionResult::CommandFinished { .. }));
-        assert!(matches!(
-            second_result,
-            ActionResult::CommandFinished { .. }
-        ));
+        assert_eq!(first.await, Ok(()));
+        assert_eq!(second.await, Ok(()));
     });
 }
 
@@ -376,7 +362,7 @@ fn block_completed_event(block_id: BlockId) -> BlockCompletedEvent {
 }
 
 #[test]
-fn force_refresh_wakes_on_completion_poll_with_preempted_snapshot() {
+fn force_refresh_wakes_registered_waiter() {
     App::test((), |mut app| async move {
         let terminal_view_id = EntityId::new();
         let sessions = app.add_model(|_| Sessions::new_for_test());
@@ -401,25 +387,16 @@ fn force_refresh_wakes_on_completion_poll_with_preempted_snapshot() {
             )
         });
 
-        let result_future = executor.update(&mut app, |executor, _| {
-            executor.action_result_future(
-                BlockSelector::Id(block_id.clone()),
-                Some(ShellCommandDelay::OnCompletion),
-            )
+        let (sender, result_future) = oneshot::channel();
+        executor.update(&mut app, |executor, _| {
+            executor
+                .force_refresh_senders
+                .insert(BlockSelector::Id(block_id.clone()), vec![sender]);
         });
         assert!(executor.update(&mut app, |executor, _| {
             executor.force_refresh_block(&block_id)
         }));
-        let result = result_future.await;
-
-        assert!(matches!(
-            result,
-            ActionResult::LongRunningCommandSnapshot {
-                block_id: result_block_id,
-                is_preempted: true,
-                ..
-            } if result_block_id == block_id
-        ));
+        assert_eq!(result_future.await, Ok(()));
     });
 }
 
@@ -464,8 +441,8 @@ fn command_authorization_covers_its_own_interactions_and_completed_output_only()
                 ctx,
             )
         });
-        executor.read(&app, |executor, _| {
-            assert!(!executor.can_continue_authorized_command(conversation_id, &block_id));
+        executor.read(&app, |executor, ctx| {
+            assert!(!executor.can_continue_authorized_command(conversation_id, &block_id, ctx));
         });
         terminal
             .lock()
@@ -476,15 +453,27 @@ fn command_authorization_covers_its_own_interactions_and_completed_output_only()
                 None,
                 conversation_id,
             );
-        executor.read(&app, |executor, _| {
-            assert!(executor.can_continue_authorized_command(conversation_id, &block_id));
-            assert!(!executor.can_continue_authorized_command(AIConversationId::new(), &block_id));
-            assert!(!executor.can_continue_authorized_command(conversation_id, &BlockId::new()));
+        executor.read(&app, |executor, ctx| {
+            assert!(executor.can_continue_authorized_command(conversation_id, &block_id, ctx));
+            assert!(!executor.can_continue_authorized_command(
+                AIConversationId::new(),
+                &block_id,
+                ctx
+            ));
+            assert!(!executor.can_continue_authorized_command(
+                conversation_id,
+                &BlockId::new(),
+                ctx
+            ));
         });
         terminal.lock().finish_block();
-        executor.read(&app, |executor, _| {
-            assert!(executor.can_continue_authorized_command(conversation_id, &block_id));
-            assert!(!executor.can_continue_authorized_command(AIConversationId::new(), &block_id));
+        executor.read(&app, |executor, ctx| {
+            assert!(executor.can_continue_authorized_command(conversation_id, &block_id, ctx));
+            assert!(!executor.can_continue_authorized_command(
+                AIConversationId::new(),
+                &block_id,
+                ctx
+            ));
         });
     });
 }

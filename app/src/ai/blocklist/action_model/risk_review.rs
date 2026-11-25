@@ -50,7 +50,10 @@ impl Assessment {
 
     fn parse(text: &str) -> anyhow::Result<Self> {
         let text = text.trim();
-        anyhow::ensure!(!text.is_empty(), "permission reviewer returned no decision text");
+        anyhow::ensure!(
+            !text.is_empty(),
+            "permission reviewer returned no decision text"
+        );
         // Accept only one complete JSON fence, never extract an object from prose.
         let text = text
             .strip_prefix("```json\n")
@@ -325,11 +328,25 @@ impl BlocklistAIActionModel {
         }
     }
 
-    pub(super) fn is_explicitly_allowlisted_command(&self, action: &AIAgentAction, ctx: &AppContext) -> bool {
-        let AIAgentActionType::RequestCommandOutput { command, .. } = &action.action else { return false; };
-        let profile = AIExecutionProfilesModel::as_ref(ctx).active_profile(Some(self.terminal_view_id), ctx);
-        profile.data().command_allowlist.iter().any(|predicate| predicate.matches(command))
-            && !BlocklistAIPermissions::as_ref(ctx).get_execute_commands_denylist(ctx, Some(self.terminal_view_id)).iter().any(|predicate| predicate.matches(command))
+    pub(super) fn is_explicitly_allowlisted_command(
+        &self,
+        action: &AIAgentAction,
+        ctx: &AppContext,
+    ) -> bool {
+        let AIAgentActionType::RequestCommandOutput { command, .. } = &action.action else {
+            return false;
+        };
+        let profile =
+            AIExecutionProfilesModel::as_ref(ctx).active_profile(Some(self.terminal_view_id), ctx);
+        profile
+            .data()
+            .command_allowlist
+            .iter()
+            .any(|predicate| predicate.matches(command))
+            && !BlocklistAIPermissions::as_ref(ctx)
+                .get_execute_commands_denylist(ctx, Some(self.terminal_view_id))
+                .iter()
+                .any(|predicate| predicate.matches(command))
     }
 
     /// Never let the independent model override explicit policy restrictions.

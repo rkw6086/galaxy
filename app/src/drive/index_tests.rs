@@ -177,7 +177,10 @@ fn local_drive_objects_can_move_into_and_out_of_plans_offline() {
             else {
                 panic!("expected moving the notebook back to the top level to be offered");
             };
-            assert_eq!(label_for_menu_item(&menu.items()[0]), "Personal (top level)");
+            assert_eq!(
+                label_for_menu_item(&menu.items()[0]),
+                "Personal (top level)"
+            );
 
             index.move_object(&object_id, CloudObjectLocation::Space(Space::Personal), ctx);
             assert!(CloudModel::as_ref(ctx)

@@ -23,6 +23,38 @@ use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::LaunchMode;
 
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn models_http_error_reports_expired_token_without_echoing_provider_text() {
+    let status = reqwest::StatusCode::UNPROCESSABLE_ENTITY;
+    for body in [
+        r#"{"error":{"code":"ExpiredToken","message":"secret_key=do-not-echo"}}"#,
+        r#"{"detail":"ExpiredToken: The security token included in the request is expired; session_token=do-not-echo"}"#,
+        r#"{"error":{"message":"An error occurred (ExpiredToken) when calling AssumeRole: The security token included in the request is expired"}}"#,
+    ] {
+        assert_eq!(
+            models_http_error(status, body.as_bytes()),
+            "ExpiredToken: The security token included in the request is expired"
+        );
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn models_http_error_falls_back_to_status_for_unknown_or_unstructured_bodies() {
+    let status = reqwest::StatusCode::UNPROCESSABLE_ENTITY;
+    for body in [
+        r#"{"error":{"code":"unknown_error","message":"secret_key=do-not-echo"}}"#,
+        "<html>ExpiredToken: The security token included in the request is expired</html>",
+        "",
+    ] {
+        assert_eq!(
+            models_http_error(status, body.as_bytes()),
+            format!("Model refresh failed: /models returned HTTP {status}")
+        );
+    }
+}
+
 // -- DisableReason::should_clear_preference tests --
 
 #[test]
@@ -171,9 +203,13 @@ fn live_bedrock_models_are_not_hidden_by_missing_catalog_metadata() {
         let id = "future.new-live-model";
         AISettings::handle(&app).update(&mut app, |settings, ctx| {
             settings.bedrock_enabled.set_value(true, ctx).unwrap();
-            settings.bedrock_models.set_value(
-                vec![bedrock_model("future.other-model"), bedrock_model(id)], ctx,
-            ).unwrap();
+            settings
+                .bedrock_models
+                .set_value(
+                    vec![bedrock_model("future.other-model"), bedrock_model(id)],
+                    ctx,
+                )
+                .unwrap();
         });
         let mut preferences = empty_preferences();
         preferences.models_by_feature.agent_mode.default_id = id.into();
@@ -182,11 +218,21 @@ fn live_bedrock_models_are_not_hidden_by_missing_catalog_metadata() {
             preferences.bedrock_verified_config =
                 Some(super::bedrock_discovery_config(AISettings::as_ref(ctx)));
             preferences.bedrock_verified_model_ids.insert(id.to_owned());
-            preferences.bedrock_verified_model_ids.insert("future.other-model".to_owned());
+            preferences
+                .bedrock_verified_model_ids
+                .insert("future.other-model".to_owned());
             preferences.inject_bedrock_models(ctx);
         });
-        assert!(preferences.models_by_feature.agent_mode.choices.iter().any(|model| model.id.as_str() == id));
-        assert_eq!(preferences.models_by_feature.agent_mode.default_id.as_str(), id);
+        assert!(preferences
+            .models_by_feature
+            .agent_mode
+            .choices
+            .iter()
+            .any(|model| model.id.as_str() == id));
+        assert_eq!(
+            preferences.models_by_feature.agent_mode.default_id.as_str(),
+            id
+        );
         assert_eq!(preferences.models_by_feature.coding.default_id.as_str(), id);
     });
 }
@@ -204,7 +250,9 @@ fn newer_bedrock_discovery_invalidates_older_results() {
             assert!(!preferences.record_bedrock_verification(first, config.clone(), &models, ctx));
             assert!(preferences.bedrock_verified_model_ids.is_empty());
             assert!(preferences.record_bedrock_verification(latest, config, &models, ctx));
-            assert!(preferences.bedrock_verified_model_ids.contains("future.new-live-model"));
+            assert!(preferences
+                .bedrock_verified_model_ids
+                .contains("future.new-live-model"));
         });
     });
 }
@@ -1421,6 +1469,25 @@ async fn model_refresh_distinguishes_empty_catalog_from_failure() {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
+#[tokio::test]
+async fn litellm_catalog_refresh_returns_expired_token_from_failed_models_request() {
+    let mut server = mockito::Server::new_async().await;
+    let response = server
+        .mock("GET", "/models")
+        .with_status(422)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":{"code":"ExpiredToken"}}"#)
+        .create_async()
+        .await;
+
+    assert_eq!(
+        fetch_litellm_catalog(&server.url(), None, &reqwest::Client::new()).await,
+        Err("ExpiredToken: The security token included in the request is expired".to_owned())
+    );
+    response.assert_async().await;
+}
+
 #[test]
 fn bedrock_verification_survives_settings_reload_but_not_connection_changes() {
     App::test((), |mut app| async move {
@@ -1468,9 +1535,16 @@ fn model_selector_labels_and_reasoning_groups_include_configured_provider() {
         "id": "model-a", "display_name": "Claude (high)", "base_model_name": "Claude",
         "description": "My Claude Subscription", "provider": "LiteLLM",
         "usage_metadata": { "request_multiplier": 1 }
-    })).unwrap();
-    assert_eq!(first.menu_display_name(), "Claude (high) (My Claude Subscription)");
-    assert_eq!(first.label_with_provider(first.base_model_name()), "Claude (My Claude Subscription)");
+    }))
+    .unwrap();
+    assert_eq!(
+        first.menu_display_name(),
+        "Claude (high) (My Claude Subscription)"
+    );
+    assert_eq!(
+        first.label_with_provider(first.base_model_name()),
+        "Claude (My Claude Subscription)"
+    );
     let mut other = first.clone();
     other.description = Some("My LiteLLM".to_string());
     assert_ne!(first.reasoning_group_key(), other.reasoning_group_key());
@@ -1508,10 +1582,12 @@ fn reasoning_discovery_uses_explicit_lists_and_supported_flags_only() {
     );
     assert!(advertised_reasoning_efforts(&serde_json::json!({
         "id": "gpt-test-high", "supports_reasoning": true
-    })).is_empty());
+    }))
+    .is_empty());
     assert!(advertised_reasoning_efforts(&serde_json::json!({
         "reasoning_effort_levels": [], "supports_low_reasoning_effort": true
-    })).is_empty());
+    }))
+    .is_empty());
 }
 
 #[test]
@@ -1522,41 +1598,56 @@ fn overlapping_connections_keep_all_reasoning_variants_in_one_family() {
             settings.openai_enabled.set_value(true, ctx).unwrap();
             let mut reasoning_model = openai_model("shared-model");
             reasoning_model.reasoning_efforts = vec!["low".to_owned(), "high".to_owned()];
-            settings.openai_providers.set_value(vec![
-                OpenAIProviderConfig {
-                    kind: OpenAIProviderKind::LiteLLM,
-                    name: "First connection".to_owned(),
-                    base_url: "https://first.test/v1".to_owned(),
-                    models: vec![openai_model("shared-model")],
-                    enabled: true,
-                    api_key: None,
-                    project_id: None,
-                    location: None,
-                },
-                OpenAIProviderConfig {
-                    kind: OpenAIProviderKind::LiteLLM,
-                    name: "Second connection".to_owned(),
-                    base_url: "https://second.test/v1".to_owned(),
-                    models: vec![reasoning_model],
-                    enabled: true,
-                    api_key: None,
-                    project_id: None,
-                    location: None,
-                },
-            ], ctx).unwrap();
+            settings
+                .openai_providers
+                .set_value(
+                    vec![
+                        OpenAIProviderConfig {
+                            kind: OpenAIProviderKind::LiteLLM,
+                            name: "First connection".to_owned(),
+                            base_url: "https://first.test/v1".to_owned(),
+                            models: vec![openai_model("shared-model")],
+                            enabled: true,
+                            api_key: None,
+                            project_id: None,
+                            location: None,
+                        },
+                        OpenAIProviderConfig {
+                            kind: OpenAIProviderKind::LiteLLM,
+                            name: "Second connection".to_owned(),
+                            base_url: "https://second.test/v1".to_owned(),
+                            models: vec![reasoning_model],
+                            enabled: true,
+                            api_key: None,
+                            project_id: None,
+                            location: None,
+                        },
+                    ],
+                    ctx,
+                )
+                .unwrap();
         });
         let mut preferences = empty_preferences();
         app.read(|ctx| preferences.inject_openai_models(ctx));
-        let choices: Vec<_> = preferences.models_by_feature.agent_mode.choices.iter()
+        let choices: Vec<_> = preferences
+            .models_by_feature
+            .agent_mode
+            .choices
+            .iter()
             .filter(|model| model.description.as_deref() == Some("Second connection"))
             .collect();
         assert_eq!(choices.len(), 3);
-        let base = choices.iter().find(|model| model.reasoning_level.is_none()).unwrap();
+        let base = choices
+            .iter()
+            .find(|model| model.reasoning_level.is_none())
+            .unwrap();
         assert!(base.id.as_str().contains("::connection::"));
         let group_key = base.reasoning_group_key();
         for model in choices {
             assert_eq!(model.reasoning_group_key(), group_key);
-            let route = preferences.openai_client_config_for_model(model.id.as_str()).unwrap();
+            let route = preferences
+                .openai_client_config_for_model(model.id.as_str())
+                .unwrap();
             assert_eq!(route.model.as_deref(), Some("shared-model"));
             assert_eq!(route.reasoning_effort, model.reasoning_level);
         }
@@ -1564,7 +1655,14 @@ fn overlapping_connections_keep_all_reasoning_variants_in_one_family() {
         let canonical = preferences.get_llm_info(&old_id).unwrap();
         assert_eq!(canonical.description.as_deref(), Some("Second connection"));
         assert!(canonical.id.as_str().contains("::connection::"));
-        assert_eq!(preferences.openai_client_config_for_model(old_id.as_str()).unwrap().reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(
+            preferences
+                .openai_client_config_for_model(old_id.as_str())
+                .unwrap()
+                .reasoning_effort
+                .as_deref(),
+            Some("low")
+        );
 
         AISettings::handle(&app).update(&mut app, |settings, ctx| {
             let mut providers = settings.openai_providers.value().clone();

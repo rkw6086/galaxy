@@ -36,10 +36,10 @@ use siphasher::sip::SipHasher;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent_conversations_model::{
-    AgentConversationEntry, AgentConversationEntryId,
-    AgentConversationsModel, AgentConversationsModelEvent, AgentManagementFilters, ArtifactFilter,
-    ConversationUpdateKind, CreatedOnFilter, CreatorFilter, EnvironmentFilter, HarnessFilter,
-    OwnerFilter, SessionStatus, SourceFilter, StatusFilter,
+    AgentConversationEntry, AgentConversationEntryId, AgentConversationsModel,
+    AgentConversationsModelEvent, AgentManagementFilters, ArtifactFilter, ConversationUpdateKind,
+    CreatedOnFilter, CreatorFilter, EnvironmentFilter, HarnessFilter, OwnerFilter, SessionStatus,
+    SourceFilter, StatusFilter,
 };
 use crate::ai::agent_management::agent_type_selector::{
     AgentType, AgentTypeSelector, AgentTypeSelectorEvent,
@@ -2327,10 +2327,7 @@ impl TypedActionView for AgentManagementView {
                 ctx.notify();
             }
             AgentManagementViewAction::ShowAgentTypeSelector => {
-                send_telemetry_from_ctx!(
-                    AgentManagementTelemetryEvent::SpawnNewLocalAgent,
-                    ctx
-                );
+                send_telemetry_from_ctx!(AgentManagementTelemetryEvent::SpawnNewLocalAgent, ctx);
                 ctx.dispatch_typed_action(&WorkspaceAction::NewTabInAgentMode {
                     entrypoint: AgentModeEntrypoint::AgentManagementView,
                     zero_state_prompt_suggestion_type: None,

@@ -20,6 +20,7 @@ use cfg_if::cfg_if;
 use directories::BaseDirs;
 
 use crate::channel::{Channel, ChannelState};
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 use crate::AppId;
 
 /// The name of the directory in which to put non-global Warp Core-specific files.
@@ -411,6 +412,7 @@ pub fn home_relative_path(path: &Path) -> String {
 /// and the current data profile, if one is set.
 ///
 /// This returns [`None`] if the user's home directory could not be determined.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn project_dirs() -> Option<directories::ProjectDirs> {
     project_dirs_for_app_id(
         ChannelState::app_id(),
@@ -422,6 +424,7 @@ fn project_dirs() -> Option<directories::ProjectDirs> {
 /// and data profile.
 ///
 /// This returns [`None`] if the user's home directory could not be determined.
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn project_dirs_for_app_id(
     _app_id: AppId,
     data_profile: Option<&str>,

@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use futures::future::BoxFuture;
 use futures::StreamExt;
+use futures::future::BoxFuture;
 use galaxy_agent_core::{
     AgentError, AgentErrorKind, AgentEventStream, AgentRuntime, RuntimeCapabilities,
     RuntimeDescriptor, RuntimeKind, TurnControl, TurnRequest,
@@ -62,7 +62,7 @@ pub async fn discover_anthropic_models(api_key: &str) -> Result<Vec<RigModelInfo
             Some(false) => return Ok(models),
             Some(true) => {}
             None => {
-                return Err("Anthropic models response is missing pagination state.".to_string())
+                return Err("Anthropic models response is missing pagination state.".to_string());
             }
         }
         let cursor = page["last_id"]

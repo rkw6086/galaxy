@@ -60,7 +60,7 @@ fn prompt_dismissed(ctx: &AppContext) -> bool {
         Err(error) => {
             log::warn!("Could not read Full Disk Access guidance preference: {error}");
             true
-        },
+        }
     }
 }
 
@@ -90,7 +90,7 @@ fn protected_file_access() -> ProtectedFileAccess {
                 } else {
                     ProtectedFileAccess::Unknown
                 }
-            },
+            }
             // EACCES may reflect ordinary POSIX permissions or ACLs, so only
             // EPERM counts as protected-access denial. Neither is proof of the
             // setting's value; all other errors remain unknown.

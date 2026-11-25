@@ -6477,7 +6477,8 @@ impl TerminalView {
                     });
 
                 if !new_status.should_trigger_notification() {
-                    self.last_desktop_notification_status.remove(conversation_id);
+                    self.last_desktop_notification_status
+                        .remove(conversation_id);
                 }
                 // Don't send notifications or insert ambient agent session ended tombstone
                 // if we're restoring this conversation on startup.
@@ -6659,7 +6660,8 @@ impl TerminalView {
                 // needed here.
                 self.last_observed_conversation_status
                     .remove(conversation_id);
-                self.last_desktop_notification_status.remove(conversation_id);
+                self.last_desktop_notification_status
+                    .remove(conversation_id);
                 self.last_observed_active_subagent.remove(conversation_id);
             }
             BlocklistAIHistoryEvent::CreatedSubtask {
@@ -10944,8 +10946,7 @@ impl TerminalView {
         manual: bool,
         ctx: &mut ViewContext<Self>,
     ) {
-        let exchange_id = conversation_id
-            .and_then(|id| Self::thread_start_exchange_id(&id, ctx));
+        let exchange_id = conversation_id.and_then(|id| Self::thread_start_exchange_id(&id, ctx));
         let connection = BedrockAuthConnection::current(ctx);
         let conversation_key = conversation_id
             .map(|id| id.to_string())
@@ -10954,30 +10955,27 @@ impl TerminalView {
         let recovery = BedrockAuthentication::handle(ctx).update(ctx, |authentication, ctx| {
             authentication.recover(&conversation_key, &exchange_key, manual, ctx)
         });
-        let _ = ctx.spawn(
-            recovery,
-            move |me, result, ctx| {
-                match result {
-                    Ok(()) => {
-                        let Some(conversation_id) = conversation_id else {
-                            return;
-                        };
-                        if BedrockAuthConnection::current(ctx) != connection
-                            || Self::thread_start_exchange_id(&conversation_id, ctx) != exchange_id
-                            || BlocklistAIHistoryModel::as_ref(ctx)
-                                .conversation_status(&conversation_id) != Some(&ConversationStatus::Error)
-                        {
-                            return;
-                        }
-                        log::info!("[bedrock] AWS credentials refreshed; resuming originating conversation");
-                        me.handle_resume_conversation(&conversation_id, ctx);
-                    }
-                    Err(error) => {
-                        log::warn!("[bedrock] AWS authentication recovery stopped: {error}");
-                    }
+        let _ = ctx.spawn(recovery, move |me, result, ctx| match result {
+            Ok(()) => {
+                let Some(conversation_id) = conversation_id else {
+                    return;
+                };
+                if BedrockAuthConnection::current(ctx) != connection
+                    || Self::thread_start_exchange_id(&conversation_id, ctx) != exchange_id
+                    || BlocklistAIHistoryModel::as_ref(ctx).conversation_status(&conversation_id)
+                        != Some(&ConversationStatus::Error)
+                {
+                    return;
                 }
-            },
-        );
+                log::info!(
+                    "[bedrock] AWS credentials refreshed; resuming originating conversation"
+                );
+                me.handle_resume_conversation(&conversation_id, ctx);
+            }
+            Err(error) => {
+                log::warn!("[bedrock] AWS authentication recovery stopped: {error}");
+            }
+        });
     }
 
     fn remove_aws_cli_not_installed_banner(&mut self, ctx: &mut ViewContext<Self>) {

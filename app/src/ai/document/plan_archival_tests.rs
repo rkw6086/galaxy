@@ -67,9 +67,7 @@ fn dirty_and_reverted_plans_stay_visible_until_new_work_accepts_the_edits() {
         app.add_singleton_model(|_| CloudModel::new(None, Vec::new(), None));
         app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
         let documents = app.add_singleton_model(|_| AIDocumentModel::new_for_test());
-        let repository = app.add_singleton_model(|ctx| {
-            LocalObjectRepository::new(None, None, ctx)
-        });
+        let repository = app.add_singleton_model(|ctx| LocalObjectRepository::new(None, None, ctx));
         let document_id = AIDocumentId::new();
         let notebook_id = SyncId::ClientId(ClientId::new());
         repository.update(&mut app, |repository, ctx| {
@@ -92,12 +90,16 @@ fn dirty_and_reverted_plans_stay_visible_until_new_work_accepts_the_edits() {
             model.observe_completion(document_id.to_string(), conversation_id, old_completion);
             model.archive_plan(&document_id.to_string(), ctx);
         });
-        assert!(CloudModel::as_ref(&app)
-            .get_notebook(&notebook_id)
-            .unwrap()
-            .metadata
-            .folder_id
-            .is_some());
+        CloudModel::handle(&app).read(&app, |cloud_model, _| {
+            assert!(
+                cloud_model
+                    .get_notebook(&notebook_id)
+                    .unwrap()
+                    .metadata
+                    .folder_id
+                    .is_some()
+            );
+        });
 
         // Typing in the editor emits Dirty; reverting a version also emits a
         // user-originated DocumentUpdated event. Either must reopen the plan.
@@ -130,12 +132,16 @@ fn dirty_and_reverted_plans_stay_visible_until_new_work_accepts_the_edits() {
                 );
                 assert!(restored.completed_plans.is_empty());
             });
-            assert!(CloudModel::as_ref(&app)
-                .get_notebook(&notebook_id)
-                .unwrap()
-                .metadata
-                .folder_id
-                .is_none());
+            CloudModel::handle(&app).read(&app, |cloud_model, _| {
+                assert!(
+                    cloud_model
+                        .get_notebook(&notebook_id)
+                        .unwrap()
+                        .metadata
+                        .folder_id
+                        .is_none()
+                );
+            });
         }
 
         archival.update(&mut app, |model, ctx| {
@@ -148,7 +154,10 @@ fn dirty_and_reverted_plans_stay_visible_until_new_work_accepts_the_edits() {
             assert!(model.reopened_plans.is_empty());
             let finished_again = Utc::now();
             model.observe_completion(document_id.to_string(), conversation_id, finished_again);
-            assert_eq!(model.completed_plans[&document_id.to_string()].completed_at, finished_again);
+            assert_eq!(
+                model.completed_plans[&document_id.to_string()].completed_at,
+                finished_again
+            );
             assert!(!model.completed_plans[&document_id.to_string()].is_due(finished_again));
         });
     });
@@ -180,9 +189,8 @@ fn archival_preserves_notebook_and_resuming_restores_original_folder() {
         app.add_singleton_model(|_| CloudModel::new(None, Vec::new(), None));
         app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
         app.add_singleton_model(|_| AIDocumentModel::new_for_test());
-        let repository = app.add_singleton_model(|ctx| {
-            LocalObjectRepository::new(Some(sender), None, ctx)
-        });
+        let repository =
+            app.add_singleton_model(|ctx| LocalObjectRepository::new(Some(sender), None, ctx));
         let archival = app.add_model(|_| PlanArchivalModel {
             completed_plans: HashMap::new(),
             ..Default::default()
@@ -197,12 +205,7 @@ fn archival_preserves_notebook_and_resuming_restores_original_folder() {
             conversation_id: None,
         };
         repository.update(&mut app, |repository, ctx| {
-            repository.create_folder_with_id(
-                original_folder,
-                "Project".to_string(),
-                None,
-                ctx,
-            );
+            repository.create_folder_with_id(original_folder, "Project".to_string(), None, ctx);
             repository.create_notebook_with_id(
                 notebook_id,
                 Some(original_folder),
@@ -230,17 +233,18 @@ fn archival_preserves_notebook_and_resuming_restores_original_folder() {
                 .archived_to
                 .expect("plan should have been archived")
         });
-        let cloud_model = CloudModel::as_ref(&app);
-        let notebook = cloud_model.get_notebook(&notebook_id).unwrap();
-        assert_eq!(notebook.model(), &notebook_model);
-        assert_eq!(notebook.metadata.folder_id, Some(archive_folder));
-        assert!(!notebook.is_trashed(cloud_model));
-        let folder = cloud_model.get_folder(&archive_folder).unwrap();
-        assert_eq!(folder.model().name, ARCHIVE_FOLDER_NAME);
-        let parent = cloud_model
-            .get_folder(&folder.metadata.folder_id.unwrap())
-            .unwrap();
-        assert_eq!(parent.model().name, PLAN_FOLDER_NAME);
+        CloudModel::handle(&app).read(&app, |cloud_model, _| {
+            let notebook = cloud_model.get_notebook(&notebook_id).unwrap();
+            assert_eq!(notebook.model(), &notebook_model);
+            assert_eq!(notebook.metadata.folder_id, Some(archive_folder));
+            assert!(!notebook.is_trashed(cloud_model));
+            let folder = cloud_model.get_folder(&archive_folder).unwrap();
+            assert_eq!(folder.model().name, ARCHIVE_FOLDER_NAME);
+            let parent = cloud_model
+                .get_folder(&folder.metadata.folder_id.unwrap())
+                .unwrap();
+            assert_eq!(parent.model().name, PLAN_FOLDER_NAME);
+        });
 
         let events = receiver.try_iter().collect::<Vec<_>>();
         assert!(events.iter().any(|event| matches!(
@@ -250,17 +254,22 @@ fn archival_preserves_notebook_and_resuming_restores_original_folder() {
                     && notebook.metadata.folder_id == Some(archive_folder)
                     && notebook.model() == &notebook_model
         )));
-        assert!(!events.iter().any(|event| matches!(event, ModelEvent::DeleteObjects { .. })));
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, ModelEvent::DeleteObjects { .. }))
+        );
 
         archival.update(&mut app, |model, ctx| {
             model.resume_conversation(conversation_id, ctx);
             assert!(model.completed_plans.is_empty());
         });
-        let cloud_model = CloudModel::as_ref(&app);
-        let notebook = cloud_model.get_notebook(&notebook_id).unwrap();
-        assert_eq!(notebook.metadata.folder_id, Some(original_folder));
-        assert_eq!(notebook.model(), &notebook_model);
-        assert!(!notebook.is_trashed(cloud_model));
+        CloudModel::handle(&app).read(&app, |cloud_model, _| {
+            let notebook = cloud_model.get_notebook(&notebook_id).unwrap();
+            assert_eq!(notebook.metadata.folder_id, Some(original_folder));
+            assert_eq!(notebook.model(), &notebook_model);
+            assert!(!notebook.is_trashed(cloud_model));
+        });
     });
 }
 
@@ -271,9 +280,7 @@ fn manual_restore_does_not_rearchive_a_completed_plan() {
         app.add_singleton_model(|_| CloudModel::new(None, Vec::new(), None));
         app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
         app.add_singleton_model(|_| AIDocumentModel::new_for_test());
-        let repository = app.add_singleton_model(|ctx| {
-            LocalObjectRepository::new(None, None, ctx)
-        });
+        let repository = app.add_singleton_model(|ctx| LocalObjectRepository::new(None, None, ctx));
         let archive_folder = SyncId::ClientId(ClientId::new());
         let notebook_id = SyncId::ClientId(ClientId::new());
         let document_id = AIDocumentId::new();
@@ -307,10 +314,11 @@ fn manual_restore_does_not_rearchive_a_completed_plan() {
         }));
         archival.update(&mut app, |model, ctx| model.sweep(ctx));
 
-        let cloud_model = CloudModel::as_ref(&app);
-        let notebook = cloud_model.get_notebook(&notebook_id).unwrap();
-        assert!(notebook.metadata.folder_id.is_none());
-        assert_eq!(notebook.model().data, "Keep this plan visible");
+        CloudModel::handle(&app).read(&app, |cloud_model, _| {
+            let notebook = cloud_model.get_notebook(&notebook_id).unwrap();
+            assert!(notebook.metadata.folder_id.is_none());
+            assert_eq!(notebook.model().data, "Keep this plan visible");
+        });
         archival.read(&app, |model, _| {
             assert!(!model.completed_plans[&document_id.to_string()].is_due(Utc::now()));
         });
@@ -323,9 +331,7 @@ fn ordinary_notebooks_are_never_archived() {
         initialize_settings_for_tests(&mut app);
         app.add_singleton_model(|_| CloudModel::new(None, Vec::new(), None));
         app.add_singleton_model(|_| AIDocumentModel::new_for_test());
-        let repository = app.add_singleton_model(|ctx| {
-            LocalObjectRepository::new(None, None, ctx)
-        });
+        let repository = app.add_singleton_model(|ctx| LocalObjectRepository::new(None, None, ctx));
         let notebook_id = SyncId::ClientId(ClientId::new());
         repository.update(&mut app, |repository, ctx| {
             repository.create_notebook_with_id(
@@ -352,11 +358,12 @@ fn ordinary_notebooks_are_never_archived() {
             );
             model.archive_plan(&notebook_id.to_string(), ctx);
         });
-        let cloud_model = CloudModel::as_ref(&app);
-        let notebook = cloud_model.get_notebook(&notebook_id).unwrap();
-        assert!(notebook.metadata.folder_id.is_none());
-        assert_eq!(notebook.model().data, "Keep these notes");
-        assert_eq!(cloud_model.get_all_active_folders().count(), 0);
+        CloudModel::handle(&app).read(&app, |cloud_model, _| {
+            let notebook = cloud_model.get_notebook(&notebook_id).unwrap();
+            assert!(notebook.metadata.folder_id.is_none());
+            assert_eq!(notebook.model().data, "Keep these notes");
+            assert_eq!(cloud_model.get_all_active_folders().count(), 0);
+        });
     });
 }
 
@@ -367,9 +374,7 @@ fn editing_an_archived_plan_from_drive_reopens_it_without_loading_its_conversati
         app.add_singleton_model(|_| CloudModel::new(None, Vec::new(), None));
         app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
         app.add_singleton_model(|_| AIDocumentModel::new_for_test());
-        let repository = app.add_singleton_model(|ctx| {
-            LocalObjectRepository::new(None, None, ctx)
-        });
+        let repository = app.add_singleton_model(|ctx| LocalObjectRepository::new(None, None, ctx));
         let document_id = AIDocumentId::new();
         let notebook_id = SyncId::ClientId(ClientId::new());
         repository.update(&mut app, |repository, ctx| {
@@ -408,10 +413,11 @@ fn editing_an_archived_plan_from_drive_reopens_it_without_loading_its_conversati
                 conversation_id,
             );
         });
-        let cloud_model = CloudModel::as_ref(&app);
-        let notebook = cloud_model.get_notebook(&notebook_id).unwrap();
-        assert!(notebook.metadata.folder_id.is_none());
-        assert_eq!(notebook.model().data, "- [ ] New unfinished work");
-        assert!(!notebook.is_trashed(cloud_model));
+        CloudModel::handle(&app).read(&app, |cloud_model, _| {
+            let notebook = cloud_model.get_notebook(&notebook_id).unwrap();
+            assert!(notebook.metadata.folder_id.is_none());
+            assert_eq!(notebook.model().data, "- [ ] New unfinished work");
+            assert!(!notebook.is_trashed(cloud_model));
+        });
     });
 }

@@ -13,11 +13,11 @@ use galaxyui::{ModelContext, ModelHandle, SingletonEntity};
 use tokio::sync::Mutex;
 use vec1::vec1;
 
-use crate::settings::{AISettings, AISettingsChangedEvent};
 use crate::ai::provider::authentication::{
-    BedrockAuthConnection, connection_revision, credentials_are_current,
+    connection_revision, credentials_are_current, BedrockAuthConnection,
 };
 use crate::ai::provider::client::BedrockClientConfig;
+use crate::settings::{AISettings, AISettingsChangedEvent};
 use crate::terminal::event::{AfterBlockCompletedEvent, BlockType, UserBlockCompleted};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
@@ -60,7 +60,10 @@ fn aws_profile_reference_for_message(profile: &str, capitalize_first_word: bool)
     }
 }
 
-pub(crate) fn user_facing_aws_credentials_error_message(err: &CredentialsError, profile: &str) -> String {
+pub(crate) fn user_facing_aws_credentials_error_message(
+    err: &CredentialsError,
+    profile: &str,
+) -> String {
     match err {
         CredentialsError::CredentialsNotLoaded(_) => format!(
             "AWS credentials were not found for {}. Log in with the AWS CLI or update your AWS credentials configuration, then refresh.",
@@ -294,9 +297,12 @@ fn refresh_aws_credentials_local_chain(
         move |manager, result, ctx| {
             if connection_revision(ctx) != revision
                 || BedrockAuthConnection::current(ctx) != connection
-                || manager.aws_credentials_refresh_strategy() != AwsCredentialsRefreshStrategy::LocalChain
+                || manager.aws_credentials_refresh_strategy()
+                    != AwsCredentialsRefreshStrategy::LocalChain
             {
-                let _ = tx.send(Err("AWS connection changed during credential reload".to_owned()));
+                let _ = tx.send(Err(
+                    "AWS connection changed during credential reload".to_owned()
+                ));
                 return;
             }
             let (new_state, tx_result) = match result {

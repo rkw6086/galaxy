@@ -59,6 +59,27 @@ pub struct WindowSnapshot {
     /// Tab groups defined in this window. Group order is implicit from
     /// member tabs' positions, so no explicit ordering is persisted.
     pub tab_groups: Vec<TabGroupSnapshot>,
+    /// All split groups (active and dormant) for this window, encoded as
+    /// ordered tab indices into `tabs`.  Indices reference the filtered
+    /// `TabSnapshot` slice written to disk, **not** the in-memory index.
+    /// Restored after all tabs are recreated; invalid indices are dropped.
+    pub split_groups: Vec<WindowSplitGroupSnapshot>,
+}
+
+/// A persisted split group: an ordered list of tab indices (into the filtered
+/// `tabs` slice on disk) plus per-slot flex weights.  At most
+/// `SplitViewState::MAX_VISIBLE` members.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WindowSplitGroupSnapshot {
+    /// Tab indices referencing the `tabs` slice in the same `WindowSnapshot`.
+    /// Must contain at least 2 valid, distinct in-range indices to be restored.
+    pub tab_indices: Vec<usize>,
+    /// Per-slot flex weights in the same order as `tab_indices`.
+    /// Non-positive or non-finite values are replaced by 1.0 on restore.
+    pub slot_weights: Vec<f32>,
+    /// Index into `tab_indices` identifying the focused slot within this group,
+    /// or `None` to default to the first slot.
+    pub focused_slot_index: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

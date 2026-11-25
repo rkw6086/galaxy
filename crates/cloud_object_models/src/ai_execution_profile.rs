@@ -38,7 +38,9 @@ impl PermissionMode {
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::AllowAll => "Run tools without approval or model review. Explicit denylists and workspace restrictions still apply.",
+            Self::AllowAll => {
+                "Run tools without approval or model review. Explicit denylists and workspace restrictions still apply."
+            }
             Self::ReadOnly => {
                 "Only file reads, code searches, grep, and file discovery are available. Commands, edits, MCP, computer use, and agents are disabled, except explicitly allowlisted shell commands."
             }
@@ -475,6 +477,10 @@ pub struct AIExecutionProfile {
 
     pub context_window_limit: Option<u32>,
 
+    /// Seconds to wait for the AI provider to begin responding. `None` uses the
+    /// built-in default of 120 seconds.
+    pub model_start_timeout_secs: Option<u32>,
+
     /// Whether plans created by the agent should be automatically synced to Warp Drive
     pub autosync_plans_to_warp_drive: bool,
 
@@ -509,6 +515,7 @@ struct PersistedExecutionProfile {
     cli_agent_model: Option<LLMId>,
     computer_use_model: Option<LLMId>,
     context_window_limit: Option<u32>,
+    model_start_timeout_secs: Option<u32>,
     autosync_plans_to_warp_drive: bool,
     web_search_enabled: bool,
 }
@@ -540,6 +547,7 @@ impl Default for PersistedExecutionProfile {
             cli_agent_model: profile.cli_agent_model,
             computer_use_model: profile.computer_use_model,
             context_window_limit: profile.context_window_limit,
+            model_start_timeout_secs: profile.model_start_timeout_secs,
             autosync_plans_to_warp_drive: profile.autosync_plans_to_warp_drive,
             web_search_enabled: profile.web_search_enabled,
         }
@@ -582,6 +590,7 @@ impl<'de> Deserialize<'de> for AIExecutionProfile {
             cli_agent_model: saved.cli_agent_model,
             computer_use_model: saved.computer_use_model,
             context_window_limit: saved.context_window_limit,
+            model_start_timeout_secs: saved.model_start_timeout_secs,
             autosync_plans_to_warp_drive: saved.autosync_plans_to_warp_drive,
             web_search_enabled: saved.web_search_enabled,
         };
@@ -622,6 +631,7 @@ impl Default for AIExecutionProfile {
             cli_agent_model: None,
             computer_use_model: None,
             context_window_limit: None,
+            model_start_timeout_secs: None,
             autosync_plans_to_warp_drive: true,
             web_search_enabled: true,
         }
@@ -630,7 +640,9 @@ impl Default for AIExecutionProfile {
 
 impl AIExecutionProfile {
     pub fn includes_orchestration_provider(&self, name: &str) -> bool {
-        self.orchestration_providers.as_ref().is_none_or(|providers| providers.iter().any(|provider| provider == name))
+        self.orchestration_providers
+            .as_ref()
+            .is_none_or(|providers| providers.iter().any(|provider| provider == name))
     }
 
     /// Adapter for legacy providers that still consume per-tool permission fields.
@@ -759,6 +771,7 @@ impl AIExecutionProfile {
             cli_agent_model: None,
             computer_use_model: None,
             context_window_limit: None,
+            model_start_timeout_secs: None,
             autosync_plans_to_warp_drive: FeatureFlag::SyncAmbientPlans.is_enabled(),
             web_search_enabled: true,
         }

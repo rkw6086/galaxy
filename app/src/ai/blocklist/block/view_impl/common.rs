@@ -969,7 +969,10 @@ fn render_permission_mode_button(
     appearance: &Appearance,
 ) -> Box<dyn Element> {
     use crate::ai::execution_profiles::PermissionMode;
-    let is_active = matches!(props.mode, PermissionMode::GalaxyDecides | PermissionMode::AllowAll);
+    let is_active = matches!(
+        props.mode,
+        PermissionMode::GalaxyDecides | PermissionMode::AllowAll
+    );
     let is_locked = props.is_locked;
     let (icon, next_mode) = match props.mode {
         PermissionMode::ReadOnly => (Icon::Eye, PermissionMode::AskFirst),
@@ -994,13 +997,20 @@ fn render_permission_mode_button(
         .with_spacing(6.)
         .with_child(icon)
         .with_child(
-            Text::new(props.mode.label(), appearance.ui_font_family(), get_keybinding_font_size(appearance))
-                .with_color(appearance.theme().active_ui_text_color().into())
-                .finish(),
+            Text::new(
+                props.mode.label(),
+                appearance.ui_font_family(),
+                get_keybinding_font_size(appearance),
+            )
+            .with_color(appearance.theme().active_ui_text_color().into())
+            .finish(),
         )
         .finish();
     let tooltip_text = if is_locked {
-        format!("{} · permission mode is managed by the profile", props.mode.label())
+        format!(
+            "{} · permission mode is managed by the profile",
+            props.mode.label()
+        )
     } else {
         format!("{} · switch to {}", props.mode.label(), next_mode.label())
     };

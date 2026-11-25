@@ -286,7 +286,10 @@ pub fn render_models_section(
         ));
 
     if view.reasoning_roles.contains(&ProfileModelRole::Base) {
-        column.add_child(render_reasoning_dropdown_row(appearance, &view.base_reasoning_dropdown));
+        column.add_child(render_reasoning_dropdown_row(
+            appearance,
+            &view.base_reasoning_dropdown,
+        ));
     }
 
     if let Some(row) = render_context_window_row(appearance, view, app) {
@@ -300,8 +303,14 @@ pub fn render_models_section(
         &view.full_terminal_use_model_dropdown,
     ));
 
-    if view.reasoning_roles.contains(&ProfileModelRole::FullTerminalUse) {
-        column.add_child(render_reasoning_dropdown_row(appearance, &view.full_terminal_reasoning_dropdown));
+    if view
+        .reasoning_roles
+        .contains(&ProfileModelRole::FullTerminalUse)
+    {
+        column.add_child(render_reasoning_dropdown_row(
+            appearance,
+            &view.full_terminal_reasoning_dropdown,
+        ));
     }
 
     if FeatureFlag::LocalComputerUse.is_enabled() {
@@ -311,8 +320,14 @@ pub fn render_models_section(
             "The model used when the agent takes control of your computer to interact with graphical applications through mouse movements, clicks, and keyboard input.",
             &view.computer_use_model_dropdown,
         ));
-        if view.reasoning_roles.contains(&ProfileModelRole::ComputerUse) {
-            column.add_child(render_reasoning_dropdown_row(appearance, &view.computer_use_reasoning_dropdown));
+        if view
+            .reasoning_roles
+            .contains(&ProfileModelRole::ComputerUse)
+        {
+            column.add_child(render_reasoning_dropdown_row(
+                appearance,
+                &view.computer_use_reasoning_dropdown,
+            ));
         }
     }
 
@@ -499,6 +514,12 @@ pub fn render_permissions_section(
     }
 
     column.add_child(
+        Container::new(render_model_start_timeout_row(appearance, view))
+            .with_margin_top(16.)
+            .finish(),
+    );
+
+    column.add_child(
         Container::new(render_plan_auto_sync_toggle(appearance, view, profile_data))
             .with_margin_top(16.)
             .finish(),
@@ -652,12 +673,26 @@ fn render_command_denylist_section(
         .finish()
 }
 
-fn render_command_allowlist_section(view: &ExecutionProfileEditorView, profile: &AIExecutionProfile, appearance: &Appearance) -> Box<dyn Element> {
-    let items: Vec<_> = profile.command_allowlist.iter().cloned().zip(view.command_allowlist_mouse_state_handles.iter().cloned()).map(|(predicate, mouse_state_handle)| InputListItem {
-        item: predicate.to_string(), mouse_state_handle,
-        on_remove_action: ExecutionProfileEditorViewAction::RemoveFromCommandAllowlist { predicate },
-        is_disabled: false, tooltip_mouse_state: None,
-    }).collect();
+fn render_command_allowlist_section(
+    view: &ExecutionProfileEditorView,
+    profile: &AIExecutionProfile,
+    appearance: &Appearance,
+) -> Box<dyn Element> {
+    let items: Vec<_> = profile
+        .command_allowlist
+        .iter()
+        .cloned()
+        .zip(view.command_allowlist_mouse_state_handles.iter().cloned())
+        .map(|(predicate, mouse_state_handle)| InputListItem {
+            item: predicate.to_string(),
+            mouse_state_handle,
+            on_remove_action: ExecutionProfileEditorViewAction::RemoveFromCommandAllowlist {
+                predicate,
+            },
+            is_disabled: false,
+            tooltip_mouse_state: None,
+        })
+        .collect();
     Flex::column().with_child(create_section_header("Always approve commands", "Regular expressions approved in every mode, including Read Only. Denylists and workspace restrictions take precedence. Anchor patterns with ^ and $ to match the complete command.", appearance))
         .with_child(render_input_list(None, items, Some(&view.command_allowlist_editor), appearance)).finish()
 }
@@ -984,4 +1019,65 @@ pub fn wrap_disabled_with_workspace_override_tooltip(
         stack.finish()
     })
     .finish()
+}
+
+pub fn render_model_start_timeout_row(
+    appearance: &Appearance,
+    view: &ExecutionProfileEditorView,
+) -> Box<dyn Element> {
+    let label_elem = Text::new(
+        "Model startup timeout (seconds)".to_string(),
+        appearance.ui_font_family(),
+        13.,
+    )
+    .with_color(appearance.theme().active_ui_text_color().into())
+    .finish();
+
+    let desc_elem = Text::new(
+        "Seconds to wait for the AI provider to begin responding. Leave blank to use the default (120 s)."
+            .to_string(),
+        appearance.ui_font_family(),
+        11.,
+    )
+    .with_color(
+        appearance
+            .theme()
+            .sub_text_color(appearance.theme().surface_1())
+            .into(),
+    )
+    .finish();
+
+    let input_box = Dismiss::new(
+        appearance
+            .ui_builder()
+            .text_input(view.model_start_timeout_editor.clone())
+            .with_style(UiComponentStyles {
+                width: Some(CONTEXT_WINDOW_INPUT_BOX_WIDTH),
+                padding: Some(Coords {
+                    top: 6.,
+                    bottom: 6.,
+                    left: 10.,
+                    right: 10.,
+                }),
+                background: Some(appearance.theme().surface_2().into()),
+                ..Default::default()
+            })
+            .build()
+            .finish(),
+    )
+    .finish();
+
+    let left_content = Flex::column()
+        .with_child(label_elem)
+        .with_child(desc_elem)
+        .finish();
+
+    Flex::row()
+        .with_main_axis_size(MainAxisSize::Max)
+        .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+        .with_spacing(8.)
+        .with_child(Shrinkable::new(1., left_content).finish())
+        .with_child(input_box)
+        .finish()
 }
