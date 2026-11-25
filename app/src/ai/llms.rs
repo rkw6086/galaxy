@@ -3689,6 +3689,52 @@ async fn fetch_litellm_catalog(
 }
 
 #[cfg(not(target_family = "wasm"))]
+const MAX_MODELS_ERROR_BODY_BYTES: usize = 16 * 1024;
+
+#[cfg(not(target_family = "wasm"))]
+fn models_http_error(status: reqwest::StatusCode, body: &[u8]) -> String {
+    const EXPIRED_TOKEN_CODE: &str = "ExpiredToken";
+    const EXPIRED_TOKEN_MESSAGE: &str = "The security token included in the request is expired";
+    if let Ok(body) = serde_json::from_slice::<serde_json::Value>(body) {
+        // OpenAI-compatible errors use `error`; some proxies wrap upstream
+        // failures in `detail`. Classify known errors without copying any of
+        // the provider text, which may contain credentials or debug output.
+        for error in [&body["error"], &body["detail"], &body] {
+            if error["code"].as_str() == Some(EXPIRED_TOKEN_CODE)
+                || [error.as_str(), error["message"].as_str()]
+                    .into_iter()
+                    .flatten()
+                    .any(|message| {
+                        (message.contains("ExpiredToken:") || message.contains("(ExpiredToken)"))
+                            && message.contains(EXPIRED_TOKEN_MESSAGE)
+                    })
+            {
+                return format!("{EXPIRED_TOKEN_CODE}: {EXPIRED_TOKEN_MESSAGE}");
+            }
+        }
+    }
+    format!("Model refresh failed: /models returned HTTP {status}")
+}
+
+#[cfg(not(target_family = "wasm"))]
+async fn read_models_error_body(mut response: reqwest::Response) -> Option<Vec<u8>> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_MODELS_ERROR_BODY_BYTES as u64)
+    {
+        return None;
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.ok()? {
+        if chunk.len() > MAX_MODELS_ERROR_BODY_BYTES - body.len() {
+            return None;
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Some(body)
+}
+
+#[cfg(not(target_family = "wasm"))]
 async fn fetch_from_openai_models(
     base_url: &str,
     api_key: Option<&str>,
@@ -3703,10 +3749,12 @@ async fn fetch_from_openai_models(
         .send()
         .await
         .map_err(|error| format!("Could not refresh /models: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "Model refresh failed: /models returned HTTP {}",
-            response.status()
+    let status = response.status();
+    if !status.is_success() {
+        let body = read_models_error_body(response).await;
+        return Err(models_http_error(
+            status,
+            body.as_deref().unwrap_or_default(),
         ));
     }
     let body: serde_json::Value = response

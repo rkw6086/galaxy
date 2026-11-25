@@ -23,6 +23,38 @@ use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::LaunchMode;
 
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn models_http_error_reports_expired_token_without_echoing_provider_text() {
+    let status = reqwest::StatusCode::UNPROCESSABLE_ENTITY;
+    for body in [
+        r#"{"error":{"code":"ExpiredToken","message":"secret_key=do-not-echo"}}"#,
+        r#"{"detail":"ExpiredToken: The security token included in the request is expired; session_token=do-not-echo"}"#,
+        r#"{"error":{"message":"An error occurred (ExpiredToken) when calling AssumeRole: The security token included in the request is expired"}}"#,
+    ] {
+        assert_eq!(
+            models_http_error(status, body.as_bytes()),
+            "ExpiredToken: The security token included in the request is expired"
+        );
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn models_http_error_falls_back_to_status_for_unknown_or_unstructured_bodies() {
+    let status = reqwest::StatusCode::UNPROCESSABLE_ENTITY;
+    for body in [
+        r#"{"error":{"code":"unknown_error","message":"secret_key=do-not-echo"}}"#,
+        "<html>ExpiredToken: The security token included in the request is expired</html>",
+        "",
+    ] {
+        assert_eq!(
+            models_http_error(status, body.as_bytes()),
+            format!("Model refresh failed: /models returned HTTP {status}")
+        );
+    }
+}
+
 // -- DisableReason::should_clear_preference tests --
 
 #[test]
@@ -1435,6 +1467,25 @@ async fn model_refresh_distinguishes_empty_catalog_from_failure() {
         response.assert_async().await;
         response.remove_async().await;
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[tokio::test]
+async fn litellm_catalog_refresh_returns_expired_token_from_failed_models_request() {
+    let mut server = mockito::Server::new_async().await;
+    let response = server
+        .mock("GET", "/models")
+        .with_status(422)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":{"code":"ExpiredToken"}}"#)
+        .create_async()
+        .await;
+
+    assert_eq!(
+        fetch_litellm_catalog(&server.url(), None, &reqwest::Client::new()).await,
+        Err("ExpiredToken: The security token included in the request is expired".to_owned())
+    );
+    response.assert_async().await;
 }
 
 #[test]

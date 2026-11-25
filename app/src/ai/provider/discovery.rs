@@ -4,15 +4,18 @@
 //! enriches known capabilities but never determines inventory membership.
 
 use std::collections::{BTreeMap, HashSet};
+use std::error::Error;
 use std::future::Future;
 
 use aws_config::BehaviorVersion;
+use aws_sdk_bedrock::error::{ProvideErrorMetadata, SdkError};
 use aws_sdk_bedrock::operation::list_inference_profiles::ListInferenceProfilesOutput;
 use aws_sdk_bedrock::types::{
     FoundationModelSummary, InferenceProfileStatus, InferenceProfileSummary, InferenceProfileType,
 };
 use aws_sdk_bedrock::Client;
 use aws_sdk_bedrockruntime::config::Region;
+use aws_sdk_sts::operation::assume_role::AssumeRoleError;
 use futures::{stream, StreamExt};
 use galaxy_bedrock_model_catalog::model_metadata;
 use serde_json::json;
@@ -40,7 +43,7 @@ pub(crate) async fn discover_available_models(
         .list_foundation_models()
         .send()
         .await
-        .map_err(|error| format!("Unable to list Bedrock models: {}", sanitized_error(&error)))?;
+        .map_err(|error| discovery_request_error("Unable to list Bedrock models", &error))?;
     let mut foundation_models = inventory.model_summaries.unwrap_or_default();
     let profiles = if config.cross_region_inference {
         collect_profile_pages(|token| {
@@ -52,10 +55,7 @@ pub(crate) async fn discover_available_models(
                     .send()
                     .await
                     .map_err(|error| {
-                        format!(
-                            "Unable to list Bedrock inference profiles: {}",
-                            sanitized_error(&error)
-                        )
+                        discovery_request_error("Unable to list Bedrock inference profiles", &error)
                     })
             }
         })
@@ -200,6 +200,45 @@ pub(crate) async fn discover_available_models(
         context: json!({"event": "bedrock_availability_sweep_completed", "sweep_id": sweep_id, "aws_region": region, "inventory_count": inventory_count, "candidate_count": candidate_count, "checked_count": records.len(), "allowed_count": models.len()}),
     });
     Ok(BedrockDiscovery { models, records })
+}
+
+fn discovery_request_error<E, R>(operation: &str, error: &SdkError<E, R>) -> String
+where
+    E: Error + ProvideErrorMetadata + 'static,
+    R: std::fmt::Debug,
+{
+    // With an assume-role profile, the Bedrock request fails during dispatch.
+    // The AWS SDK exposes the original STS service error through its sources.
+    let role_codes = std::iter::successors(error.source(), |&cause| cause.source())
+        .filter_map(|cause| cause.downcast_ref::<AssumeRoleError>())
+        .filter_map(ProvideErrorMetadata::code);
+    let mut known_code = None;
+    for code in error.code().into_iter().chain(role_codes) {
+        match code {
+            "ExpiredToken" => {
+                return "ExpiredToken: The security token included in the request is expired"
+                    .to_owned();
+            }
+            // Only emit recognized codes, not arbitrary metadata or service messages.
+            "AccessDenied"
+            | "AccessDeniedException"
+            | "InternalServerException"
+            | "MalformedPolicyDocumentException"
+            | "PackedPolicyTooLargeException"
+            | "RegionDisabledException"
+            | "ThrottlingException"
+            | "ValidationException" => {
+                known_code.get_or_insert(code);
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(code) = known_code {
+        format!("{operation}: {code}")
+    } else {
+        format!("{operation}: {error}")
+    }
 }
 
 fn sanitized_error(error: &impl std::fmt::Debug) -> String {

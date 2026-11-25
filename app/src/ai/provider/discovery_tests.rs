@@ -1,9 +1,75 @@
-use super::model_availability_is_usable;
+use super::{discovery_request_error, model_availability_is_usable};
+use aws_credential_types::provider::error::CredentialsError;
+use aws_sdk_bedrock::error::{ConnectorError, ErrorMetadata, SdkError};
+use aws_sdk_bedrock::operation::list_foundation_models::ListFoundationModelsError;
 use aws_sdk_bedrock::operation::list_inference_profiles::ListInferenceProfilesOutput;
 use aws_sdk_bedrock::types::{
     FoundationModelSummary, InferenceProfileModel, InferenceProfileStatus, InferenceProfileSummary,
     InferenceProfileType, InferenceType, ModelModality,
 };
+use aws_sdk_sts::operation::assume_role::AssumeRoleError;
+
+fn bedrock_dispatch_error_from_profile(
+    code: &str,
+    message: &str,
+) -> SdkError<ListFoundationModelsError> {
+    let sts_error =
+        AssumeRoleError::generic(ErrorMetadata::builder().code(code).message(message).build());
+    let sts_error = SdkError::service_error(sts_error, ());
+    let profile_error =
+        CredentialsError::provider_error(CredentialsError::provider_error(sts_error));
+    SdkError::dispatch_failure(ConnectorError::other(Box::new(profile_error), None))
+}
+
+#[test]
+fn bedrock_discovery_reports_expired_session_from_nested_sts_error() {
+    let error = bedrock_dispatch_error_from_profile("ExpiredToken", "secret=do-not-display");
+    assert_eq!(
+        discovery_request_error("Unable to list Bedrock models", &error),
+        "ExpiredToken: The security token included in the request is expired"
+    );
+}
+
+#[test]
+fn bedrock_discovery_keeps_nested_sts_code_without_echoing_its_message() {
+    let error = bedrock_dispatch_error_from_profile(
+        "AccessDenied",
+        "ExpiredToken: The security token included in the request is expired; secret=do-not-display",
+    );
+    assert_eq!(
+        discovery_request_error("Unable to list Bedrock models", &error),
+        "Unable to list Bedrock models: AccessDenied"
+    );
+}
+
+#[test]
+fn bedrock_discovery_keeps_recognized_service_code_without_echoing_its_message() {
+    let error = ListFoundationModelsError::generic(
+        ErrorMetadata::builder()
+            .code("AccessDeniedException")
+            .message("secret=do-not-display")
+            .build(),
+    );
+    let error = SdkError::service_error(error, ());
+    assert_eq!(
+        discovery_request_error("Unable to list Bedrock models", &error),
+        "Unable to list Bedrock models: AccessDeniedException"
+    );
+}
+
+#[test]
+fn bedrock_discovery_does_not_echo_unrecognized_service_code() {
+    let error = ListFoundationModelsError::generic(
+        ErrorMetadata::builder()
+            .code("credential-like-unrecognized-value")
+            .build(),
+    );
+    let error = SdkError::service_error(error, ());
+    assert_eq!(
+        discovery_request_error("Unable to list Bedrock models", &error),
+        "Unable to list Bedrock models: service error"
+    );
+}
 
 fn foundation(id: &str, on_demand: bool) -> FoundationModelSummary {
     FoundationModelSummary::builder()
