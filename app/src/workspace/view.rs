@@ -1110,9 +1110,6 @@ pub(crate) struct PendingSplitViewSource {
     /// Ordered snapshot of `split_view_state.ids()` taken before creation.
     /// Empty when no split was active.  Used to restore prior members.
     pub(crate) prior_split_ids: Vec<EntityId>,
-    /// Per-slot flex weights captured before creation so resized proportions
-    /// survive the implicit `SplitViewState::clear()` that tab activation causes.
-    pub(crate) prior_split_weights: HashMap<EntityId, f32>,
 }
 enum PendingSessionConfigTabConfigChipTutorial {
     WhenBootstrapped {
@@ -1338,6 +1335,23 @@ impl Element for SplitViewCaptureElement {
     }
 }
 
+/// Preserve an existing color. Even without one, grouped tabs use their group's
+/// backdrop (which may be untinted), and an explicitly cleared tab stays clear.
+fn with_tab_split_color_fallback<T>(
+    color: Option<T>,
+    selected_color: SelectedTabColor,
+    group_id: Option<TabGroupId>,
+    split_color: impl FnOnce() -> Option<T>,
+) -> Option<T> {
+    color.or_else(|| {
+        if selected_color == SelectedTabColor::Unset && group_id.is_none() {
+            split_color()
+        } else {
+            None
+        }
+    })
+}
+
 impl SplitViewState {
     /// Maximum number of tabs that may be visible simultaneously in split view.
     pub(crate) const MAX_VISIBLE: usize = 4;
@@ -1375,13 +1389,42 @@ impl SplitViewState {
         }
     }
 
+    fn membership_for(
+        &self,
+        pane_group_id: EntityId,
+        selected_color: SelectedTabColor,
+        tab_color: Option<AnsiColorIdentifier>,
+        group_id: Option<TabGroupId>,
+        tab_groups: &HashMap<TabGroupId, TabGroup>,
+    ) -> Option<WorkspaceSplitViewMembership> {
+        if !self.is_active() || !self.contains(pane_group_id) {
+            return None;
+        }
+
+        let header_color = if selected_color == SelectedTabColor::Cleared {
+            None
+        } else {
+            let color = tab_color.or_else(|| {
+                group_id
+                    .and_then(|id| tab_groups.get(&id))
+                    .and_then(|group| group.color.resolve(None))
+            });
+            with_tab_split_color_fallback(color, selected_color, group_id, || self.color)
+        };
+        Some(WorkspaceSplitViewMembership {
+            pane_group_id,
+            is_focused: self.focused_id() == Some(pane_group_id),
+            header_color,
+        })
+    }
+
     /// Minimum pixel width allowed for any single slot when the user drags
     /// a divider.  Prevents slots from being resized to zero.
     const MIN_SLOT_PX: f32 = 50.;
 
     /// Add `id` to the split view, returning `true` if it was actually added.
     /// Does nothing (returns `false`) when already present or at capacity.
-    /// Assigns a default weight of 1.0 for the new slot and rebuilds dividers.
+    /// Resets all slots to equal weights and rebuilds dividers on success.
     pub(crate) fn add(&mut self, id: EntityId) -> bool {
         if self.pane_group_ids.contains(&id) || self.pane_group_ids.len() >= Self::MAX_VISIBLE {
             return false;
@@ -1390,7 +1433,9 @@ impl SplitViewState {
             self.color = Some(random_tab_color());
         }
         self.pane_group_ids.push(id);
-        self.slot_weights.entry(id).or_insert(1.0);
+        for &member_id in &self.pane_group_ids {
+            self.slot_weights.insert(member_id, 1.0);
+        }
         if self.focused_id.is_none() {
             self.focused_id = Some(id);
         }
@@ -1428,9 +1473,8 @@ impl SplitViewState {
         self.slot_weights.get(&id).copied().unwrap_or(1.0)
     }
 
-    /// Explicitly set the flex weight for a slot that is already a member.
-    /// No-ops when `id` is not in the split.  Used to restore user-adjusted
-    /// weights when rebuilding the split after async tab creation.
+    /// Set a member's flex weight to simulate a resized slot in tests.
+    #[cfg(test)]
     pub(crate) fn set_slot_weight(&mut self, id: EntityId, weight: f32) {
         if self.pane_group_ids.contains(&id) {
             self.slot_weights.insert(id, weight);
@@ -4758,6 +4802,7 @@ impl Workspace {
                     for tab in &mut self.tabs {
                         Self::sync_codebase_tab_color(tab, ctx);
                     }
+                    self.refresh_split_view_header_colors(ctx);
                 }
                 ctx.notify();
             }
@@ -6221,20 +6266,25 @@ impl Workspace {
         self.tabs.get(index).and_then(|tab| tab.color())
     }
 
-    fn split_view_color_for_tab(
+    fn with_tab_split_color_fallback<T>(
         &self,
         tab: &TabData,
-        app: &AppContext,
-    ) -> Option<AnsiColorIdentifier> {
-        self.split_view_state
-            .color_for(tab.pane_group.id())
-            .or_else(|| {
-                tab.pane_group
-                    .as_ref(app)
-                    .focus_state_handle()
-                    .as_ref(app)
-                    .split_view_color()
-            })
+        color: Option<T>,
+        convert: impl FnOnce(AnsiColorIdentifier) -> T,
+        ctx: &AppContext,
+    ) -> Option<T> {
+        with_tab_split_color_fallback(color, tab.selected_color, tab.group_id, || {
+            self.split_view_state
+                .color_for(tab.pane_group.id())
+                .or_else(|| {
+                    tab.pane_group
+                        .as_ref(ctx)
+                        .focus_state_handle()
+                        .as_ref(ctx)
+                        .split_view_color()
+                })
+                .map(convert)
+        })
     }
 
     /// Returns `true` when the tab at `tab_index` is currently the **target**
@@ -6622,6 +6672,7 @@ impl Workspace {
             return;
         }
         self.tabs[index].selected_color = color;
+        self.refresh_split_view_header_colors(ctx);
         send_telemetry_from_ctx!(
             TelemetryEvent::TabOperations {
                 action: if matches!(color, SelectedTabColor::Color(_)) {
@@ -6660,11 +6711,8 @@ impl Workspace {
         self.set_tab_color(index, next, ctx);
     }
 
-    /// Sets a tab group's color. The group fully owns its members' color, so:
-    /// - `Color(c)` — every member renders with `c`.
-    /// - `Cleared` / `Unset` — every member renders with no color (a fresh group
-    ///   is `Unset`; the picker sets `Cleared` when you toggle the current color
-    ///   off). A member's own tab/directory color is ignored while it's grouped.
+    /// Sets the group backdrop color independently of the members' own colors.
+    /// `Cleared` and `Unset` both leave the backdrop untinted.
     fn set_tab_group_color(
         &mut self,
         group_id: TabGroupId,
@@ -6678,6 +6726,7 @@ impl Workspace {
             return;
         }
         group.color = color;
+        self.refresh_split_view_header_colors(ctx);
         ctx.dispatch_global_action("workspace:save_app", ());
         ctx.notify();
     }
@@ -6705,24 +6754,44 @@ impl Workspace {
     /// Syncs the tab color for the given tab based on the active terminal's CWD.
     /// If the CWD is within a directory that has a configured color, applies it.
     /// If the CWD moves outside all configured directories, the directory color is cleared.
-    fn sync_codebase_tab_color(tab: &mut TabData, ctx: &mut ViewContext<Self>) {
+    fn sync_codebase_tab_color(tab: &mut TabData, ctx: &mut ViewContext<Self>) -> bool {
         let Some(cwd) = tab
             .pane_group
             .as_ref(ctx)
             .active_session_view(ctx)
             .and_then(|tv| tv.as_ref(ctx).canonical_session_pwd_if_local(ctx))
         else {
-            return;
+            return false;
         };
-
         let color = TabSettings::as_ref(ctx)
             .directory_tab_colors
             .value()
             .color_for_directory(cwd.as_path())
             .and_then(|c| c.ansi_color());
-
+        if tab.default_directory_color == color {
+            return false;
+        }
         tab.default_directory_color = color;
         ctx.notify();
+        true
+    }
+
+    fn sync_codebase_tab_color_for_pane_group(
+        &mut self,
+        pane_group_id: EntityId,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        if FeatureFlag::DirectoryTabColors.is_enabled() {
+            if let Some(tab) = self
+                .tabs
+                .iter_mut()
+                .find(|t| t.pane_group.id() == pane_group_id)
+            {
+                if Self::sync_codebase_tab_color(tab, ctx) {
+                    self.refresh_split_view_header_colors(ctx);
+                }
+            }
+        }
     }
 
     fn clear_tab_name_editor(&mut self, ctx: &mut ViewContext<Self>) {
@@ -8309,6 +8378,7 @@ impl Workspace {
 
         let target_index = self.index_after_group(group_id).unwrap_or(self.tabs.len());
         self.tabs[tab_index].group_id = Some(group_id);
+        self.refresh_split_view_header_colors(ctx);
 
         // Moving a tab to a group, clear its pinned state.
         self.tabs[tab_index].pinned = false;
@@ -8346,6 +8416,7 @@ impl Workspace {
             .map(|t| self.clamp_to_unpinned_region(&self.tabs, t));
 
         self.tabs[tab_index].group_id = None;
+        self.refresh_split_view_header_colors(ctx);
 
         if let Some(target) = target {
             self.move_tab_to_index(tab_index, target, ctx);
@@ -8374,6 +8445,7 @@ impl Workspace {
             }
         }
         self.tab_groups.remove(&group_id);
+        self.refresh_split_view_header_colors(ctx);
 
         // If the group was pinned, we must reposition the group's
         // members after the pinned area. They are now ungrouped and
@@ -8641,6 +8713,7 @@ impl Workspace {
 
         let previous_group_id = self.tabs[tab_index].group_id;
         self.tabs[tab_index].group_id = group_id;
+        self.refresh_split_view_header_colors(ctx);
 
         if let Some(previous_group_id) = previous_group_id {
             self.prune_empty_tab_group(previous_group_id, ctx);
@@ -10018,8 +10091,8 @@ impl Workspace {
 
     /// Called after a new tab has been synchronously created by
     /// `AddDefaultTabInSplitView`.  Rebuilds the split to include the
-    /// explicitly supplied `new_tab_id` alongside the prior members, restoring
-    /// user-adjusted weights where possible.
+    /// explicitly supplied `new_tab_id` alongside the prior members, giving
+    /// all members equal widths.
     ///
     /// - `new_tab_id` — the pane-group ID of the tab that was just created;
     ///   must already exist in `self.tabs`.
@@ -10095,10 +10168,6 @@ impl Workspace {
         }
         for &id in &ids_to_add {
             self.split_view_state.add(id);
-            // Restore user-adjusted weight if one was saved.
-            if let Some(&w) = pending.prior_split_weights.get(&id) {
-                self.split_view_state.set_slot_weight(id, w);
-            }
         }
         // Focus the newly created tab.
         self.split_view_state.set_focused_id(new_tab_id);
@@ -10117,15 +10186,9 @@ impl Workspace {
     /// state.  Call this *before* any tab-creation side-effects.
     fn snapshot_split_view_source(&self) -> PendingSplitViewSource {
         let source_id = self.active_tab_pane_group().id();
-        let prior_split_ids: Vec<EntityId> = self.split_view_state.ids().to_vec();
-        let prior_split_weights: HashMap<EntityId, f32> = prior_split_ids
-            .iter()
-            .map(|&id| (id, self.split_view_state.slot_weight(id)))
-            .collect();
         PendingSplitViewSource {
             source_id,
-            prior_split_ids,
-            prior_split_weights,
+            prior_split_ids: self.split_view_state.ids().to_vec(),
         }
     }
 
@@ -10367,26 +10430,27 @@ impl Workspace {
         ctx.notify();
     }
 
-    /// Push the current split-view membership state into every tab's pane group
-    /// focus state so their pane header overflow menus can show the correct
-    /// "Remove from Split View" / "Exit Split View" items.
-    ///
-    /// Must be called after any mutation of `self.split_view_state`.
-    fn sync_workspace_split_view_state(&mut self, ctx: &mut ViewContext<Self>) {
-        let focused_id = self.split_view_state.focused_id();
+    /// Push split membership (for the pane header menus) and each tab's own
+    /// header accent into its pane group focus state.
+    fn sync_workspace_split_view_state(&self, ctx: &mut ViewContext<Self>) {
         for tab in &self.tabs {
-            let tab_id = tab.pane_group.id();
-            let membership =
-                self.split_view_state
-                    .color_for(tab_id)
-                    .map(|color| WorkspaceSplitViewMembership {
-                        pane_group_id: tab_id,
-                        is_focused: focused_id == Some(tab_id),
-                        color,
-                    });
+            let membership = self.split_view_state.membership_for(
+                tab.pane_group.id(),
+                tab.selected_color,
+                tab.color(),
+                tab.group_id,
+                &self.tab_groups,
+            );
             tab.pane_group.update(ctx, |pane_group, ctx| {
                 pane_group.set_workspace_split_view_state(membership, ctx);
             });
+        }
+    }
+
+    /// Tab and group color changes cannot affect pane headers in dormant splits.
+    fn refresh_split_view_header_colors(&self, ctx: &mut ViewContext<Self>) {
+        if self.split_view_state.is_active() {
+            self.sync_workspace_split_view_state(ctx);
         }
     }
 
@@ -17518,20 +17582,11 @@ impl Workspace {
                 self.refresh_working_directories_for_pane_group(&pane_group, ctx);
                 self.update_resource_center_action_target(ctx);
                 self.update_active_session(ctx);
-
-                if FeatureFlag::DirectoryTabColors.is_enabled() {
-                    if let Some(tab) = self
-                        .tabs
-                        .iter_mut()
-                        .find(|t| t.pane_group.id() == pane_group.id())
-                    {
-                        Self::sync_codebase_tab_color(tab, ctx);
-                    }
-                }
+                self.sync_codebase_tab_color_for_pane_group(pane_group.id(), ctx);
             }
             pane_group::Event::ActiveSessionChanged => {
                 self.update_active_session(ctx);
-                // ctx.notify();
+                self.sync_codebase_tab_color_for_pane_group(pane_group.id(), ctx);
             }
             pane_group::Event::Escape => {
                 if self.current_workspace_state.is_resource_center_open {
@@ -18060,15 +18115,7 @@ impl Workspace {
                 // setup_code_review_panel here would race with refresh and
                 // re-create models that were just dropped.
 
-                if FeatureFlag::DirectoryTabColors.is_enabled() {
-                    if let Some(tab) = self
-                        .tabs
-                        .iter_mut()
-                        .find(|t| t.pane_group.id() == pane_group.id())
-                    {
-                        Self::sync_codebase_tab_color(tab, ctx);
-                    }
-                }
+                self.sync_codebase_tab_color_for_pane_group(pane_group.id(), ctx);
             }
             #[cfg(feature = "local_fs")]
             pane_group::Event::RemoteRepoNavigated { remote_path } => {
@@ -21467,10 +21514,7 @@ impl Workspace {
             is_drag_target,
             ctx,
         )
-        .with_effective_color(
-            self.split_view_color_for_tab(tab, ctx)
-                .or_else(|| tab.color()),
-        )
+        .with_effective_color(self.with_tab_split_color_fallback(tab, tab.color(), |c| c, ctx))
         .with_multi_tab_selection(self.is_tab_in_multi_tab_selection(tab_index))
         .build()
         .finish()
@@ -21569,9 +21613,6 @@ impl Workspace {
                     row.add_child(self.render_tab_hover_indicator(appearance));
                 }
                 let tab = &self.tabs[idx];
-                let effective_color = self
-                    .split_view_color_for_tab(tab, ctx)
-                    .or_else(|| tab.color());
                 // Highlight the member when a drag is hovering directly over it
                 // or when it is the pending drag-to-split target.
                 let is_drag_target = self.hovered_tab_index == Some(TabBarHoverIndex::OverTab(idx))
@@ -21585,7 +21626,6 @@ impl Workspace {
                     is_drag_target,
                     ctx,
                 )
-                .with_effective_color(effective_color)
                 .for_grouped_member(is_sole_member)
                 .with_multi_tab_selection(self.is_tab_in_multi_tab_selection(idx))
                 .build()
@@ -23721,8 +23761,8 @@ impl Workspace {
                         )
                         .finish();
 
-                        // No grip dots — the cursor affordance (ResizeLeftRight)
-                        // and tooltip are sufficient interactive feedback.
+                        // No grip dots — the resize cursor and tooltip provide
+                        // sufficient interactive feedback.
                         let mut bar_stack = Stack::new().with_child(bar_align);
 
                         // Show tooltip above the divider on hover.
@@ -23766,7 +23806,7 @@ impl Workspace {
                             start_x: position.x(),
                         });
                     })
-                    .with_cursor(Cursor::ResizeLeftRight)
+                    .with_cursor(Cursor::ResizeColumnDivider)
                     .with_propagate_drag()
                     .finish();
 

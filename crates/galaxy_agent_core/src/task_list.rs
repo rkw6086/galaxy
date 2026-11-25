@@ -34,12 +34,11 @@ pub enum TaskListStatus {
 impl TaskListSnapshot {
     pub fn from_arguments(arguments: &JsonValue) -> Result<Self, String> {
         let mut arguments = arguments.clone();
-        if let Some(fields) = arguments.as_object_mut() {
-            if let Some(title) = fields.remove("_galaxy_tool_title") {
-                if !title.is_string() {
-                    return Err("The reserved tool title must be a string.".to_string());
-                }
-            }
+        if let Some(fields) = arguments.as_object_mut()
+            && let Some(title) = fields.remove("_galaxy_tool_title")
+            && !title.is_string()
+        {
+            return Err("The reserved tool title must be a string.".to_string());
         }
         let snapshot: Self = serde_json::from_value(arguments)
             .map_err(|error| format!("Invalid task list arguments: {error}"))?;

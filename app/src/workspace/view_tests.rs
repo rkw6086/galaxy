@@ -4515,10 +4515,8 @@ fn test_add_split_view_source_is_middle_tab() {
 }
 
 #[test]
-fn test_add_split_view_preserves_resized_weights() {
-    // After the user drags a divider to adjust slot proportions, dispatching
-    // "Add split view" from a split member must carry those proportions to the
-    // restored split (up to the capped member count).
+fn test_add_split_view_equalizes_resized_weights() {
+    // Adding a new tab to a resized split must give every member equal width.
     App::test((), |mut app| async move {
         initialize_app(&mut app);
         let workspace = mock_workspace(&mut app);
@@ -4546,24 +4544,9 @@ fn test_add_split_view_preserves_resized_weights() {
             workspace.handle_action(&WorkspaceAction::AddDefaultTabInSplitView, ctx);
 
             assert_eq!(workspace.split_view_state.len(), 3);
-            // Weights for the two prior members must be preserved.
-            assert_eq!(
-                workspace.split_view_state.slot_weight(tab_a_id),
-                2.0,
-                "tab_a weight preserved"
-            );
-            assert_eq!(
-                workspace.split_view_state.slot_weight(tab_b_id),
-                1.0,
-                "tab_b weight preserved"
-            );
-            // The new tab gets the default weight.
-            let new_id = workspace.active_tab_pane_group().id();
-            assert_eq!(
-                workspace.split_view_state.slot_weight(new_id),
-                1.0,
-                "new tab gets default weight"
-            );
+            for &id in workspace.split_view_state.ids() {
+                assert_eq!(workspace.split_view_state.slot_weight(id), 1.0);
+            }
         });
     });
 }
@@ -5024,7 +5007,10 @@ fn test_tab_group_rename_blur_does_not_commit_unfinished_name() {
 mod split_view_state_tests {
     use galaxyui::EntityId;
 
-    use crate::workspace::view::SplitViewState;
+    use super::{
+        with_tab_split_color_fallback, AnsiColorIdentifier, SelectedTabColor, SplitViewState,
+        TabGroup,
+    };
 
     fn make_id() -> EntityId {
         EntityId::new()
@@ -5084,6 +5070,167 @@ mod split_view_state_tests {
         state.clear();
         assert_eq!(state.color_for(ids[1]), None);
         assert_eq!(state.color_for(ids[2]), None);
+    }
+
+    #[test]
+    fn split_tab_colors_preserve_distinct_manual_colors_and_directory_defaults() {
+        use AnsiColorIdentifier::{Blue, Green, Magenta, Red};
+        use SelectedTabColor::{Color, Unset};
+
+        let (mut split, ids) = state_with(3);
+        split.color = Some(Magenta);
+        let cases = [
+            (Color(Red), Some(Blue)),
+            (Color(Green), None),
+            (Unset, Some(Blue)),
+        ];
+        let colors = |state: &SplitViewState| {
+            cases
+                .into_iter()
+                .zip(&ids)
+                .map(|((selected, directory), &id)| {
+                    with_tab_split_color_fallback(
+                        selected.resolve(directory),
+                        selected,
+                        None,
+                        || state.color_for(id),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let expected = [Some(Red), Some(Green), Some(Blue)];
+        assert_eq!(colors(&split), expected);
+        split.park_active_group();
+        assert_eq!(colors(&split), expected);
+        assert!(split.restore_group_for(ids[1]));
+        assert_eq!(colors(&split), expected);
+        split.clear_all();
+        assert_eq!(colors(&split), expected);
+    }
+
+    #[test]
+    fn split_tab_colors_keep_group_backdrops_separate_from_member_colors() {
+        use AnsiColorIdentifier::{Blue, Green, Magenta, Red};
+        use SelectedTabColor::{Cleared, Color, Unset};
+
+        let mut first = TabGroup::new();
+        first.color = Color(Red);
+        let mut second = TabGroup::new();
+        second.color = Color(Blue);
+        let cases = [(&first, Color(Green)), (&second, Cleared), (&second, Unset)];
+        let rendered_colors = cases.map(|(group, selected)| {
+            (
+                group.color.resolve(None),
+                with_tab_split_color_fallback(
+                    selected.resolve(None),
+                    selected,
+                    Some(group.id),
+                    || Some(Magenta),
+                ),
+            )
+        });
+        assert_eq!(
+            rendered_colors,
+            [
+                (Some(Red), Some(Green)),
+                (Some(Blue), None),
+                (Some(Blue), None)
+            ]
+        );
+
+        second.color = Cleared;
+        assert_eq!(second.color.resolve(None), None);
+        assert_eq!(
+            with_tab_split_color_fallback(None, Unset, Some(second.id), || Some(Magenta)),
+            None,
+        );
+    }
+
+    #[test]
+    fn split_tab_colors_only_use_the_split_accent_for_an_uncolored_ungrouped_tab() {
+        use AnsiColorIdentifier::{Blue, Magenta};
+        use SelectedTabColor::{Cleared, Unset};
+
+        assert_eq!(
+            with_tab_split_color_fallback(Cleared.resolve(Some(Blue)), Cleared, None, || Some(
+                Magenta
+            )),
+            None,
+        );
+        assert_eq!(
+            with_tab_split_color_fallback(None, Unset, None, || Some(Magenta)),
+            Some(Magenta),
+        );
+    }
+
+    #[test]
+    fn split_content_header_colors_propagate_through_pane_focus() {
+        use std::collections::HashMap;
+
+        use warpui::App;
+        use AnsiColorIdentifier::{Blue, Green, Magenta, Red};
+        use SelectedTabColor::{Cleared, Color, Unset};
+
+        use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusState};
+        use crate::pane_group::{PaneId, TerminalPaneId};
+
+        App::test((), |mut app| async move {
+            let (mut split, ids) = state_with(2);
+            split.color = Some(Magenta);
+            let tab_id = ids[0];
+            let pane_id = PaneId::from(TerminalPaneId::dummy_terminal_pane_id());
+            let model =
+                app.update(|ctx| ctx.add_model(|_| PaneGroupFocusState::new(pane_id, None, true)));
+            let handle = PaneFocusHandle::new(pane_id, model.clone());
+            let pane_split_color = app.read(|ctx| handle.split_view_color(ctx));
+            assert!(pane_split_color.is_some());
+
+            let mut group = TabGroup::new();
+            let group_id = group.id;
+            group.color = Color(Red);
+            let mut groups = HashMap::from([(group_id, group)]);
+            let grouped = Some(group_id);
+            let cases = [
+                (Color(Green), Some(Blue), grouped, Color(Red), Some(Green)),
+                (Unset, Some(Blue), grouped, Color(Red), Some(Blue)),
+                (Unset, None, grouped, Color(Red), Some(Red)),
+                (Cleared, Some(Blue), grouped, Color(Red), None),
+                (Unset, None, grouped, Cleared, None),
+                (Unset, None, None, Cleared, Some(Magenta)),
+            ];
+
+            for (selected, directory, group_id_for_tab, backdrop, expected) in cases {
+                groups.get_mut(&group_id).unwrap().color = backdrop;
+                let membership = split.membership_for(
+                    tab_id,
+                    selected,
+                    selected.resolve(directory),
+                    group_id_for_tab,
+                    &groups,
+                );
+                model.update(&mut app, |state, ctx| {
+                    state.set_workspace_split_view(membership, ctx)
+                });
+                app.read(|ctx| {
+                    let membership = handle
+                        .workspace_split_view(ctx)
+                        .expect("header menu must retain membership");
+                    assert_eq!(membership.pane_group_id, tab_id);
+                    assert!(membership.is_focused);
+                    assert_eq!(handle.split_view_color(ctx), expected);
+                });
+            }
+
+            split.park_active_group();
+            let membership = split.membership_for(tab_id, Unset, None, Some(group_id), &groups);
+            model.update(&mut app, |state, ctx| {
+                state.set_workspace_split_view(membership, ctx)
+            });
+            app.read(|ctx| {
+                assert_eq!(handle.workspace_split_view(ctx), None);
+                assert_eq!(handle.split_view_color(ctx), pane_split_color);
+            });
+        });
     }
 
     #[test]
@@ -7190,6 +7337,49 @@ mod split_view_persistence_unit_tests {
         (s, a, b)
     }
 
+    #[test]
+    fn append_equalizes_resized_weights() {
+        let (mut s, a, b) = two_id_state();
+        s.set_slot_weight(a, 1.5);
+        s.set_slot_weight(b, 0.5);
+        let c = make_id();
+
+        assert!(s.add(c));
+        assert_eq!(s.ids(), &[a, b, c]);
+        assert_eq!(
+            [s.slot_weight(a), s.slot_weight(b), s.slot_weight(c)],
+            [1.0; 3]
+        );
+    }
+
+    #[test]
+    fn duplicate_add_preserves_resized_weights() {
+        let (mut s, a, b) = two_id_state();
+        s.set_slot_weight(a, 1.5);
+        s.set_slot_weight(b, 0.5);
+
+        assert!(!s.add(b));
+        assert_eq!(s.ids(), &[a, b]);
+        assert_eq!(s.slot_weight(a), 1.5);
+        assert_eq!(s.slot_weight(b), 0.5);
+    }
+
+    #[test]
+    fn add_at_capacity_preserves_resized_weights() {
+        let (mut s, a, b) = two_id_state();
+        while s.len() < SplitViewState::MAX_VISIBLE {
+            assert!(s.add(make_id()));
+        }
+        s.set_slot_weight(a, 1.5);
+        s.set_slot_weight(b, 0.5);
+        let ids = s.ids().to_vec();
+
+        assert!(!s.add(make_id()));
+        assert_eq!(s.ids(), ids.as_slice());
+        assert_eq!(s.slot_weight(a), 1.5);
+        assert_eq!(s.slot_weight(b), 0.5);
+    }
+
     /// Parking a 2-member active group moves it to dormant_groups.
     #[test]
     fn park_active_group_moves_to_dormant() {
@@ -7848,12 +8038,12 @@ fn test_drop_onto_non_first_split_member_also_appends() {
 
 /// Dropping onto a split member that is currently in a **dormant** group
 /// (not the active split) restores the target's dormant group and appends
-/// the dragged source, preserving the dormant members and their resized weights.
+/// the dragged source, preserving membership but equalizing widths.
 ///
 /// Setup: disjoint groups [A, B] (dormant) and [C, D] (active).
 /// User drags E onto A (which is dormant, not currently visible).
-/// Expected: [A, B, E] becomes the active split, A/B weights are preserved,
-/// [C, D] is parked as dormant.
+/// Expected: [A, B, E] becomes the active split with equal widths,
+/// and [C, D] is parked as dormant.
 #[test]
 fn test_drop_onto_dormant_target_restores_group_and_appends_source() {
     App::test((), |mut app| async move {
@@ -7915,17 +8105,9 @@ fn test_drop_onto_dormant_target_restores_group_and_appends_source() {
             // C and D must NOT be in the active split.
             assert!(!ids.contains(&id_c), "C must not be in active split");
             assert!(!ids.contains(&id_d), "D must not be in active split");
-            // A/B weights from the dormant group must be preserved.
-            assert_eq!(
-                workspace.split_view_state.slot_weight(id_a),
-                3.0,
-                "A's resized weight must survive dormant restore"
-            );
-            assert_eq!(
-                workspace.split_view_state.slot_weight(id_b),
-                2.0,
-                "B's resized weight must survive dormant restore"
-            );
+            for &id in ids {
+                assert_eq!(workspace.split_view_state.slot_weight(id), 1.0);
+            }
             // [C, D] must now be dormant.
             assert_eq!(
                 workspace.split_view_state.dormant_groups.len(),
@@ -8117,13 +8299,12 @@ fn test_drop_onto_dormant_target_at_capacity_is_noop_preserving_active_split() {
     });
 }
 
-/// Appending a tab onto an active split preserves the existing members'
-/// resized flex weights.
+/// Appending a tab onto an active split makes all members equally wide.
 ///
 /// Setup: split [A, B] with A=2.0, B=0.5. Drop C onto A.
-/// Expected: [A, B, C] with A=2.0, B=0.5 unchanged; C gets default weight 1.0.
+/// Expected: [A, B, C] with all weights reset to 1.0.
 #[test]
-fn test_drop_onto_active_split_member_preserves_existing_weights() {
+fn test_drop_onto_active_split_member_equalizes_weights() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);
         let workspace = mock_workspace(&mut app);
@@ -8151,27 +8332,10 @@ fn test_drop_onto_active_split_member_preserves_existing_weights() {
 
         workspace.read(&app, |workspace, _ctx| {
             let ids = workspace.split_view_state.ids();
-            assert_eq!(ids.len(), 3);
-            assert!(ids.contains(&id_a));
-            assert!(ids.contains(&id_b));
-            assert!(ids.contains(&id_c));
-            // Existing weights must be unchanged.
-            assert_eq!(
-                workspace.split_view_state.slot_weight(id_a),
-                2.0,
-                "A's weight must be preserved after append"
-            );
-            assert_eq!(
-                workspace.split_view_state.slot_weight(id_b),
-                0.5,
-                "B's weight must be preserved after append"
-            );
-            // C gets default weight (1.0).
-            assert_eq!(
-                workspace.split_view_state.slot_weight(id_c),
-                1.0,
-                "newly-appended C must have default weight 1.0"
-            );
+            assert_eq!(ids, &[id_a, id_b, id_c]);
+            for &id in ids {
+                assert_eq!(workspace.split_view_state.slot_weight(id), 1.0);
+            }
         });
     });
 }

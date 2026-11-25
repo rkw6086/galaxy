@@ -6,9 +6,9 @@ use warpui::App;
 
 use super::super::diff_state_tracker::RemoteDiffStateManager;
 use super::super::proto::{
-    remote_skill_proto, server_message, write_file_response, Authenticate, BundledSkillMetadata,
-    HomeSkillMetadata, Initialize, RemoteAgentContextSnapshot, RemoteContextFileProto,
-    RemoteSkillProto, ServerMessage, WriteFileResponse, WriteFileSuccess,
+    Authenticate, BundledSkillMetadata, HomeSkillMetadata, Initialize, RemoteAgentContextSnapshot,
+    RemoteContextFileProto, RemoteSkillProto, ServerMessage, WriteFileResponse, WriteFileSuccess,
+    remote_skill_proto, server_message, write_file_response,
 };
 use super::super::protocol::RequestId;
 use super::super::server_buffer_tracker::ServerBufferTracker;
@@ -33,6 +33,7 @@ fn test_model(app: &mut App) -> ServerModel {
         },
         remote_agent_context_snapshot_sent: HashSet::new(),
         executors: HashMap::new(),
+        background_job_shells: HashMap::new(),
         pending_file_ops: PendingFileOps::new(),
         auth_state: Arc::new(AuthState::new_logged_out_for_test()),
         buffers: ServerBufferTracker::new(),

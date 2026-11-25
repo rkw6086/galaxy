@@ -648,6 +648,8 @@ pub enum Cursor {
     NotAllowed,
     PointingHand,
     ResizeLeftRight,
+    /// Resizes adjacent columns by dragging their shared divider.
+    ResizeColumnDivider,
     ResizeUpDown,
     /// The drag copy cursor, indicating the currently will result in a copy action.
     DragCopy,

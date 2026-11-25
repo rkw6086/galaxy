@@ -288,6 +288,7 @@ impl Workspace {
 
         other_tabs.splice(insert_at..insert_at, selected_tabs);
         self.tabs = other_tabs;
+        self.refresh_split_view_header_colors(ctx);
 
         self.restore_active_tab_index(active_pane_group_id);
 
@@ -369,6 +370,7 @@ impl Workspace {
         // Drop the group block into rest at the anchored position.
         rest.splice(insert_at..insert_at, members);
         self.tabs = rest;
+        self.refresh_split_view_header_colors(ctx);
 
         self.restore_active_tab_index(active_pane_group_id);
 
@@ -449,6 +451,7 @@ impl Workspace {
         let insert_at = self.clamp_to_unpinned_region(&rest, natural_insert_at);
         rest.splice(insert_at..insert_at, removed);
         self.tabs = rest;
+        self.refresh_split_view_header_colors(ctx);
 
         self.clear_tab_multi_selection(ctx);
         self.restore_active_tab_index(active_pane_group_id);
@@ -577,6 +580,7 @@ impl Workspace {
         self.tabs[tab_index].group_id = None;
         self.tabs[tab_index].pinned = true;
         self.move_tab_to_index(tab_index, target, ctx);
+        self.refresh_split_view_header_colors(ctx);
 
         if let Some(prev) = previous_group_id {
             self.prune_empty_tab_group(prev, ctx);

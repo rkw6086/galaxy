@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
+use block2::RcBlock;
 use cocoa::base::{id, nil, BOOL, NO, YES};
 use galaxyui_core::accessibility::AccessibilityContent;
 use galaxyui_core::clipboard::InMemoryClipboard;
@@ -16,10 +17,14 @@ use galaxyui_core::platform::{
     SendNotificationErrorCallback, TerminationMode,
 };
 use galaxyui_core::{platform, ApplicationBundleInfo, WindowId};
-use objc2::{msg_send, MainThreadMarker};
-use objc2_app_kit::{NSApplication, NSCursor, NSRequestUserAttentionType};
+use objc2::rc::Retained;
+use objc2::runtime::Bool;
+use objc2::{msg_send, AnyThread, MainThreadMarker};
+use objc2_app_kit::{
+    NSApplication, NSBezierPath, NSColor, NSCursor, NSImage, NSRequestUserAttentionType,
+};
 use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
-use objc2_foundation::NSUInteger;
+use objc2_foundation::{NSPoint, NSRect, NSSize, NSUInteger};
 
 use super::app::create_native_platform_modal;
 use super::keycode::{modifier_code, Keycode};
@@ -194,6 +199,33 @@ impl AppDelegate {
     }
 }
 
+thread_local! {
+    static COLUMN_DIVIDER_CURSOR: Retained<NSCursor> = make_column_divider_cursor();
+}
+
+fn make_column_divider_cursor() -> Retained<NSCursor> {
+    const SIZE: NSSize = NSSize::new(24., 22.);
+    let center = NSPoint::new(SIZE.width / 2., SIZE.height / 2.);
+    let draw = RcBlock::new(|_: NSRect| {
+        // Draw just the black silhouette: a double arrow and the taller
+        // center bar. AppKit rasterizes this on a transparent background.
+        NSColor::blackColor().setFill();
+        NSBezierPath::fillRect(NSRect::new(NSPoint::new(10.5, 1.), NSSize::new(3., 20.)));
+        NSBezierPath::fillRect(NSRect::new(NSPoint::new(5., 9.5), NSSize::new(14., 3.)));
+        for (tip, base) in [(1., 6.), (23., 18.)] {
+            let head = NSBezierPath::bezierPath();
+            head.moveToPoint(NSPoint::new(tip, 11.));
+            head.lineToPoint(NSPoint::new(base, 7.));
+            head.lineToPoint(NSPoint::new(base, 15.));
+            head.closePath();
+            head.fill();
+        }
+        Bool::YES
+    });
+    let image = NSImage::imageWithSize_flipped_drawingHandler(SIZE, false, &draw);
+    NSCursor::initWithImage_hotSpot(NSCursor::alloc(), &image, center)
+}
+
 impl platform::Delegate for AppDelegate {
     /// Sets the cursor shape
     /// See https://developer.apple.com/documentation/appkit/nscursor?language=objc
@@ -206,6 +238,10 @@ impl platform::Delegate for AppDelegate {
             Cursor::NotAllowed => NSCursor::operationNotAllowedCursor(),
             Cursor::PointingHand => NSCursor::pointingHandCursor(),
             Cursor::ResizeLeftRight => NSCursor::resizeLeftRightCursor(),
+            Cursor::ResizeColumnDivider => {
+                COLUMN_DIVIDER_CURSOR.with(|cursor| cursor.set());
+                return;
+            }
             Cursor::ResizeUpDown => NSCursor::resizeUpDownCursor(),
             Cursor::ClosedHand => NSCursor::closedHandCursor(),
             Cursor::DragCopy => NSCursor::dragCopyCursor(),
