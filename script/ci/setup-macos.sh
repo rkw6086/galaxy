@@ -97,13 +97,13 @@ else
   # This pinned upstream revision has no Cargo.lock, so --locked cannot constrain it.
   RUSTC_WRAPPER='' cargo +1.97.1 install --root "$tools" --git https://github.com/burtonageo/cargo-bundle --rev 739f92c37c789b5511a448a389cbc76fcebd99df cargo-bundle
 fi
-if [[ -n $cached_tools ]] && valid_tool "$cached_tools/bin/cargo-about" 'cargo-about 0.8.4'; then
+if [[ -n $cached_tools ]] && valid_tool "$cached_tools/bin/cargo-about" 'cargo-about 0.9.3'; then
   cp "$cached_tools/bin/cargo-about" "$tools/bin/cargo-about"
 else
-  RUSTC_WRAPPER='' cargo +1.97.1 install --locked --root "$tools" cargo-about@0.8.4
+  RUSTC_WRAPPER='' cargo +1.97.1 install --locked --root "$tools" cargo-about@0.9.3 --features cli
 fi
 valid_tool "$tools/bin/cargo-bundle" 'cargo-bundle v0.11.0' || { echo 'Expected cargo-bundle 0.11.0 from the pinned revision.' >&2; exit 1; }
-valid_tool "$tools/bin/cargo-about" 'cargo-about 0.8.4' || { echo 'Expected cargo-about 0.8.4.' >&2; exit 1; }
+valid_tool "$tools/bin/cargo-about" 'cargo-about 0.9.3' || { echo 'Expected cargo-about 0.9.3.' >&2; exit 1; }
 if [[ -n $cached_tools ]]; then
   for binary in cargo-bundle cargo-about; do
     [[ ! -L "$cached_tools/bin/$binary" ]] || { echo 'Cached tools must not be symbolic links.' >&2; exit 1; }

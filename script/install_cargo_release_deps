@@ -25,4 +25,4 @@ if [ "$NO_BUILD_DEPS" = false ]; then
 fi
 
 # Install cargo-about for generating third-party license attribution.
-cargo install --locked cargo-about@0.8.4
+cargo install --locked cargo-about@0.9.3 --features cli

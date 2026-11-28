@@ -20,7 +20,7 @@
 #endif
 #define AssetsDir "..\..\app\assets\windows"
 
-; Preserve the native-x64 restriction of the former "x64" architecture identifier.
+// Preserve the native-x64 restriction of the former "x64" architecture identifier.
 #define InstallerArchitecture (Arch == "x64") ? "x64os" : Arch
 
 // The mutex name must match what the Rust app creates in single_instance_manager.rs:

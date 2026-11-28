@@ -59,6 +59,17 @@ $env:CARGO_BUILD_JOBS = '2'
 $env:CARGO_INCREMENTAL = '0'
 $target = 'x86_64-pc-windows-msvc'
 $features = 'autoupdate,release_bundle,gui,galaxy_control_cli'
+$stem = if ($channel -eq 'release') { "Galaxy_$version" } elseif ($channel -eq 'nightly') { "Galaxy_$env:GALAXY_ARTIFACT_IDENTITY" } else { "Galaxy_ci_$sha" }
+$name = "${stem}_x86_64-setup"
+$installerDefines = @(
+    '/DReleaseChannel=oss'
+    '/DMyAppExeName=galaxy-oss.exe'
+    '/DMyAppName=GalaxyOss'
+    "/DMyAppVersion=$version"
+    '/DArch=x64'
+    "/DOutputName=$name"
+)
+& (Join-Path $PSScriptRoot 'check-windows-installer.ps1') -InstallerDefines $installerDefines
 # app/build.rs stages native resource-compiler inputs here independently of
 # CARGO_TARGET_DIR. This remains inside the disposable checkout's ignored target.
 New-Item -ItemType Directory (Join-Path $root 'target\release') -Force | Out-Null
@@ -115,19 +126,10 @@ $verification | & node --input-type=module - $root (Join-Path $resources 'wormho
 if ($LASTEXITCODE -ne 0) { throw 'Bundled Wormhole helpers did not match their sources.' }
 if (Test-Path $env:GALAXY_RELEASE_DIR) { throw 'Use a fresh artifact directory.' }
 New-Item -ItemType Directory $env:GALAXY_RELEASE_DIR | Out-Null
-$stem = if ($channel -eq 'release') { "Galaxy_$version" } elseif ($channel -eq 'nightly') { "Galaxy_$env:GALAXY_ARTIFACT_IDENTITY" } else { "Galaxy_ci_$sha" }
-$name = "${stem}_x86_64-setup"
 $arguments = @(
     (Join-Path $root 'script\windows\windows-installer.iss')
-    '/DReleaseChannel=oss'
-    '/DMyAppExeName=galaxy-oss.exe'
     "/DTargetProfileDir=$binaryDirectory"
-    '/DMyAppName=GalaxyOss'
-    "/DMyAppVersion=$version"
-    '/DArch=x64'
-    "/DOutputName=$name"
-    "/O$env:GALAXY_RELEASE_DIR"
-)
+) + $installerDefines + @("/O$env:GALAXY_RELEASE_DIR")
 # Windows signing has no configured certificate; the EXE is an unsigned native
 # installer. Apple signing is handled only by the separate macOS package job.
 & ISCC @arguments

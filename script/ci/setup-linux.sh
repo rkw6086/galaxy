@@ -31,7 +31,7 @@ valid_license_tool() {
   local actual
   [[ -f $1 && ! -L $1 && -x $1 ]] || return 1
   actual=$("$1" --version 2>/dev/null) || return 1
-  [[ $actual == 'cargo-about 0.8.4' ]]
+  [[ $actual == 'cargo-about 0.9.3' ]]
 }
 
 sudo apt-get update
@@ -65,9 +65,9 @@ export PATH="$tools/bin:$PATH"
 if [[ -n $cached_tools ]] && valid_license_tool "$cached_tools/bin/cargo-about"; then
   cp "$cached_tools/bin/cargo-about" "$tools/bin/cargo-about"
 else
-  CARGO_TARGET_DIR="$tools/build" RUSTC_WRAPPER='' cargo +1.97.1 install --locked --root "$tools" cargo-about@0.8.4
+  CARGO_TARGET_DIR="$tools/build" RUSTC_WRAPPER='' cargo +1.97.1 install --locked --root "$tools" cargo-about@0.9.3 --features cli
 fi
-valid_license_tool "$tools/bin/cargo-about" || { echo 'Expected cargo-about 0.8.4.' >&2; exit 1; }
+valid_license_tool "$tools/bin/cargo-about" || { echo 'Expected cargo-about 0.9.3.' >&2; exit 1; }
 if [[ -n $cached_tools ]]; then
   [[ ! -L "$cached_tools/bin/cargo-about" ]] || { echo 'Cached tools must not be symbolic links.' >&2; exit 1; }
   cp "$tools/bin/cargo-about" "$cached_tools/bin/cargo-about"

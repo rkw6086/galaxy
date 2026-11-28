@@ -145,20 +145,20 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not invoke the pinned Protobuf compiler.
 $env:CARGO_TARGET_DIR = Join-Path $tools 'build'
 $licenseTool = Join-Path $tools 'bin\cargo-about.exe'
 $cachedLicenseTool = if ($cachedTools) { Join-Path $cachedTools 'bin\cargo-about.exe' } else { $null }
-if ($cachedLicenseTool -and (Test-ToolVersion $cachedLicenseTool 'cargo-about 0.8.4')) {
+if ($cachedLicenseTool -and (Test-ToolVersion $cachedLicenseTool 'cargo-about 0.9.3')) {
     Copy-Item -LiteralPath $cachedLicenseTool -Destination $licenseTool
 } else {
     # Tool installers have their own binary cache, separate from app compilation.
     $compilerWrapper = $env:RUSTC_WRAPPER
     try {
         $env:RUSTC_WRAPPER = ''
-        & cargo '+1.97.1' install --locked --root $tools cargo-about@0.8.4
+        & cargo '+1.97.1' install --locked --root $tools cargo-about@0.9.3 --features cli
         if ($LASTEXITCODE -ne 0) { throw 'Could not install the pinned license tool.' }
     } finally {
         $env:RUSTC_WRAPPER = $compilerWrapper
     }
 }
-if (-not (Test-ToolVersion $licenseTool 'cargo-about 0.8.4')) { throw 'Expected cargo-about 0.8.4.' }
+if (-not (Test-ToolVersion $licenseTool 'cargo-about 0.9.3')) { throw 'Expected cargo-about 0.9.3.' }
 if ($cachedLicenseTool) {
     Confirm-CacheFile $cachedLicenseTool
     Copy-Item -LiteralPath $licenseTool -Destination $cachedLicenseTool -Force

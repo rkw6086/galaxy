@@ -78,7 +78,7 @@ For Debian package creation and bundled third-party license attribution, install
 
 ```bash
 sudo apt-get install -y --no-install-recommends fakeroot dpkg-dev
-cargo +1.97.1 install --locked cargo-about@0.8.4
+cargo +1.97.1 install --locked cargo-about@0.9.3 --features cli
 ```
 
 `cargo-about` is used by resource/license generation for bundles; it is not an extra provider or cloud service. A plain `cargo build` does not produce a Debian installer. Use the packaging workflow described below when you need one.
