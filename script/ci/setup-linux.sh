@@ -61,10 +61,11 @@ tools="$RUNNER_TEMP/galaxy-tools-$GALAXY_JOB_ID"
 [[ ! -e $tools && ! -L $tools ]]
 mkdir "$tools"
 mkdir "$tools/bin"
+export PATH="$tools/bin:$PATH"
 if [[ -n $cached_tools ]] && valid_license_tool "$cached_tools/bin/cargo-about"; then
   cp "$cached_tools/bin/cargo-about" "$tools/bin/cargo-about"
 else
-  CARGO_TARGET_DIR="$tools/build" RUSTC_WRAPPER='' cargo install --locked --root "$tools" cargo-about@0.8.4
+  CARGO_TARGET_DIR="$tools/build" RUSTC_WRAPPER='' cargo +1.97.1 install --locked --root "$tools" cargo-about@0.8.4
 fi
 valid_license_tool "$tools/bin/cargo-about" || { echo 'Expected cargo-about 0.8.4.' >&2; exit 1; }
 if [[ -n $cached_tools ]]; then

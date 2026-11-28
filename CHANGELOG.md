@@ -5,7 +5,7 @@
 - Reuse bounded compiler caches, Cargo downloads, and pinned packaging tools across native GitHub builds, while rebuilding and verifying each release's application metadata and signed packages.
 - Prevent oversized model output limits from consuming the context window and blocking new chats. Keep context accounting, compaction, and the actual reply budget aligned.
 
-## [4.0.2]
+## [4.0.3]
 
 - Preserve split-view groups and divider widths when switching tabs and restarting Galaxy.
 - Improve split-view resizing, tab drag and drop, and tab/group color consistency.
@@ -15,6 +15,10 @@
 - Use the outline Galaxy mark for loading indicators.
 - Correct split-view migration rollback and improve resize cursor visibility on macOS.
 - Update installer compatibility and version metadata, including a matching macOS icon fallback for older Xcode versions.
+
+## [4.0.2]
+
+Unpublished; superseded by 4.0.3 after the build exposed Linux tool-installation warnings.
 
 ## [4.0.0]
 
