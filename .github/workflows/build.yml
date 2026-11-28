@@ -333,6 +333,8 @@ jobs:
           'GALAXY_VERSION_STAGED=1' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Set up pinned native build tools
         run: ./script/ci/setup-windows.ps1
+      - name: Check Windows installer before compilation
+        run: ./script/ci/build-windows.ps1 -InstallerCheckOnly
       - name: Build and verify the Windows installer
         run: ./script/ci/build-windows.ps1
       - name: Flush compiler cache and show reuse statistics

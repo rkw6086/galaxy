@@ -5,7 +5,7 @@
 - Reuse bounded compiler caches, Cargo downloads, and pinned packaging tools across native GitHub builds, while rebuilding and verifying each release's application metadata and signed packages.
 - Prevent oversized model output limits from consuming the context window and blocking new chats. Keep context accounting, compaction, and the actual reply budget aligned.
 
-## [4.0.4]
+## [4.0.5]
 
 - Preserve split-view groups and divider widths when switching tabs and restarting Galaxy.
 - Improve split-view resizing, tab drag and drop, and tab/group color consistency.
@@ -17,13 +17,17 @@
 - Update installer compatibility and version metadata, including a matching macOS icon fallback for older Xcode versions.
 - Fix third-party license report generation and check the Windows installer before the application build.
 
+## [4.0.4]
+
+Unpublished; superseded by 4.0.5 after the Windows installer check exposed an ambiguous compiler path.
+
 ## [4.0.3]
 
-Unpublished; superseded by 4.0.4 after Windows installer validation failed.
+Unpublished; superseded by 4.0.5 after Windows installer validation failed.
 
 ## [4.0.2]
 
-Unpublished; superseded by 4.0.4 after the build exposed Linux tool-installation warnings.
+Unpublished; superseded by 4.0.5 after the build exposed Linux tool-installation warnings.
 
 ## [4.0.0]
 

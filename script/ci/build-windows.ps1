@@ -1,4 +1,8 @@
 # Build the native Windows installer without starting the desktop application.
+param(
+    [switch]$InstallerCheckOnly
+)
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -70,6 +74,7 @@ $installerDefines = @(
     "/DOutputName=$name"
 )
 & (Join-Path $PSScriptRoot 'check-windows-installer.ps1') -InstallerDefines $installerDefines
+if ($InstallerCheckOnly) { return }
 # app/build.rs stages native resource-compiler inputs here independently of
 # CARGO_TARGET_DIR. This remains inside the disposable checkout's ignored target.
 New-Item -ItemType Directory (Join-Path $root 'target\release') -Force | Out-Null

@@ -43,7 +43,14 @@ if ($definitions.Count -ne $definitionPatterns.Count) {
 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$compiler = (Get-Command ISCC -CommandType Application).Source
+# PATH can expose both the actual compiler and a Chocolatey shim. Match native
+# command invocation by selecting its first application, never an array of paths.
+$compilerCommand = Get-Command ISCC -CommandType Application | Select-Object -First 1
+$compiler = $compilerCommand.Source
+if ($compiler -isnot [string] -or -not [IO.Path]::IsPathRooted($compiler) -or
+    -not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+    throw 'Installer preflight must resolve one existing native compiler application.'
+}
 $temporaryRoot = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
 $temporaryRootItem = Get-Item -LiteralPath $temporaryRoot -Force
 if (-not $temporaryRootItem.PSIsContainer -or
