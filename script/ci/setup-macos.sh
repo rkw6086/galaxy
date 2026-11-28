@@ -40,6 +40,7 @@ test "$(uname -m)" = arm64
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
 command -v rustup >/dev/null || { echo 'Install rustup for the runner user first.' >&2; exit 1; }
 command -v brew >/dev/null || { echo 'Install Homebrew for the runner user first.' >&2; exit 1; }
+export RUSTUP_TOOLCHAIN=1.97.1
 # Bindgen must parse Xcode's SIMD headers with the matching libclang. Selecting
 # only a Homebrew library can mix different Clang versions in one invocation.
 export CLANG_PATH=$(xcrun --sdk macosx --find clang)
@@ -84,7 +85,7 @@ tools="$RUNNER_TEMP/galaxy-tools-$GALAXY_JOB_ID"
 [[ ! -e "$tools" && ! -L "$tools" ]]
 mkdir "$tools"
 mkdir "$tools/bin"
-export RUSTUP_TOOLCHAIN=1.97.1
+export PATH="$tools/bin:$PATH"
 # Keep compiler intermediates inside the same job-owned cleanup boundary as tools.
 export CARGO_TARGET_DIR="$tools/build"
 # 0.11.0 has the required Cargo target-directory and named-binary support without
@@ -93,12 +94,13 @@ export CARGO_TARGET_DIR="$tools/build"
 if [[ -n $cached_tools ]] && valid_tool "$cached_tools/bin/cargo-bundle" 'cargo-bundle v0.11.0'; then
   cp "$cached_tools/bin/cargo-bundle" "$tools/bin/cargo-bundle"
 else
-  RUSTC_WRAPPER='' cargo install --locked --root "$tools" --git https://github.com/burtonageo/cargo-bundle --rev 739f92c37c789b5511a448a389cbc76fcebd99df cargo-bundle
+  # This pinned upstream revision has no Cargo.lock, so --locked cannot constrain it.
+  RUSTC_WRAPPER='' cargo +1.97.1 install --root "$tools" --git https://github.com/burtonageo/cargo-bundle --rev 739f92c37c789b5511a448a389cbc76fcebd99df cargo-bundle
 fi
 if [[ -n $cached_tools ]] && valid_tool "$cached_tools/bin/cargo-about" 'cargo-about 0.8.4'; then
   cp "$cached_tools/bin/cargo-about" "$tools/bin/cargo-about"
 else
-  RUSTC_WRAPPER='' cargo install --locked --root "$tools" cargo-about@0.8.4
+  RUSTC_WRAPPER='' cargo +1.97.1 install --locked --root "$tools" cargo-about@0.8.4
 fi
 valid_tool "$tools/bin/cargo-bundle" 'cargo-bundle v0.11.0' || { echo 'Expected cargo-bundle 0.11.0 from the pinned revision.' >&2; exit 1; }
 valid_tool "$tools/bin/cargo-about" 'cargo-about 0.8.4' || { echo 'Expected cargo-about 0.8.4.' >&2; exit 1; }

@@ -20,6 +20,9 @@
 #endif
 #define AssetsDir "..\..\app\assets\windows"
 
+; Preserve the native-x64 restriction of the former "x64" architecture identifier.
+#define InstallerArchitecture (Arch == "x64") ? "x64os" : Arch
+
 // The mutex name must match what the Rust app creates in single_instance_manager.rs:
 #define ChannelPascalCase \
   (ReleaseChannel == "oss") ? "Oss" : \
@@ -37,8 +40,8 @@ AppVerName={#MyAppName} {#MyAppVersion}
 UninstallDisplayName={#MyAppName}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
-ArchitecturesAllowed={#Arch}
-ArchitecturesInstallIn64BitMode={#Arch}
+ArchitecturesAllowed={#InstallerArchitecture}
+ArchitecturesInstallIn64BitMode={#InstallerArchitecture}
 DisableProgramGroupPage=yes
 ; The following line defaults the installer to use non administrative install mode (install for current user only).
 PrivilegesRequired=lowest
@@ -220,7 +223,7 @@ begin
   { After a successful install, write a channel-specific Galaxy AI helper script. }
   if CurStep = ssPostInstall then begin
     { Add Galaxy to PATH if requested }
-    if IsTaskSelected('addToPath') then
+    if WizardIsTaskSelected('addToPath') then
       EnvAddPath(ExpandConstant('{app}\bin'));
 
     BinDir := ExpandConstant('{app}\bin');

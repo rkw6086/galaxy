@@ -79,6 +79,7 @@ $tools = Join-Path $env:RUNNER_TEMP "galaxy-tools-$env:GALAXY_JOB_ID"
 if (Test-Path $tools) { throw 'Use a fresh job tools directory.' }
 New-Item -ItemType Directory $tools | Out-Null
 New-Item -ItemType Directory (Join-Path $tools 'bin') | Out-Null
+$env:PATH = "$(Join-Path $tools 'bin');$env:PATH"
 # A native wrapper avoids PowerShell/cmd command-line limits and preserves
 # Cargo's @argfile when sccache would otherwise expand it past Windows' limit.
 # Build this std-only tool from the checked-out source, never from the cache.
@@ -151,7 +152,7 @@ if ($cachedLicenseTool -and (Test-ToolVersion $cachedLicenseTool 'cargo-about 0.
     $compilerWrapper = $env:RUSTC_WRAPPER
     try {
         $env:RUSTC_WRAPPER = ''
-        & cargo install --locked --root $tools cargo-about@0.8.4
+        & cargo '+1.97.1' install --locked --root $tools cargo-about@0.8.4
         if ($LASTEXITCODE -ne 0) { throw 'Could not install the pinned license tool.' }
     } finally {
         $env:RUSTC_WRAPPER = $compilerWrapper
